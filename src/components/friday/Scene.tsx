@@ -18,6 +18,7 @@ import FridayCore from "./core/FridayCore";
 import SpatialHud from "./hud/SpatialHud";
 import FridayVisualization from "./visualization/FridayVisualization";
 import { RenderCompatProvider } from "./primitives";
+import { reportCamera } from "@/lib/telemetry";
 
 /** §12 — parallax + slow drift so the core sits in real space. */
 function CameraRig({ reduced }: { reduced: boolean }) {
@@ -34,6 +35,9 @@ function CameraRig({ reduced }: { reduced: boolean }) {
     camera.position.x += (px + driftX - camera.position.x) * 0.03;
     camera.position.y += (py + driftY + 0.15 - camera.position.y) * 0.03;
     camera.lookAt(0, 0, 0);
+
+    // feeds the HUD coordinate readout — a plain write, no re-render
+    reportCamera(camera.position.x, camera.position.y, camera.position.z);
   });
 
   return null;
@@ -52,7 +56,7 @@ function StateLights() {
   );
 }
 
-const CHROMA = new Vector2(0.0005, 0.0005);
+const CHROMA = new Vector2(0.0012, 0.0012);
 
 /**
  * Everything inside the canvas. On WebGPU the GLSL-only pieces
@@ -79,7 +83,10 @@ function SceneBody({ reduced }: { reduced: boolean }) {
       {!gpu && (
         <EffectComposer enableNormalPass={false}>
           <Bloom intensity={0.75} luminanceThreshold={0.18} luminanceSmoothing={0.85} mipmapBlur radius={0.65} />
-          <ChromaticAberration offset={CHROMA} radialModulation={false} modulationOffset={0} />
+          {/* Radial, not uniform: a flat offset splits the tiny centre labels
+              into red/cyan ghosts. Clean out to 40% radius, lens fringing
+              only toward the edges. */}
+          <ChromaticAberration offset={CHROMA} radialModulation modulationOffset={0.4} />
           <Noise opacity={reduced ? 0.012 : 0.022} />
           <Vignette eskil={false} offset={0.22} darkness={0.92} />
         </EffectComposer>

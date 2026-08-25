@@ -110,11 +110,49 @@ export async function textContrast(
 
 // ---------- app helpers ----------
 
+/** DOM-level readiness. Cheap — use for tests that never read pixels. */
 export async function gotoScene(page: Page) {
   await page.goto("http://localhost:3000");
   await page.waitForSelector("canvas");
-  // let the first frames and the materialize animations settle
-  await page.waitForTimeout(2500);
+  await page.waitForTimeout(1200);
+}
+
+/**
+ * Waits until the core has actually painted, rather than for a fixed delay.
+ * First paint is sub-second on a warm production build but many seconds on a
+ * dev server under software GL, so any constant here is flaky or wasteful.
+ * Only pixel tests should pay this cost.
+ */
+export async function waitForHologram(page: Page, timeoutMs = 25_000) {
+  const vp = page.viewportSize()!;
+  const clip = {
+    x: Math.round(vp.width * 0.42),
+    y: Math.round(vp.height * 0.38),
+    width: Math.round(vp.width * 0.16),
+    height: Math.round(vp.height * 0.24),
+  };
+
+  const deadline = Date.now() + timeoutMs;
+  let last = 0;
+  while (Date.now() < deadline) {
+    try {
+      const img = PNG.sync.read(await page.screenshot({ clip }));
+      last = regionStats(img, 0, 0, img.width, img.height).meanLuma;
+      if (last > 20) return last;
+    } catch {
+      // the compositor can transiently refuse a capture under load; retry
+    }
+    await page.waitForTimeout(600);
+  }
+  throw new Error(`hologram never lit up (centre luma ${last.toFixed(1)} after ${timeoutMs}ms)`);
+}
+
+/** Full readiness: DOM up and the core actually emitting light. */
+export async function gotoLitScene(page: Page) {
+  await gotoScene(page);
+  await waitForHologram(page);
+  // let ring/particle motion and materialize animations settle
+  await page.waitForTimeout(500);
 }
 
 export interface FlowEntry {

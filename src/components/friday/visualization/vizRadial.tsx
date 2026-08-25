@@ -28,7 +28,11 @@ function MetricNode({
   metric: MetricDatum;
   color: string;
 }) {
-  const angle = (index / count) * Math.PI * 2 - Math.PI / 2;
+  // Offset by half a step: on 90° boundaries two nodes land dead centre —
+  // one buried behind the core, one pasted over it. Half-stepping keeps every
+  // node clear of the core silhouette and pulls the outermost ones inward,
+  // away from the edge HUD.
+  const angle = ((index + 0.5) / count) * Math.PI * 2 - Math.PI / 2;
   const x = Math.cos(angle) * ORBIT_RADIUS;
   const z = Math.sin(angle) * ORBIT_RADIUS * 0.55;
   const y = Math.sin(index * 1.7) * 0.35;

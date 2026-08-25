@@ -112,6 +112,7 @@ export const HoloParticleMaterial = shaderMaterial(
     uniform float uMode;
     uniform float uSpan;
     varying float vAlpha;
+    varying float vSharp;
 
     void main() {
       float radius = aRadius;
@@ -130,17 +131,33 @@ export const HoloParticleMaterial = shaderMaterial(
 
       vec4 mv = modelViewMatrix * vec4(p, 1.0);
       gl_Position = projectionMatrix * mv;
-      gl_PointSize = aSize * uPixelRatio * (55.0 / max(-mv.z, 0.001));
-      vAlpha = clamp(0.18 + uIntensity * 0.32, 0.0, 0.9) * fadeEnds;
+
+      float depth = max(-mv.z, 0.001);
+      // Capped: an uncapped 1/z blows near particles up into bokeh discs,
+      // which reads as falling snow rather than instrumentation.
+      gl_PointSize = clamp(aSize * uPixelRatio * (34.0 / depth), 0.6, 7.0);
+
+      // Depth grading — far motes recede instead of sitting at one brightness,
+      // which is what gives the field readable volume.
+      float far = 1.0 - smoothstep(7.0, 13.5, depth);
+      vSharp = aSize;
+      vAlpha = clamp(0.16 + uIntensity * 0.30, 0.0, 0.85) * fadeEnds * (0.25 + 0.75 * far);
     }
   `,
   /* glsl */ `
     uniform vec3 uColor;
     varying float vAlpha;
+    varying float vSharp;
     void main() {
       float d = length(gl_PointCoord - 0.5);
       if (d > 0.5) discard;
-      gl_FragColor = vec4(uColor, smoothstep(0.5, 0.0, d) * vAlpha);
+      // A hard core with a thin halo — a mote with an edge, not a soft blob.
+      float core = 1.0 - smoothstep(0.0, 0.22, d);
+      float halo = (1.0 - smoothstep(0.18, 0.5, d)) * 0.35;
+      float shape = clamp(core + halo, 0.0, 1.0);
+      // the brightest motes stay crisp; the dim dust stays soft
+      float crisp = smoothstep(0.7, 1.6, vSharp);
+      gl_FragColor = vec4(uColor, shape * vAlpha * (0.7 + 0.6 * crisp));
     }
   `,
 );

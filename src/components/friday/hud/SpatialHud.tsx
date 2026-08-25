@@ -1,10 +1,11 @@
 "use client";
 
 import { useRef } from "react";
-import { useFrame } from "@react-three/fiber";
+import { useFrame, useThree } from "@react-three/fiber";
 import { DoubleSide, type Group, type Mesh } from "three";
 import { useFridayStore } from "@/lib/store";
 import { STATE_LOOK } from "@/lib/stateLook";
+import { useTelemetry } from "@/lib/telemetry";
 import { ArcSegments, CornerBrackets, Reticle, TechLabel, TickDial } from "../primitives";
 import "../effects/materials";
 
@@ -82,10 +83,68 @@ function LevelColumn({
         <planeGeometry args={[0.035, 1]} />
         <meshBasicMaterial color={color} transparent opacity={0.7} side={DoubleSide} toneMapped={false} depthWrite={false} />
       </mesh>
-      <TechLabel position={[0, -0.65, 0]} color={color} size={0.055} opacity={0.6}>
+      <TechLabel position={[0, 0.62, 0]} color="#e5f6ff" size={0.05} opacity={0.7}>
+        {String(value)}
+      </TechLabel>
+      <TechLabel position={[0, -0.62, 0]} color={color} size={0.05} opacity={0.6}>
         {label}
       </TechLabel>
     </group>
+  );
+}
+
+/** Pitch wide enough that neighbouring 3-glyph labels never touch. */
+const COLUMN_PITCH = 0.3;
+
+/** Narrower than this (world units) and the columns crowd the core. */
+const MIN_FRAME_WIDTH = 7.4;
+
+/**
+ * Level columns are ambient furniture: anchored to the frame edge rather than
+ * a fixed world X (which collided with the radial gauge's outer nodes and fell
+ * off-screen on narrow frames), and they stand down entirely while a
+ * visualization is on screen so nothing can overlap the actual data.
+ */
+function LevelColumns({ color, accent }: { color: string; accent: string }) {
+  const viewportWidth = useThree((s) => s.viewport.width);
+  const visualization = useFridayStore((s) => s.visualization);
+  const t = useTelemetry();
+
+  if (visualization || viewportWidth < MIN_FRAME_WIDTH) return null;
+
+  const left = -viewportWidth / 2 + 0.45;
+
+  // real where a real source exists; NET falls back to a link estimate
+  const pwr = Math.min(100, (t.fps / 60) * 100);
+  const mem = t.heapRatio > 0 ? t.heapRatio * 100 : 54;
+  const net = t.downlink > 0 ? Math.min(100, t.downlink * 10) : 91;
+
+  return (
+    <group position={[left, 0, 0.3]}>
+      <LevelColumn position={[0, 0, 0]} label="PWR" value={Math.round(pwr)} color={color} />
+      <LevelColumn position={[COLUMN_PITCH, 0, 0]} label="MEM" value={Math.round(mem)} color={color} />
+      <LevelColumn position={[COLUMN_PITCH * 2, 0, 0]} label="NET" value={Math.round(net)} color={accent} />
+    </group>
+  );
+}
+
+/** Measured refresh rate — was hardcoded 60HZ, which contradicted reality. */
+function SyncReadout({ color }: { color: string }) {
+  const t = useTelemetry();
+  return (
+    <TechLabel position={[2.55, -1.86, 0.2]} color={color} size={0.05} opacity={0.35} anchorX="right">
+      {`FRAME SYNC · ${t.fps > 0 ? t.fps.toFixed(0) : "--"}HZ`}
+    </TechLabel>
+  );
+}
+
+/** Live camera coordinates — the readout the reticles imply. */
+function CoordReadout({ color }: { color: string }) {
+  const t = useTelemetry();
+  return (
+    <TechLabel position={[-2.55, 1.86, 0.2]} color={color} size={0.05} opacity={0.35} anchorX="left">
+      {`X ${t.camera[0].toFixed(3)} · Y ${t.camera[1].toFixed(3)} · Z ${t.camera[2].toFixed(3)}`}
+    </TechLabel>
   );
 }
 
@@ -129,19 +188,11 @@ export default function SpatialHud({ reduced = false }: { reduced?: boolean }) {
       <TechLabel position={[-2.55, 2.02, 0.2]} color={look.color} size={0.062} opacity={0.55} anchorX="left">
         SECTOR 07 · ORBIT LOCK
       </TechLabel>
-      <TechLabel position={[-2.55, 1.86, 0.2]} color={look.color} size={0.05} opacity={0.35} anchorX="left">
-        X 1.284 · Y 0.442 · Z 6.800
-      </TechLabel>
-      <TechLabel position={[2.55, -1.86, 0.2]} color={look.color} size={0.05} opacity={0.35} anchorX="right">
-        FRAME SYNC · 60HZ
-      </TechLabel>
+      <CoordReadout color={look.color} />
+      <SyncReadout color={look.color} />
 
       {!reduced && (
-        <group position={[-3.35, 0, 0.3]}>
-          <LevelColumn position={[0, 0, 0]} label="PWR" value={78} color={look.color} />
-          <LevelColumn position={[0.16, 0, 0]} label="MEM" value={54} color={look.color} />
-          <LevelColumn position={[0.32, 0, 0]} label="NET" value={91} color={look.accent} />
-        </group>
+        <LevelColumns color={look.color} accent={look.accent} />
       )}
     </group>
   );

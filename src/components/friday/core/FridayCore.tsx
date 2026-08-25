@@ -3,7 +3,7 @@
 import { useRef } from "react";
 import { useFrame } from "@react-three/fiber";
 import { MeshDistortMaterial } from "@react-three/drei";
-import { AdditiveBlending, DoubleSide, type Group, type Mesh } from "three";
+import { type Group, type Mesh } from "three";
 import { useFridayStore } from "@/lib/store";
 import { STATE_LOOK } from "@/lib/stateLook";
 import CoreParticles from "./CoreParticles";
@@ -14,30 +14,6 @@ import "../effects/materials";
 
 interface HoloUniforms {
   uTime: number;
-}
-
-/** Layer 8 — a scan plane that sweeps vertically through the core. */
-function ScanPlane({ color }: { color: string }) {
-  const ref = useRef<Mesh>(null);
-  useFrame((_, delta) => {
-    if (!ref.current) return;
-    ref.current.position.y += delta * 0.55;
-    if (ref.current.position.y > 1.5) ref.current.position.y = -1.5;
-  });
-  return (
-    <mesh ref={ref} rotation={[-Math.PI / 2, 0, 0]}>
-      <ringGeometry args={[0.2, 1.9, 64]} />
-      <meshBasicMaterial
-        color={color}
-        transparent
-        opacity={0.07}
-        side={DoubleSide}
-        blending={AdditiveBlending}
-        depthWrite={false}
-        toneMapped={false}
-      />
-    </mesh>
-  );
 }
 
 /**
@@ -144,9 +120,6 @@ export default function FridayCore({
       <group rotation={[Math.PI / 2.15, 0, 0]}>
         <WaveformRing radius={2.08} color={look.accent} activity={look.waveform} />
       </group>
-
-      {/* layer 8 — vertical scan sweep */}
-      <ScanPlane color={look.color} />
 
       {/* layer 6 — core identity readout */}
       <TechLabel position={[0, -1.18, 0]} color={look.color} size={0.085}>

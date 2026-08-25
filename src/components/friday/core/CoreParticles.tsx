@@ -62,7 +62,9 @@ export default function CoreParticles({
       aSpeed[i] = 0.06 + noise(i, 3) * 0.22;
       aTilt[i] = (noise(i, 4) - 0.5) * 1.5;
       aY[i] = (noise(i, 5) - 0.5) * 1.1;
-      aSize[i] = 0.6 + noise(i, 6) * 1.8;
+      // skewed: mostly fine dust, a few bright motes — a uniform spread
+      // makes the field look like static rather than structured data
+      aSize[i] = 0.4 + Math.pow(noise(i, 6), 2.4) * 1.7;
     }
     return { position, aRadius, aAngle, aSpeed, aTilt, aY, aSize };
   }, [count, innerRadius, span]);

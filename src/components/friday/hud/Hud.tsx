@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useFridayStore, type FridayState, type VisualizationType } from "@/lib/store";
 import { sampleSpec } from "@/lib/vizPlanner";
 import { playStateCue } from "@/lib/uiSound";
+import { useTelemetry } from "@/lib/telemetry";
 
 const STATE_TONE: Record<FridayState, string> = {
   idle: "text-cyan-200",
@@ -84,21 +85,28 @@ export function EdgeTelemetry() {
   const toggleAudio = useFridayStore((s) => s.toggleAudio);
   const focus = useFridayStore((s) => s.focus);
   const renderBackend = useFridayStore((s) => s.renderBackend);
+  const t = useTelemetry();
+
+  const uplink = t.downlink > 0 ? `${t.downlink.toFixed(1)}MB/S` : "STABLE";
+  const memory =
+    t.heapMB > 0 ? `${t.heapMB.toFixed(0)}MB · ${(t.heapRatio * 100).toFixed(0)}%` : "NOMINAL";
 
   return (
     <>
       <div className="pointer-events-none absolute bottom-28 left-8 hidden flex-col gap-1 font-mono text-[9px] tracking-[0.22em] text-cyan-300/60 md:flex">
-        <span>UPLINK · STABLE</span>
-        <span>LATENCY · 12MS</span>
-        <span>MEMORY · NOMINAL</span>
-        <span>VECTOR · 0.412 / 1.008</span>
+        <span>UPLINK · {uplink}</span>
+        <span>FRAME · {t.frameMs > 0 ? `${t.frameMs.toFixed(1)}MS` : "—"}</span>
+        <span>MEMORY · {memory}</span>
+        <span>
+          VECTOR · {t.camera[0].toFixed(3)} / {t.camera[1].toFixed(3)}
+        </span>
       </div>
       <div className="absolute bottom-28 right-8 hidden flex-col items-end gap-1 font-mono text-[9px] tracking-[0.22em] text-cyan-300/60 md:flex">
         <span data-testid="hud-focus" className={focus ? "text-cyan-200" : undefined}>
           {focus ? `FOCUS · ${focus.label} ${focus.detail}` : "FOCUS · --"}
         </span>
         <span>RENDER · {renderBackend.toUpperCase()}</span>
-        <span>CORE · SYNCED</span>
+        <span>SYNC · {t.fps > 0 ? `${t.fps.toFixed(0)}HZ` : "—"}</span>
         <span>SECURITY · ARMED</span>
         <button
           onClick={toggleAudio}

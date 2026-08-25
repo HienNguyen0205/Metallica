@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { diffRatio, glRenderer, gotoScene, isSoftwareGL, regionStats, shot } from "./helpers";
+import { diffRatio, glRenderer, gotoLitScene, isSoftwareGL, regionStats, shot } from "./helpers";
 
 /**
  * The hologram itself: does WebGL actually paint a lit, cyan, animated core,
@@ -8,7 +8,7 @@ import { diffRatio, glRenderer, gotoScene, isSoftwareGL, regionStats, shot } fro
  */
 
 test.beforeEach(async ({ page }) => {
-  await gotoScene(page);
+  await gotoLitScene(page);
 });
 
 // ---------- §2/§13 the core actually renders and glows ----------
@@ -132,6 +132,8 @@ test("no console errors and no WebGL context loss across all states", async ({ p
 });
 
 test("every viz type mounts and unmounts cleanly", async ({ page }) => {
+  // twenty scene rebuilds on software GL; the default budget is too tight
+  test.slow();
   const errors: string[] = [];
   page.on("pageerror", (e) => errors.push(String(e)));
 

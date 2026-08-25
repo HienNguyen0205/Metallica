@@ -49,8 +49,9 @@ test("all HUD text meets WCAG AA against the dark background", async ({ page }) 
     ["brand", { selector: "span", text: "METALLICA" }],
     ["subtitle", { selector: "span", text: "HOLOGRAPHIC INTERFACE" }],
     ["state label", "[data-testid='hud-state']"],
-    ["edge telemetry", { selector: "span", text: "UPLINK · STABLE" }],
-    ["edge right", { selector: "span", text: "CORE · SYNCED" }],
+    // live values, so match the stable label prefix only
+    ["edge telemetry", { selector: "span", text: "UPLINK" }],
+    ["edge right", { selector: "span", text: "SECURITY" }],
     ["audio toggle", { selector: "button", text: "AUDIO ·" }],
     ["state rail (inactive)", "#state-rail button:nth-child(4)"],
     ["viz rail (inactive)", "#viz-rail button:nth-child(4)"],
@@ -158,7 +159,7 @@ test("mobile falls back to a simplified scene", async ({ page }) => {
   // §19 dense desktop-only HUD is hidden rather than crammed in
   await expect(page.locator("#state-rail")).toBeHidden();
   await expect(page.locator("#viz-rail")).toBeHidden();
-  await expect(page.getByText("UPLINK · STABLE")).toBeHidden();
+  await expect(page.getByText(/^UPLINK/)).toBeHidden();
 
   // the essentials stay
   await expect(page.getByTestId("hud-state")).toBeVisible();
