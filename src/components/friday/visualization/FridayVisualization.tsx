@@ -61,7 +61,7 @@ function DrillDown({ enabled, children }: { enabled: boolean; children: ReactNod
   const onClick = (e: ThreeEvent<MouseEvent>) => {
     if (!enabled || !ref.current) return;
     let tag = findVizTag(e.object);
-    let world = new Vector3();
+    const world = new Vector3();
     const bar = e.object.userData?.vizBar as { label: string; values: number[] } | undefined;
 
     if (!tag && bar && typeof e.instanceId === "number") {

@@ -65,6 +65,8 @@ test("the hologram is alive while idle", async ({ page }) => {
 // ---------- §16 every visualization materializes distinctly ----------
 
 test("every viz type renders something different from idle", async ({ page }) => {
+  // ten full-screen screenshots on software GL are slow; give it headroom
+  test.slow();
   const baseline = await shot(page);
   const types = [
     "RADIAL GAUGE",
