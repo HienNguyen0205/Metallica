@@ -134,10 +134,10 @@ export function HealthCore({ metrics = [], color, accent }: VizProps) {
       </group>
       {health && (
         <>
-          <TechLabel position={[0, 2.85, 0]} color={color} size={0.1}>
+          <TechLabel position={[0, 2.85, 0]} color={color} size={0.1} decode>
             {`${health.label} ${Math.round(health.value)}${health.unit ?? ""}`}
           </TechLabel>
-          <TechLabel position={[0, 2.68, 0]} color="#e5f6ff" size={0.05} opacity={0.45}>
+          <TechLabel position={[0, 2.68, 0]} color="#e5f6ff" size={0.05} opacity={0.45} decode>
             INTEGRITY NOMINAL
           </TechLabel>
         </>

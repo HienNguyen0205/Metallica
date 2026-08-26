@@ -24,9 +24,12 @@ interface HoloUniforms {
 export default function FridayCore({
   particleCount = 900,
   compat = false,
+  onCoreMesh,
 }: {
   particleCount?: number;
   compat?: boolean;
+  /** Publishes the core mesh so the god-ray pass can use it as its light source. */
+  onCoreMesh?: (mesh: Mesh | null) => void;
 }) {
   const state = useFridayStore((s) => s.state);
   const look = STATE_LOOK[state];
@@ -71,7 +74,12 @@ export default function FridayCore({
   return (
     <group ref={groupRef}>
       {/* layer 1 — energy core */}
-      <mesh ref={coreRef}>
+      <mesh
+        ref={(m: Mesh | null) => {
+          coreRef.current = m;
+          onCoreMesh?.(m);
+        }}
+      >
         <sphereGeometry args={[0.5, 48, 48]} />
         {compat ? (
           <meshStandardMaterial
@@ -122,7 +130,7 @@ export default function FridayCore({
       </group>
 
       {/* layer 6 — core identity readout */}
-      <TechLabel position={[0, -1.18, 0]} color={look.color} size={0.085}>
+      <TechLabel position={[0, -1.18, 0]} color={look.color} size={0.085} decode>
         AI CORE
       </TechLabel>
       <TechLabel position={[0, -1.35, 0]} color="#e5f6ff" size={0.06} opacity={0.75}>

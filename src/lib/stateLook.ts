@@ -21,6 +21,32 @@ export interface StateLook {
   scanSpeed: number;
 }
 
+/**
+ * §8/§12 — how the camera behaves per state. Motion should carry meaning:
+ * the rig leans in while FRIDAY works and pulls back to reveal a hologram,
+ * so distance itself tells you what the system is doing.
+ */
+export interface StateCamera {
+  /** dolly distance from the core */
+  distance: number;
+  /** lateral swing amplitude — a slow arc, not a spin */
+  orbit: number;
+}
+
+export const STATE_CAMERA: Record<FridayState, StateCamera> = {
+  idle: { distance: 6.8, orbit: 0.06 },
+  listening: { distance: 6.55, orbit: 0.1 },
+  thinking: { distance: 6.15, orbit: 0.2 },
+  searching: { distance: 6.35, orbit: 0.55 },
+  processing: { distance: 6.4, orbit: 0.3 },
+  tool_execution: { distance: 6.3, orbit: 0.35 },
+  // pull back so the materializing visualization has room to read
+  visualizing: { distance: 7.7, orbit: 0.5 },
+  speaking: { distance: 6.7, orbit: 0.12 },
+  warning: { distance: 6.5, orbit: 0 },
+  error: { distance: 6.45, orbit: 0 },
+};
+
 const CYAN = "#38e8ff";
 const VIOLET = "#a78bfa";
 

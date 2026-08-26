@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "next typegen && tsc --noEmit",
     "test": "playwright test",
     "test:unit": "playwright test --project=unit",
     "test:ui": "playwright test --project=ui",

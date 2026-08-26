@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
 import { useFridayStore, type FridayState, type VisualizationType } from "@/lib/store";
 import { sampleSpec } from "@/lib/vizPlanner";
 import { playStateCue } from "@/lib/uiSound";
 import { useTelemetry } from "@/lib/telemetry";
+import { STATE_CAMERA } from "@/lib/stateLook";
 
 const STATE_TONE: Record<FridayState, string> = {
   idle: "text-cyan-200",
@@ -48,6 +49,35 @@ export function AudioCues() {
   return null;
 }
 
+/**
+ * §12 — the 2D chrome is a projection in the same space, not a sticker on
+ * glass: it parallaxes against camera drift and recedes slightly as the rig
+ * pushes toward the core.
+ *
+ * Passive readouts only. Camera drift never stops, so applying this to the
+ * rails left their buttons permanently in motion — unclickable to automation
+ * and fiddly for a real cursor.
+ *
+ * Opacity range is deliberately shallow (0.96–1.0). The HUD text sits at
+ * ~5.3:1 contrast and a heavier fade would drop it under WCAG AA.
+ */
+function useHudDepth(strength = 14): CSSProperties {
+  const t = useTelemetry();
+  const near = STATE_CAMERA.thinking.distance;
+  const far = STATE_CAMERA.visualizing.distance;
+  const depth = Math.min(1, Math.max(0, (t.camera[2] - near) / (far - near)));
+
+  return {
+    transform: `translate3d(${(-t.camera[0] * strength).toFixed(2)}px, ${(
+      -t.camera[1] * strength
+    ).toFixed(2)}px, 0)`,
+    opacity: 0.96 + depth * 0.04,
+    // smooths the 4Hz telemetry sampling into continuous motion
+    transition: "transform 280ms linear, opacity 280ms linear",
+    willChange: "transform",
+  };
+}
+
 function useClock() {
   const [time, setTime] = useState<string | null>(null);
   useEffect(() => {
@@ -60,11 +90,15 @@ function useClock() {
 }
 
 export function TopHud() {
+  const depth = useHudDepth();
   const state = useFridayStore((s) => s.state);
   const time = useClock();
 
   return (
-    <div className="pointer-events-none absolute inset-x-0 top-0 flex items-start justify-between px-8 py-6 font-mono text-[10px] tracking-[0.28em] text-cyan-300/75">
+    <div
+      style={depth}
+      className="pointer-events-none absolute inset-x-0 top-0 flex items-start justify-between px-8 py-6 font-mono text-[10px] tracking-[0.28em] text-cyan-300/75"
+    >
       <div className="flex flex-col gap-1.5">
         <span className="text-[13px] font-light tracking-[0.42em] text-cyan-100/90">METALLICA</span>
         <span>FRIDAY · HOLOGRAPHIC INTERFACE</span>
@@ -81,6 +115,7 @@ export function TopHud() {
 
 /** §3 — thin telemetry at the screen edges. No panels, no boxes. */
 export function EdgeTelemetry() {
+  const depth = useHudDepth();
   const audioEnabled = useFridayStore((s) => s.audioEnabled);
   const toggleAudio = useFridayStore((s) => s.toggleAudio);
   const focus = useFridayStore((s) => s.focus);
@@ -93,7 +128,10 @@ export function EdgeTelemetry() {
 
   return (
     <>
-      <div className="pointer-events-none absolute bottom-28 left-8 hidden flex-col gap-1 font-mono text-[9px] tracking-[0.22em] text-cyan-300/60 md:flex">
+      <div
+        style={depth}
+        className="pointer-events-none absolute bottom-28 left-8 hidden flex-col gap-1 font-mono text-[9px] tracking-[0.22em] text-cyan-300/60 md:flex"
+      >
         <span>UPLINK · {uplink}</span>
         <span>FRAME · {t.frameMs > 0 ? `${t.frameMs.toFixed(1)}MS` : "—"}</span>
         <span>MEMORY · {memory}</span>
@@ -170,7 +208,10 @@ export function VizRail() {
   const setState = useFridayStore((s) => s.setState);
 
   return (
-    <div className="pointer-events-auto absolute left-8 top-28 hidden flex-col items-start gap-1 font-mono text-[9px] tracking-[0.22em] md:flex" id="viz-rail">
+    <div
+      className="pointer-events-auto absolute left-8 top-28 hidden flex-col items-start gap-1 font-mono text-[9px] tracking-[0.22em] md:flex"
+      id="viz-rail"
+    >
       {VIZ_OPTIONS.map((t) => (
         <button
           key={t}
@@ -195,7 +236,10 @@ export function StateRail() {
   const setState = useFridayStore((s) => s.setState);
 
   return (
-    <div className="pointer-events-auto absolute right-8 top-28 hidden flex-col items-end gap-1 font-mono text-[9px] tracking-[0.22em] md:flex" id="state-rail">
+    <div
+      className="pointer-events-auto absolute right-8 top-28 hidden flex-col items-end gap-1 font-mono text-[9px] tracking-[0.22em] md:flex"
+      id="state-rail"
+    >
       {STATE_OPTIONS.map((s) => (
         <button
           key={s}

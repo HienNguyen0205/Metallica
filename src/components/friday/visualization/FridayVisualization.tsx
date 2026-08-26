@@ -139,7 +139,7 @@ function FocusMarker() {
           </mesh>
         </group>
         <Reticle position={[0, 0, 0]} color={look.color} size={0.2} opacity={0.9} />
-        <TechLabel position={[0, 0.52, 0]} color={look.color} size={0.085}>
+        <TechLabel position={[0, 0.52, 0]} color={look.color} size={0.085} decode>
           {focus.label}
         </TechLabel>
         <TechLabel position={[0, -0.44, 0]} color="#e5f6ff" size={0.055} opacity={0.8}>
@@ -176,7 +176,7 @@ export default function FridayVisualization({ spec }: { spec?: VisualizationSpec
           <Renderer data={active.data ?? {}} color={color} accent={accent} />
         </Pulse>
         {active.title && (
-          <TechLabel position={[0, 2.35, 0]} color={color} size={0.11} opacity={0.9}>
+          <TechLabel position={[0, 2.35, 0]} color={color} size={0.11} opacity={0.9} decode>
             {active.title}
           </TechLabel>
         )}

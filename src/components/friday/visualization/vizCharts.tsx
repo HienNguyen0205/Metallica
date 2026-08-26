@@ -87,7 +87,7 @@ export function LineChart3D({ series = DEFAULT_SERIES, color, accent }: ChartPro
                 </mesh>
               </group>
             ))}
-            <TechLabel position={[-W / 2 - 0.1, pts[0][1], si * -0.4]} color={si === 0 ? color : accent} size={0.06} anchorX="right">
+            <TechLabel position={[-W / 2 - 0.1, pts[0][1], si * -0.4]} color={si === 0 ? color : accent} size={0.06} anchorX="right" decode>
               {s.label}
             </TechLabel>
           </group>
@@ -178,7 +178,7 @@ export function Timeline3D({ events = DEFAULT_EVENTS, color, accent }: ChartProp
               <planeGeometry args={[0.012, 0.18]} />
               <meshBasicMaterial color={i === data.length - 1 ? accent : color} transparent opacity={0.8} side={DoubleSide} toneMapped={false} />
             </mesh>
-            <TechLabel position={[0, -0.2, 0]} color={i === data.length - 1 ? accent : color} size={0.055} opacity={0.7}>
+            <TechLabel position={[0, -0.2, 0]} color={i === data.length - 1 ? accent : color} size={0.055} opacity={0.7} decode>
               {e.label}
             </TechLabel>
           </group>

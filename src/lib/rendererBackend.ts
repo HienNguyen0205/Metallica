@@ -37,8 +37,10 @@ export async function createRenderer(
       const renderer = new WebGPURenderer(props as never);
       await renderer.init();
       return { renderer: renderer as unknown as WebGLRenderer, backend: "webgpu" };
-    } catch {
-      // adapter present but device/pipeline creation failed — fall through
+    } catch (err) {
+      // Adapter present but device/pipeline creation failed. Falling back is
+      // correct, but doing it silently hides real WebGPU breakage — say so.
+      console.warn("[friday] WebGPU init failed, falling back to WebGL2:", err);
     }
   }
   const { WebGLRenderer: GL } = await import("three");

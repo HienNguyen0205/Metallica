@@ -105,14 +105,31 @@ const MIN_FRAME_WIDTH = 7.4;
  * off-screen on narrow frames), and they stand down entirely while a
  * visualization is on screen so nothing can overlap the actual data.
  */
+const COLUMN_PLANE_Z = 0.3;
+/** Clear of the frame edge, with room for the widest label glyphs. */
+const COLUMN_INSET = 0.5;
+
 function LevelColumns({ color, accent }: { color: string; accent: string }) {
   const viewportWidth = useThree((s) => s.viewport.width);
   const visualization = useFridayStore((s) => s.visualization);
+  const groupRef = useRef<Group>(null);
   const t = useTelemetry();
 
-  if (visualization || viewportWidth < MIN_FRAME_WIDTH) return null;
+  /**
+   * Re-anchored every frame rather than computed once from viewport.width.
+   * That width is measured at z=0, but these sit nearer the camera where the
+   * frustum is narrower, and the camera drifts horizontally — using the z=0
+   * width pushed the first column off the left edge whenever the rig dollied in.
+   */
+  useFrame((state) => {
+    if (!groupRef.current) return;
+    const { camera, viewport } = state;
+    const distance = camera.position.z;
+    const halfAtPlane = (viewport.width / 2) * ((distance - COLUMN_PLANE_Z) / distance);
+    groupRef.current.position.x = camera.position.x - halfAtPlane + COLUMN_INSET;
+  });
 
-  const left = -viewportWidth / 2 + 0.45;
+  if (visualization || viewportWidth < MIN_FRAME_WIDTH) return null;
 
   // real where a real source exists; NET falls back to a link estimate
   const pwr = Math.min(100, (t.fps / 60) * 100);
@@ -120,7 +137,7 @@ function LevelColumns({ color, accent }: { color: string; accent: string }) {
   const net = t.downlink > 0 ? Math.min(100, t.downlink * 10) : 91;
 
   return (
-    <group position={[left, 0, 0.3]}>
+    <group ref={groupRef} position={[0, 0, COLUMN_PLANE_Z]}>
       <LevelColumn position={[0, 0, 0]} label="PWR" value={Math.round(pwr)} color={color} />
       <LevelColumn position={[COLUMN_PITCH, 0, 0]} label="MEM" value={Math.round(mem)} color={color} />
       <LevelColumn position={[COLUMN_PITCH * 2, 0, 0]} label="NET" value={Math.round(net)} color={accent} />

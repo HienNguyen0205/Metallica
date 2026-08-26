@@ -1,6 +1,14 @@
 "use client";
 
-import { createContext, useContext, useEffect, useLayoutEffect, useMemo, useRef } from "react";
+import {
+  createContext,
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useFrame } from "@react-three/fiber";
 import { Billboard, Line, Text } from "@react-three/drei";
 import {
@@ -193,6 +201,44 @@ export function CornerBrackets({
 }
 
 /** §5 — billboarded telemetry text. Always faces camera, always tiny. */
+const GLYPHS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789/\\<>#*+=%";
+
+/**
+ * §9 — labels resolve out of noise rather than popping in. Runs once on
+ * mount, not on every text change: live readouts update several times a
+ * second and would scramble permanently.
+ */
+function useDecoded(text: string, enabled: boolean, durationMs = 420) {
+  const [shown, setShown] = useState(enabled ? "" : text);
+  // only the first text a label ever renders gets decoded
+  const initial = useRef(text);
+
+  useEffect(() => {
+    if (!enabled || text !== initial.current) {
+      setShown(text);
+      return;
+    }
+    const start = performance.now();
+    let raf = 0;
+    const tick = () => {
+      const p = Math.min(1, (performance.now() - start) / durationMs);
+      const settled = Math.floor(text.length * p);
+      let out = "";
+      for (let i = 0; i < text.length; i++) {
+        const ch = text[i];
+        if (i < settled || ch === " " || ch === "·") out += ch;
+        else out += GLYPHS[(i * 31 + Math.floor(performance.now() / 45)) % GLYPHS.length];
+      }
+      setShown(p < 1 ? out : text);
+      if (p < 1) raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [text, enabled, durationMs]);
+
+  return shown;
+}
+
 export function TechLabel({
   children,
   position,
@@ -200,6 +246,7 @@ export function TechLabel({
   size = 0.075,
   opacity = 1,
   anchorX = "center",
+  decode = false,
 }: {
   children: string;
   position: [number, number, number];
@@ -207,7 +254,10 @@ export function TechLabel({
   size?: number;
   opacity?: number;
   anchorX?: "center" | "left" | "right";
+  /** resolve the text out of scrambled glyphs on first appearance */
+  decode?: boolean;
 }) {
+  const text = useDecoded(children.toUpperCase(), decode);
   return (
     <Billboard position={position}>
       <Text
@@ -219,7 +269,7 @@ export function TechLabel({
         fillOpacity={opacity}
         outlineWidth={0}
       >
-        {children.toUpperCase()}
+        {text}
       </Text>
     </Billboard>
   );

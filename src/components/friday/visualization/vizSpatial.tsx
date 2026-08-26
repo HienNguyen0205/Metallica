@@ -85,7 +85,7 @@ export function Network3D({ nodes = DEFAULT_NODES, links, color, accent }: Spati
               <ringGeometry args={[0.17, 0.185, 24]} />
               <meshBasicMaterial color={color} transparent opacity={0.35} side={DoubleSide} depthWrite={false} />
             </mesh>
-            <TechLabel position={[0, -0.26, 0]} color={color} size={0.055} opacity={0.7}>
+            <TechLabel position={[0, -0.26, 0]} color={color} size={0.055} opacity={0.7} decode>
               {data[i].label ?? data[i].id}
             </TechLabel>
           </group>
@@ -149,7 +149,7 @@ export function Globe3D({ points = DEFAULT_GEO, color, accent }: SpatialProps) {
               <sphereGeometry args={[0.05, 10, 10]} />
               <meshBasicMaterial color={accent} toneMapped={false} />
             </mesh>
-            <TechLabel position={[0, 0.16, 0]} color={accent} size={0.055} opacity={0.85}>
+            <TechLabel position={[0, 0.16, 0]} color={accent} size={0.055} opacity={0.85} decode>
               {m.label}
             </TechLabel>
           </group>
