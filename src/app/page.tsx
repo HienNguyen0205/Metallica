@@ -10,6 +10,7 @@ import {
   VizRail,
 } from "@/components/friday/hud/Hud";
 import InputBar from "@/components/friday/hud/InputBar";
+import ConfirmPrompt from "@/components/friday/hud/ConfirmPrompt";
 
 const Scene = dynamic(() => import("@/components/friday/Scene"), { ssr: false });
 
@@ -26,6 +27,7 @@ export default function Home() {
       <StateRail />
       <AnswerLine />
       <InputBar />
+      <ConfirmPrompt />
       <AudioCues />
     </main>
   );

@@ -16,6 +16,9 @@ interface HoloUniforms {
   uTime: number;
 }
 
+/** How far the core withdraws behind an active visualization. */
+const VIZ_SCALE = 0.4;
+
 /**
  * §2 — the central hologram. Eight stacked layers so it reads as a complex
  * technological object rather than a glowing ball.
@@ -32,7 +35,20 @@ export default function FridayCore({
   onCoreMesh?: (mesh: Mesh | null) => void;
 }) {
   const state = useFridayStore((s) => s.state);
-  const look = STATE_LOOK[state];
+  const base = STATE_LOOK[state];
+  /**
+   * §16 — when data materializes the core stops being the subject. It kept
+   * full size and full bloom directly behind every hologram, so charts were
+   * drawn over a blown-out white sphere and could not be read at all.
+   * It now withdraws to a marker: the data is what you are looking at.
+   */
+  const hasViz = useFridayStore((s) => !!s.visualization);
+  const recede = useRef(1);
+  // scale alone is not enough: bloom on the emissive core bleeds well past its
+  // silhouette, so the glow has to come down with it.
+  const look = hasViz
+    ? { ...base, glow: base.glow * 0.5, particleIntensity: base.particleIntensity * 0.5 }
+    : base;
 
   const groupRef = useRef<Group>(null);
   const coreRef = useRef<Mesh>(null);
@@ -57,8 +73,12 @@ export default function FridayCore({
     }
     if (shellMatRef.current && !compat) shellMatRef.current.uTime += delta;
 
-    // §7 ERROR/WARNING — controlled positional glitch, never a seizure
     if (groupRef.current) {
+      // eased, so handing the stage over reads as a move, not a cut
+      recede.current += ((hasViz ? VIZ_SCALE : 1) - recede.current) * Math.min(1, delta * 2.2);
+      groupRef.current.scale.setScalar(recede.current);
+
+      // §7 ERROR/WARNING — controlled positional glitch, never a seizure
       if (look.jitter > 0) {
         groupRef.current.position.set(
           (Math.random() - 0.5) * look.jitter,
@@ -129,13 +149,18 @@ export default function FridayCore({
         <WaveformRing radius={2.08} color={look.accent} activity={look.waveform} />
       </group>
 
-      {/* layer 6 — core identity readout */}
-      <TechLabel position={[0, -1.18, 0]} color={look.color} size={0.085} decode>
-        AI CORE
-      </TechLabel>
-      <TechLabel position={[0, -1.35, 0]} color="#e5f6ff" size={0.06} opacity={0.75}>
-        {state.replace("_", " ")}
-      </TechLabel>
+      {/* layer 6 — core identity readout. Hidden under a visualization: it
+          landed inside the chart area and the HUD already names the state. */}
+      {!hasViz && (
+        <>
+          <TechLabel position={[0, -1.18, 0]} color={look.color} size={0.085} decode>
+            AI CORE
+          </TechLabel>
+          <TechLabel position={[0, -1.35, 0]} color="#e5f6ff" size={0.06} opacity={0.75}>
+            {state.replace("_", " ")}
+          </TechLabel>
+        </>
+      )}
     </group>
   );
 }

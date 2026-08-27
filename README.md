@@ -51,9 +51,10 @@ matched to your query, then speaks its answer. Every subsystem — core shader,
 rings, particles, waveform, lights, camera rig and HUD — responds coherently
 to the current state.
 
-> There is no backend. The query pipeline is a deterministic demo stand-in:
-> swap the timed waits for stream events from a real LLM agent and everything
-> else stays identical.
+> The query pipeline is driven by a Python orchestrator over SSE, which lives
+> in its **own repository**. With none running, the UI degrades to a local
+> rules planner (`src/lib/vizPlanner.ts`) serving canned data, so the interface
+> is still presentable offline — that is a demo path, not a live one.
 
 ## Features
 
@@ -137,9 +138,41 @@ npm run start
 
 ## Environment Variables
 
-| Variable | Default | Description |
-|---|---|---|
-| `NEXT_PUBLIC_WEBGPU` | unset | Set to `1` to opt the scene into a WebGPU renderer (falls back to WebGL2 when unavailable). |
+| Variable | Where | Default | Description |
+|---|---|---|---|
+| `NEXT_PUBLIC_WEBGPU` | frontend | unset | Set to `1` to opt the scene into a WebGPU renderer (falls back to WebGL2 when unavailable). |
+| `NEXT_PUBLIC_FRIDAY_API` | frontend | `http://localhost:8000` | Orchestrator base URL, **inlined at build time**. When unreachable the UI falls back to the local rules planner with canned data. |
+
+Copy `.env.example` to `.env.local` to set these for local development. Real
+environment variables take precedence over that file — verified, not assumed —
+which is why the test suite's own override still wins.
+
+On Vercel, set `NEXT_PUBLIC_FRIDAY_API` in **Project Settings → Environment
+Variables** and then **redeploy**. It is inlined into the bundle at build time,
+so changing the variable without a rebuild changes nothing.
+
+> Leaving it unset on a deploy does not produce an error. The bundle ships
+> pointing at `localhost:8000`, which from a visitor's browser is *their*
+> machine; the fetch fails and the offline rules planner answers with canned
+> data. The site looks like it works. `agentStream.ts` logs a `console.error`
+> when it detects this, since nothing else about it looks wrong.
+
+The UI suite overrides `NEXT_PUBLIC_FRIDAY_API` to `http://127.0.0.1:8123` (see
+`playwright.config.ts`) and binds its stub orchestrator there. On the default
+port the suite would collide with a real backend left running, and the frontend
+would then quietly take its offline fallback instead of failing — so the tests
+would pass while exercising the wrong path.
+| `GEMINI_API_KEY` | backend | unset | Provider key. Free from [AI Studio](https://aistudio.google.com/apikey), no card. Without it `/query` emits an `error` event. |
+| `FRIDAY_LLM_BASE_URL` | backend | Gemini | Any OpenAI-compatible endpoint (Groq, Cerebras, OpenRouter, local Ollama). |
+| `FRIDAY_LLM_MODEL` | backend | `gemini-2.5-flash` | Model name for that endpoint. |
+| `FRIDAY_LLM_API_KEY` | backend | unset | Generic alias for the key; wins over `GEMINI_API_KEY`. |
+| `FRIDAY_ALLOWED_ORIGINS` | backend | `http://localhost:3000` | Comma-separated CORS allowlist. |
+
+These backend variables are listed for reference — the orchestrator is a
+separate repository. It owns the SSE event contract (`state`, `viz`, `answer`,
+`confirm`, `done`) that `src/lib/agentStream.ts` consumes, and the model call
+that picks a visualization. The renderer contract it emits must stay in lockstep
+with `VisualizationSpec` in `src/lib/store.ts`.
 
 ## Architecture
 

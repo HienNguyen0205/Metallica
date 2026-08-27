@@ -14,7 +14,7 @@ interface GridUniforms {
 }
 
 /** §3 background layer — dotted grid far behind the core, one draw call. */
-function DottedGrid({ color }: { color: string }) {
+function DottedGrid({ color, opacity = 0.42 }: { color: string; opacity?: number }) {
   const matRef = useRef<GridUniforms>(null);
   useFrame((_, delta) => {
     if (matRef.current) matRef.current.uTime += delta;
@@ -22,13 +22,13 @@ function DottedGrid({ color }: { color: string }) {
   return (
     <mesh position={[0, 0, -4.5]}>
       <planeGeometry args={[26, 16]} />
-      <holoGridMaterial ref={matRef} uColor={color} uOpacity={0.42} transparent depthWrite={false} />
+      <holoGridMaterial ref={matRef} uColor={color} uOpacity={opacity} transparent depthWrite={false} />
     </mesh>
   );
 }
 
 /** The big framing arcs — large radial geometry cropped by the viewport. */
-function OuterFrame({ color, speed }: { color: string; speed: number }) {
+function OuterFrame({ color, speed, dim = 1 }: { color: string; speed: number; dim?: number }) {
   const slow = useRef<Group>(null);
   const fast = useRef<Group>(null);
 
@@ -41,13 +41,13 @@ function OuterFrame({ color, speed }: { color: string; speed: number }) {
     <group position={[0, 0, -1.2]}>
       <group ref={slow}>
         {/* two broken arcs left and right, like the reference's HUD frame */}
-        <ArcSegments radius={3.5} count={30} span={Math.PI * 0.62} start={-Math.PI * 0.31} gap={0.35} thickness={0.022} color={color} opacity={0.3} majorEvery={6} />
-        <ArcSegments radius={3.5} count={30} span={Math.PI * 0.62} start={Math.PI * 0.69} gap={0.35} thickness={0.022} color={color} opacity={0.3} majorEvery={6} />
-        <ArcSegments radius={4.15} count={16} span={Math.PI * 0.3} start={-Math.PI * 0.15} gap={0.5} thickness={0.03} color={color} opacity={0.2} />
-        <ArcSegments radius={4.15} count={16} span={Math.PI * 0.3} start={Math.PI * 0.85} gap={0.5} thickness={0.03} color={color} opacity={0.2} />
+        <ArcSegments radius={3.5} count={30} span={Math.PI * 0.62} start={-Math.PI * 0.31} gap={0.35} thickness={0.022} color={color} opacity={0.3 * dim} majorEvery={6} />
+        <ArcSegments radius={3.5} count={30} span={Math.PI * 0.62} start={Math.PI * 0.69} gap={0.35} thickness={0.022} color={color} opacity={0.3 * dim} majorEvery={6} />
+        <ArcSegments radius={4.15} count={16} span={Math.PI * 0.3} start={-Math.PI * 0.15} gap={0.5} thickness={0.03} color={color} opacity={0.2 * dim} />
+        <ArcSegments radius={4.15} count={16} span={Math.PI * 0.3} start={Math.PI * 0.85} gap={0.5} thickness={0.03} color={color} opacity={0.2 * dim} />
       </group>
       <group ref={fast}>
-        <TickDial radius={3.15} count={120} color={color} opacity={0.18} length={0.07} />
+        <TickDial radius={3.15} count={120} color={color} opacity={0.18 * dim} length={0.07} />
       </group>
     </group>
   );
@@ -173,6 +173,12 @@ export default function SpatialHud({ reduced = false }: { reduced?: boolean }) {
   const state = useFridayStore((s) => s.state);
   const look = STATE_LOOK[state];
   const drift = useRef<Group>(null);
+  /**
+   * Ambient chrome competes directly with chart geometry — the dotted grid in
+   * particular sat right behind every line and bar. It steps back while a
+   * visualization holds the frame instead of being read as data.
+   */
+  const hasViz = useFridayStore((s) => !!s.visualization);
 
   useFrame(() => {
     if (!drift.current) return;
@@ -182,19 +188,19 @@ export default function SpatialHud({ reduced = false }: { reduced?: boolean }) {
 
   return (
     <group>
-      <DottedGrid color={look.color} />
+      <DottedGrid color={look.color} opacity={hasViz ? 0.14 : 0.42} />
 
       {!reduced && (
         <group ref={drift}>
-          <OuterFrame color={look.color} speed={look.ringSpeed} />
+          <OuterFrame color={look.color} speed={look.ringSpeed} dim={hasViz ? 0.45 : 1} />
         </group>
       )}
 
       {/* foreground framing */}
-      <CornerBrackets half={2.62} arm={0.4} z={1.5} color={look.color} opacity={0.35} />
+      <CornerBrackets half={2.62} arm={0.4} z={1.5} color={look.color} opacity={hasViz ? 0.18 : 0.35} />
 
       {/* reticles marking cardinal points of the core */}
-      {!reduced && (
+      {!reduced && !hasViz && (
         <>
           <Reticle position={[-3.05, 1.32, -0.4]} color={look.color} opacity={0.4} />
           <Reticle position={[3.05, -1.32, -0.4]} color={look.color} opacity={0.4} />

@@ -85,7 +85,7 @@ export function Network3D({ nodes = DEFAULT_NODES, links, color, accent }: Spati
               <ringGeometry args={[0.17, 0.185, 24]} />
               <meshBasicMaterial color={color} transparent opacity={0.35} side={DoubleSide} depthWrite={false} />
             </mesh>
-            <TechLabel position={[0, -0.26, 0]} color={color} size={0.055} opacity={0.7} decode>
+            <TechLabel position={[0, -0.3, 0]} color={color} size={0.075} opacity={0.9} decode>
               {data[i].label ?? data[i].id}
             </TechLabel>
           </group>
@@ -134,8 +134,8 @@ export function Globe3D({ points = DEFAULT_GEO, color, accent }: SpatialProps) {
     <group ref={ref} position={[0, 0, -0.6]}>
       <group ref={spin}>
         <mesh>
-          <sphereGeometry args={[R, 32, 24]} />
-          <meshBasicMaterial color={color} wireframe transparent opacity={0.16} toneMapped={false} />
+          <sphereGeometry args={[R, 24, 14]} />
+          <meshBasicMaterial color={color} wireframe transparent opacity={0.22} toneMapped={false} />
         </mesh>
         {markers.map((m) => (
           <group key={m.label} position={m.pos}>
@@ -146,10 +146,10 @@ export function Globe3D({ points = DEFAULT_GEO, color, accent }: SpatialProps) {
               <sphereGeometry args={[0.17, 10, 10]} />
             </mesh>
             <mesh>
-              <sphereGeometry args={[0.05, 10, 10]} />
+              <sphereGeometry args={[0.07, 10, 10]} />
               <meshBasicMaterial color={accent} toneMapped={false} />
             </mesh>
-            <TechLabel position={[0, 0.16, 0]} color={accent} size={0.055} opacity={0.85} decode>
+            <TechLabel position={[0, 0.2, 0]} color={accent} size={0.08} opacity={1} decode>
               {m.label}
             </TechLabel>
           </group>

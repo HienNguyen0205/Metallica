@@ -35,6 +35,7 @@ export default defineConfig({
       testDir: "./tests/ui",
       use: {
         ...devices["Desktop Chrome"],
+        baseURL: "http://localhost:3100",
         viewport: { width: 1440, height: 900 },
         trace: "retain-on-failure",
         screenshot: "only-on-failure",
@@ -46,8 +47,19 @@ export default defineConfig({
   webServer: unitOnly
     ? undefined
     : {
-        command: "npm run build && npm run start",
-        url: "http://localhost:3000",
+        // Port 3100, not 3000: `reuseExistingServer` will happily adopt a
+        // `next dev` server left running on the default port, and then the
+        // suite silently runs against a dev build — slower, and StrictMode's
+        // double-mounting exhausts WebGL contexts until unrelated render tests
+        // start failing. Its own port makes that impossible.
+        command: "npm run build && npx next start -p 3100",
+        url: "http://localhost:3100",
+        // The orchestrator URL is baked in at build time, so the stub in
+        // tests/ui/stubOrchestrator.ts has to bind whatever this names. Point
+        // it at a dedicated port: on :8000 the suite collides with a real
+        // backend a developer has running, and the frontend then silently
+        // takes its offline fallback instead of failing loudly.
+        env: { NEXT_PUBLIC_FRIDAY_API: "http://127.0.0.1:8123" },
         timeout: 420_000,
         reuseExistingServer: !process.env.CI,
         stdout: "pipe",

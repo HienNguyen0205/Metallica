@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useFridayStore } from "@/lib/store";
-import { runQuery } from "@/lib/demoQuery";
+import { runQuery } from "@/lib/agentStream";
 
 export default function InputBar() {
   const [value, setValue] = useState("");

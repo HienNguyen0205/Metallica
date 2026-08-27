@@ -267,7 +267,12 @@ export function TechLabel({
         anchorY="middle"
         letterSpacing={0.16}
         fillOpacity={opacity}
-        outlineWidth={0}
+        // Every label sits over bloom, particles and grid. A thin cut of the
+        // background colour behind the glyphs is what makes them readable —
+        // without it thin type dissolves into whatever glows behind it.
+        outlineWidth={size * 0.12}
+        outlineColor="#02050a"
+        outlineOpacity={opacity * 0.9}
       >
         {text}
       </Text>

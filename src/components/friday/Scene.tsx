@@ -108,8 +108,11 @@ function SceneBody({ reduced, heavy }: { reduced: boolean; heavy: boolean }) {
       <AdaptiveDpr pixelated />
       <AdaptiveEvents />
 
+      {/* autoClear={false} is required by the GodRays pass: it renders an extra
+          internal pass, and without it that pass's occlusion by other objects is
+          computed against a cleared buffer and reads wrong. */}
       {!gpu && (
-        <EffectComposer enableNormalPass={false}>
+        <EffectComposer enableNormalPass={false} autoClear={false}>
           <Bloom intensity={0.75} luminanceThreshold={0.18} luminanceSmoothing={0.85} mipmapBlur radius={0.65} />
           {/* §12 — focus locked on the core, so the outer field softens with
               distance and the composition reads as photographed depth. */}

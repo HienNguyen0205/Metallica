@@ -79,6 +79,18 @@ export interface VizFocus {
   position: [number, number, number];
 }
 
+/**
+ * §11 — a high-risk tool call waiting on the operator. Deliberately not a
+ * FridayState: approval is a question about one tool, not a mode the whole
+ * hologram is in, and the agent stays in TOOL EXECUTION while it waits.
+ */
+export interface PendingConfirm {
+  id: string;
+  tool: string;
+  risk: "low" | "medium" | "high";
+  input: Record<string, unknown>;
+}
+
 /** Actual rendering backend reported by the created renderer. */
 export type RenderBackend = "webgl2" | "webgpu";
 
@@ -108,6 +120,8 @@ export interface FridayStore {
   setVisualization: (viz: VisualizationSpec | null) => void;
   focus: VizFocus | null;
   setFocus: (focus: VizFocus | null) => void;
+  pendingConfirm: PendingConfirm | null;
+  setPendingConfirm: (pending: PendingConfirm | null) => void;
   renderBackend: RenderBackend;
   setRenderBackend: (backend: RenderBackend) => void;
   audioEnabled: boolean;
@@ -127,9 +141,12 @@ export const useFridayStore = create<FridayStore>((set, get) => ({
   setVisualization: (visualization) => set({ visualization }),
   focus: null,
   setFocus: (focus) => set({ focus }),
+  pendingConfirm: null,
+  setPendingConfirm: (pendingConfirm) => set({ pendingConfirm }),
   renderBackend: "webgl2",
   setRenderBackend: (renderBackend) => set({ renderBackend }),
   audioEnabled: true,
   toggleAudio: () => set({ audioEnabled: !get().audioEnabled }),
-  reset: () => set({ state: "idle", answer: null, visualization: null, focus: null }),
+  reset: () =>
+    set({ state: "idle", answer: null, visualization: null, focus: null, pendingConfirm: null }),
 }));

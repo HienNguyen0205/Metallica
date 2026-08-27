@@ -14,7 +14,31 @@ export interface VizProps {
   accent: string;
 }
 
-const ORBIT_RADIUS = 2.95;
+/**
+ * Gauges fan across the frame rather than orbiting on a squashed ellipse.
+ *
+ * The orbit put half the metrics behind the other half — with four metrics
+ * they paired up and overlapped — and the 1.15-unit depth spread meant
+ * perspective drew equal-weight gauges at visibly different sizes, which
+ * reads as a ranking that is not in the data.
+ */
+const FAN_RADIUS = 3.4;
+const FAN_SPAN = 2.2;
+/** Past this many gauges a single row collides; alternate rows instead. */
+const STAGGER_FROM = 6;
+
+function fanPosition(index: number, count: number): [number, number, number] {
+  const t = count < 2 ? 0.5 : index / (count - 1);
+  const a = (t - 0.5) * FAN_SPAN;
+  const stagger = count >= STAGGER_FROM && index % 2 === 1 ? -0.62 : 0;
+  return [
+    Math.sin(a) * FAN_RADIUS,
+    // shallow dome — outer gauges ride a little lower, so the row curves
+    // around the core instead of cutting a flat line through it
+    (Math.cos(a) - 1) * 0.9 + 0.35 + stagger,
+    (Math.cos(a) - 1) * 0.5,
+  ];
+}
 
 /** One metric as a segmented gauge node orbiting the core, wired back to it. */
 function MetricNode({
@@ -28,14 +52,7 @@ function MetricNode({
   metric: MetricDatum;
   color: string;
 }) {
-  // Offset by half a step: on 90° boundaries two nodes land dead centre —
-  // one buried behind the core, one pasted over it. Half-stepping keeps every
-  // node clear of the core silhouette and pulls the outermost ones inward,
-  // away from the edge HUD.
-  const angle = ((index + 0.5) / count) * Math.PI * 2 - Math.PI / 2;
-  const x = Math.cos(angle) * ORBIT_RADIUS;
-  const z = Math.sin(angle) * ORBIT_RADIUS * 0.55;
-  const y = Math.sin(index * 1.7) * 0.35;
+  const [x, y, z] = fanPosition(index, count);
 
   const groupRef = useMaterialize(0.7, true, index * 0.18);
   const bobRef = useRef<Group>(null);
@@ -83,16 +100,25 @@ function MetricNode({
                 span={-Math.PI * 2}
               />
               <TickDial radius={0.46} count={36} color={color} opacity={0.25} length={0.032} />
-              <Text fontSize={0.15} color="#e5f6ff" anchorX="center" anchorY="middle">
+              <Text
+                fontSize={0.15}
+                color="#e5f6ff"
+                anchorX="center"
+                anchorY="middle"
+                outlineWidth={0.018}
+                outlineColor="#02050a"
+              >
                 {`${Math.round(metric.value)}${metric.unit ?? ""}`}
               </Text>
               <Text
-                fontSize={0.06}
+                fontSize={0.082}
                 color={color}
                 anchorX="center"
                 anchorY="middle"
-                position={[0, -0.58, 0]}
+                position={[0, -0.62, 0]}
                 letterSpacing={0.18}
+                outlineWidth={0.01}
+                outlineColor="#02050a"
               >
                 {metric.label.toUpperCase()}
               </Text>

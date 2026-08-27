@@ -112,7 +112,8 @@ export async function textContrast(
 
 /** DOM-level readiness. Cheap — use for tests that never read pixels. */
 export async function gotoScene(page: Page) {
-  await page.goto("http://localhost:3000");
+  // relative: the port lives in playwright.config.ts (baseURL)
+  await page.goto("/");
   await page.waitForSelector("canvas");
   await page.waitForTimeout(1200);
 }
