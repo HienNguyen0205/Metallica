@@ -31,6 +31,7 @@ built with Next.js 16, React Three Fiber and a spec-driven rendering architectur
   - [Guarded agent state machine](#guarded-agent-state-machine)
   - [Scene composition](#scene-composition)
   - [Rendering backends & graceful degradation](#rendering-backends--graceful-degradation)
+  - [Voice](#voice)
 - [Visualizations](#visualizations)
 - [Testing](#testing)
 - [Project Structure](#project-structure)
@@ -63,8 +64,9 @@ to the current state.
 - 🔮 **Holographic core** — 8 stacked layers: distorted energy sphere, wireframe
   lattice, fresnel + scanline shader shell, tilted ring system, one-draw-call
   GPU particle field (950 particles), instanced waveform ring (96 bars).
-- 🎨 **3 custom GLSL materials** — fresnel hologram, dotted grid plane with
-  radial ripples, GPU-animated particle field; all with WebGPU-safe fallbacks.
+- 🎨 **4 TSL node materials** — fresnel hologram, dotted grid plane with radial
+  ripples, GPU-animated particle field, noise-displaced energy core; one node
+  graph each, compiled to WGSL or GLSL by whichever backend loaded.
 - 📊 **10 visualization types** — gauges, health rings, radar sweep, waveform,
   network graph, 3D line/bar charts, particle flow, globe, timeline — selected
   by a rules-based query planner via a typed `VisualizationSpec`.
@@ -75,6 +77,8 @@ to the current state.
   vignette overlays.
 - 🎛️ **Live telemetry** — FPS, worst-frame time, JS heap, downlink and camera
   vector sampled at 4 Hz outside React's render loop.
+- 🎙️ **Voice in and out** — press the mic, speak, and the transcript starts a
+  turn; the reply is read back. Browser-native, so no key and no cost.
 - 🔊 **Audio cues** — WebAudio oscillator blips per state change, no assets.
 - ♿ **Accessibility & responsiveness** — WCAG AA contrast enforced by tests;
   mobile / `prefers-reduced-motion` falls back to a simplified scene.
@@ -260,6 +264,32 @@ Also degrading, unchanged:
 - `(max-width: 768px)` or `prefers-reduced-motion` → reduced mode (lower DPR,
   fewer particles, simplified HUD).
 - `webglcontextlost` → canvas rebuilt automatically via key remount.
+
+### Voice
+
+`LISTENING` and `SPEAKING` are driven by the browser's own engines
+(`src/lib/voice.ts`) — `SpeechRecognition` in, `speechSynthesis` out. No key,
+no cost, no extra backend hop, and the orchestrator is untouched: a spoken
+question enters `runQuery()` exactly where a typed one does.
+
+Two consequences worth knowing before relying on it:
+
+- **Chromium only.** Firefox has no `SpeechRecognition`; Safari's is partial.
+  The mic button reads the capability at mount and disables itself where the
+  API is absent, rather than offering a control that cannot work.
+- **Chrome's recogniser uploads the audio to Google.** That is the same
+  boundary the questions already cross on their way to Gemini, so it adds no
+  new one — but it is not on-device processing. Moving to hosted Whisper later
+  means replacing `startListening`; callers only ever see a transcript string.
+
+Only a spoken question gets a spoken answer. A typed one stays silent, and the
+answer is held on screen until the utterance finishes instead of for a fixed
+beat, so the HUD no longer returns to `IDLE` mid-sentence.
+
+Not wired yet: `WaveformRing` still synthesises its amplitude. Its `getLevel`
+prop is the seam for a real `AnalyserNode`, which needs a second `getUserMedia`
+stream — deliberately skipped, since the ring already reads correctly and a
+cosmetic level meter is not worth a second microphone path.
 
 ## Visualizations
 

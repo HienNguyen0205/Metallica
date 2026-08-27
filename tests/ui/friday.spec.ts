@@ -342,3 +342,96 @@ test("interactive controls are labelled and reachable", async ({ page }) => {
   await input.focus();
   await expect(input).toBeFocused();
 });
+
+// ---------- §12/§13 voice ----------
+
+/**
+ * Stands in for Chrome's `SpeechRecognition`, which Playwright cannot drive:
+ * there is no way to feed real audio to the recogniser, and the browser under
+ * test has no engine behind it. The stub exposes `__mic` so a test can fire the
+ * transcript the real engine would have produced.
+ *
+ * Deliberately faithful about the details that broke the wiring in practice:
+ * `onend` fires after `onresult`, and `abort()` fires `onend` without a result.
+ */
+async function stubMicrophone(page: import("@playwright/test").Page) {
+  await page.addInitScript(() => {
+    class FakeRecognition {
+      lang = "";
+      continuous = false;
+      interimResults = false;
+      onresult: ((e: unknown) => void) | null = null;
+      onerror: ((e: { error: string }) => void) | null = null;
+      onend: (() => void) | null = null;
+
+      start() {
+        (window as unknown as { __mic?: unknown }).__mic = this;
+      }
+      stop() {
+        this.onend?.();
+      }
+      abort() {
+        this.onerror?.({ error: "aborted" });
+        this.onend?.();
+      }
+      say(transcript: string) {
+        this.onresult?.({
+          resultIndex: 0,
+          results: { length: 1, 0: { 0: { transcript }, isFinal: true } },
+        });
+        this.onend?.();
+      }
+    }
+    (window as unknown as { SpeechRecognition: unknown }).SpeechRecognition = FakeRecognition;
+    // nothing here should ever actually talk during a test run
+    (window as unknown as { speechSynthesis: unknown }).speechSynthesis = {
+      speak: (u: { onend?: () => void }) => u.onend?.(),
+      cancel: () => {},
+    };
+  });
+}
+
+test.describe("voice input", () => {
+  let stub: StubHandle;
+
+  test.beforeAll(async () => {
+    stub = await startStubOrchestrator(TOOL_FLOW);
+  });
+  test.afterAll(async () => {
+    await stub.close();
+  });
+
+  test.beforeEach(async ({ page }) => {
+    await stubMicrophone(page);
+    await gotoScene(page);
+  });
+
+  test("the microphone button opens a real recogniser and its transcript starts a turn", async ({
+    page,
+  }) => {
+    const mic = page.getByRole("button", { name: "Toggle microphone" });
+    await mic.click();
+
+    // the HUD must reflect that it is listening, and a recogniser must exist —
+    // the button used to do only the former, which is what made it a prop
+    await expect(page.getByTestId("hud-state")).toHaveText("LISTENING");
+    expect(await page.evaluate(() => !!(window as unknown as { __mic?: unknown }).__mic)).toBe(true);
+
+    await page.evaluate(() =>
+      (window as unknown as { __mic: { say: (t: string) => void } }).__mic.say("check the system"),
+    );
+
+    // a spoken phrase has to reach the orchestrator like a typed one
+    await expect.poll(() => stub.queries, { timeout: 15_000 }).toContain("check the system");
+    await expect(page.locator("p.answer-rise")).toBeVisible({ timeout: 15_000 });
+  });
+
+  test("aborting returns the interface to idle rather than stranding it", async ({ page }) => {
+    const mic = page.getByRole("button", { name: "Toggle microphone" });
+    await mic.click();
+    await expect(page.getByTestId("hud-state")).toHaveText("LISTENING");
+
+    await mic.click();
+    await expect(page.getByTestId("hud-state")).toHaveText("IDLE");
+  });
+});

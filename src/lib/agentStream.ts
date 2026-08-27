@@ -1,5 +1,6 @@
 import type { FridayStore } from "@/lib/store";
 import { planVisualization, summarize } from "@/lib/vizPlanner";
+import { speak, stopSpeaking } from "@/lib/voice";
 import { streamQuery, confirmDecision, warnIfMisconfigured } from "@/lib/api/fridayClient";
 import type { FridayEvent } from "@/lib/agent/events";
 import { normalizeVisualization } from "@/lib/visualization/normalization";
@@ -67,8 +68,16 @@ function dispatch(store: FlowStore, event: FridayEvent): void {
 /**
  * §9 — drives the state machine from backend events.
  * Falls back to the local rules planner when the orchestrator is unreachable.
+ *
+ * `voice` is set when the question arrived through the microphone, and only
+ * then is the answer read back. A typed question gets a silent reply — nobody
+ * types at a machine expecting it to start talking.
  */
-export async function runQuery(store: FlowStore, query: string, signal?: AbortSignal) {
+export async function runQuery(
+  store: FlowStore,
+  query: string,
+  { signal, voice = false }: { signal?: AbortSignal; voice?: boolean } = {},
+) {
   const { setAnswer, setVisualization, setPendingConfirm } = store;
 
   setAnswer(null);
@@ -80,9 +89,10 @@ export async function runQuery(store: FlowStore, query: string, signal?: AbortSi
   store.setSessionError?.(null);
   store.setToolActivity?.(null);
   store.setLiveMode?.("connecting");
+  stopSpeaking();
   warnIfMisconfigured();
 
-  let answered = false;
+  let spoken: string | null = null;
   let hadLiveStream = false;
 
   try {
@@ -92,7 +102,7 @@ export async function runQuery(store: FlowStore, query: string, signal?: AbortSi
         hadLiveStream = true;
         // first successful event confirms liveness
         if (store.setLiveMode) store.setLiveMode("live");
-        if (ev.type === "answer") answered = true;
+        if (ev.type === "answer") spoken = ev.text;
         dispatch(store, ev);
       },
       onError: (msg) => {
@@ -115,12 +125,14 @@ export async function runQuery(store: FlowStore, query: string, signal?: AbortSi
     }
     console.warn("[friday] orchestrator unreachable, using local rules planner:", err);
     store.setLiveMode?.("offline");
-    await runLocal(store, query);
+    await runLocal(store, query, voice);
     return;
   }
 
-  // Keep answer visible briefly before settling
-  if (answered) await wait(3600);
+  // The answer is held until it has been read out, rather than for a fixed
+  // beat — a two-sentence reply outlasts 3.6s and would otherwise be cleared,
+  // and the HUD returned to IDLE, while FRIDAY was still talking.
+  if (spoken) await (voice ? speak(spoken) : wait(3600));
   store.transition("idle");
   setAnswer(null);
   // Visualization persists until next query per §8 error handling (brief says don't wipe on error, but for success we clear after idle)
@@ -143,7 +155,7 @@ export async function decide(id: string, approved: boolean) {
 }
 
 /** The pre-backend scripted flow, kept as the offline demo path. */
-async function runLocal(store: FlowStore, query: string) {
+async function runLocal(store: FlowStore, query: string, voice = false) {
   const { transition, setAnswer } = store;
   const setVis = (s: unknown) => {
     const spec = s as import("@/lib/store").VisualizationSpec;
@@ -167,9 +179,10 @@ async function runLocal(store: FlowStore, query: string) {
   setVis(spec);
   await wait(1500);
 
+  const answer = summarize(spec);
   transition("speaking");
-  setAnswer(summarize(spec));
-  await wait(3600);
+  setAnswer(answer);
+  await (voice ? speak(answer) : wait(3600));
 
   transition("idle");
   setAnswer(null);

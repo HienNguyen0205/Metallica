@@ -125,6 +125,8 @@ export interface StubHandle {
   server: Server;
   /** Decisions received on POST /confirm, in order. */
   decisions: { id: string; approved: boolean }[];
+  /** Query strings received on POST /query, in order. */
+  queries: string[];
   close: () => Promise<void>;
 }
 
@@ -136,6 +138,7 @@ export async function startStubOrchestrator(
   port = STUB_PORT,
 ): Promise<StubHandle> {
   const decisions: { id: string; approved: boolean }[] = [];
+  const queries: string[] = [];
   // Tests may end while an SSE response is still open (an approval prompt that
   // is never answered). Those sockets have to be destroyed explicitly or the
   // port is still held when the next test binds it — which shows up as the
@@ -170,7 +173,12 @@ export async function startStubOrchestrator(
       return;
     }
 
-    await readBody(req);
+    const queryBody = await readBody(req);
+    try {
+      queries.push(String(JSON.parse(queryBody).query ?? ""));
+    } catch {
+      // a body we cannot parse is not worth failing the stub over
+    }
     res.writeHead(200, { ...cors, "content-type": "text/event-stream", "cache-control": "no-cache" });
 
     for (const frame of script) {
@@ -207,6 +215,7 @@ export async function startStubOrchestrator(
   return {
     server,
     decisions,
+    queries,
     close: () =>
       new Promise<void>((resolve) => {
         for (const socket of sockets) socket.destroy();
