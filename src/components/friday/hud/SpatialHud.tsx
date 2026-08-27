@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { useFrame, useThree } from "@react-three/fiber";
 import { DoubleSide, type Group, type Mesh } from "three";
 import { useFridayStore } from "@/lib/store";
@@ -12,32 +12,23 @@ import {
   Reticle,
   TechLabel,
   TickDial,
-  useRenderCompat,
 } from "../primitives";
-import "../effects/materials";
-
-interface GridUniforms {
-  uTime: number;
-}
+import { createHoloGridMaterial } from "../effects/materials";
 
 /** §3 background layer — dotted grid far behind the core, one draw call. */
 function DottedGrid({ color, opacity = 0.42 }: { color: string; opacity?: number }) {
-  const matRef = useRef<GridUniforms>(null);
-  const compat = useRenderCompat();
-  useFrame((_, delta) => {
-    if (matRef.current) matRef.current.uTime += delta;
-  });
+  // This layer used to disappear entirely on WebGPU — the dot pattern lives in
+  // the fragment shader and there was no node equivalent to swap in. As TSL it
+  // renders on both backends, which is the point of the move.
+  const { material, apply } = useMemo(() => createHoloGridMaterial({ opacity }), [opacity]);
 
-  // The dot pattern only exists in the fragment shader, so there is no
-  // node-material equivalent to swap in — a flat plane would read as a grey
-  // wall, not a grid. This layer is ambient depth cueing; dropping it degrades
-  // the scene far less than breaking the renderer does.
-  if (compat) return null;
+  useEffect(() => () => material.dispose(), [material]);
+  useFrame(() => apply(color));
 
   return (
     <mesh position={[0, 0, -4.5]}>
       <planeGeometry args={[26, 16]} />
-      <holoGridMaterial ref={matRef} uColor={color} uOpacity={opacity} transparent depthWrite={false} />
+      <primitive object={material} attach="material" />
     </mesh>
   );
 }

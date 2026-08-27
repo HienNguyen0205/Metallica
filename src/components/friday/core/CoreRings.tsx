@@ -1,17 +1,12 @@
 "use client";
 
-import { useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
 import type { Group, Mesh } from "three";
 import { ArcSegments, TickDial } from "../primitives";
-import "../effects/materials";
+import { createHologramMaterial } from "../effects/materials";
 
-interface HoloUniforms {
-  uTime: number;
-  uScanSpeed: number;
-}
-
-/** A single tilted torus using the hologram shader (or a basic ring in compat mode). */
+/** A single tilted torus using the hologram material. */
 function HoloRing({
   radius,
   speed,
@@ -19,7 +14,6 @@ function HoloRing({
   color,
   thickness = 0.012,
   scanSpeed = 0.6,
-  compat = false,
 }: {
   radius: number;
   speed: number;
@@ -27,27 +21,23 @@ function HoloRing({
   color: string;
   thickness?: number;
   scanSpeed?: number;
-  compat?: boolean;
 }) {
   const ref = useRef<Mesh>(null);
-  const matRef = useRef<HoloUniforms>(null);
+  // built once; colour and scan speed arrive as uniforms so a state change does
+  // not recompile the shader
+  const { material, apply } = useMemo(() => createHologramMaterial({}), []);
+
+  useEffect(() => () => material.dispose(), [material]);
 
   useFrame((_, delta) => {
     if (ref.current) ref.current.rotation.z += delta * speed;
-    if (matRef.current && !compat) {
-      matRef.current.uTime += delta;
-      matRef.current.uScanSpeed = scanSpeed;
-    }
+    apply(color, scanSpeed);
   });
 
   return (
     <mesh ref={ref} rotation={tilt}>
       <torusGeometry args={[radius, thickness, 8, 128]} />
-      {compat ? (
-        <meshBasicMaterial color={color} transparent opacity={0.45} toneMapped={false} depthWrite={false} />
-      ) : (
-        <hologramMaterial ref={matRef} uColor={color} transparent depthWrite={false} />
-      )}
+      <primitive object={material} attach="material" />
     </mesh>
   );
 }
@@ -107,13 +97,11 @@ export default function CoreRings({
   accent,
   speed,
   scanSpeed,
-  compat = false,
 }: {
   color: string;
   accent: string;
   speed: number;
   scanSpeed: number;
-  compat?: boolean;
 }) {
   return (
     <group>
@@ -123,9 +111,9 @@ export default function CoreRings({
       </group>
 
       {/* mid hologram rings on three different planes */}
-      <HoloRing radius={1.28} speed={speed} tilt={[Math.PI / 2.3, 0, 0]} color={color} scanSpeed={scanSpeed} compat={compat} />
-      <HoloRing radius={1.55} speed={-speed * 0.7} tilt={[Math.PI / 3, Math.PI / 5, 0]} color={accent} thickness={0.008} scanSpeed={scanSpeed} compat={compat} />
-      <HoloRing radius={1.82} speed={speed * 0.45} tilt={[-Math.PI / 2.6, 0, Math.PI / 6]} color={color} thickness={0.006} scanSpeed={scanSpeed} compat={compat} />
+      <HoloRing radius={1.28} speed={speed} tilt={[Math.PI / 2.3, 0, 0]} color={color} scanSpeed={scanSpeed} />
+      <HoloRing radius={1.55} speed={-speed * 0.7} tilt={[Math.PI / 3, Math.PI / 5, 0]} color={accent} thickness={0.008} scanSpeed={scanSpeed} />
+      <HoloRing radius={1.82} speed={speed * 0.45} tilt={[-Math.PI / 2.6, 0, Math.PI / 6]} color={color} thickness={0.006} scanSpeed={scanSpeed} />
 
       {/* dashed technical rings */}
       <SpinningArcs radius={1.42} speed={-speed * 1.4} tilt={[Math.PI / 2.3, 0, 0]} color={color} count={64} gap={0.55} thickness={0.012} opacity={0.4} majorEvery={8} />

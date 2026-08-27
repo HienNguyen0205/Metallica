@@ -86,8 +86,9 @@ to the current state.
 | Layer | Technology |
 |---|---|
 | Framework | [Next.js 16](https://nextjs.org) (App Router) · [React 19](https://react.dev) |
-| 3D | [Three.js r185](https://threejs.org) · [@react-three/fiber 9](https://docs.pmnd.rs/react-three-fiber) · [@react-three/drei 10](https://github.com/pmndrs/drei) |
-| Post-processing | [@react-three/postprocessing](https://github.com/pmndrs/postprocessing) |
+| 3D | [Three.js r185](https://threejs.org) `WebGPURenderer` · [@react-three/fiber 9](https://docs.pmnd.rs/react-three-fiber) · [@react-three/drei 10](https://github.com/pmndrs/drei) |
+| Shaders | [TSL](https://github.com/mrdoob/three.js/wiki/Three.js-Shading-Language) node materials (compile to WGSL **and** GLSL) |
+| Post-processing | three.js node pipeline (`RenderPipeline` + TSL passes) |
 | State | [Zustand 5](https://zustand.docs.pmnd.rs) |
 | Styling | [Tailwind CSS 4](https://tailwindcss.com) (CSS-first `@theme`) |
 | Language | TypeScript (strict) |
@@ -140,7 +141,7 @@ npm run start
 
 | Variable | Where | Default | Description |
 |---|---|---|---|
-| `NEXT_PUBLIC_WEBGPU` | frontend | unset | **Experimental, currently broken — leave unset.** See below. |
+| `NEXT_PUBLIC_FORCE_WEBGL` | frontend | unset | Set to `1` to pin the renderer to its WebGL2 backend. An escape hatch for debugging; leave unset. |
 | `NEXT_PUBLIC_FRIDAY_API` | frontend | `http://localhost:8000` | Orchestrator base URL, **inlined at build time**. When unreachable the UI falls back to the local rules planner with canned data. |
 
 Copy `.env.example` to `.env.local` to set these for local development. Real
@@ -215,20 +216,47 @@ recover only through `idle`. See [`docs/STATE_MACHINE.md`](docs/STATE_MACHINE.md
 One route (`/`) mounts a single `<Canvas>` (dynamically imported, `ssr: false`)
 containing: state-driven lights, an eased pointer-parallax `CameraRig`, the
 in-scene `SpatialHud`, the 8-layer `FridayCore`, the active visualization, and
-a post-processing stack (WebGL path only).
+a post-processing stack.
 
 ### Rendering backends & graceful degradation
 
-- **WebGL2 by default**, always. Software renderers are detected and the heavy
-  post-processing passes are skipped.
-- **WebGPU (`NEXT_PUBLIC_WEBGPU=1`) is experimental and currently broken.**
-  The fallback only covers WebGPU being *unavailable*; if the browser supports
-  it, the renderer is created and then fails — custom GLSL `ShaderMaterial`s
-  cannot be compiled by three's `NodeBuilder`, which cascades into invalid
-  draw calls and destroyed-buffer submits. `useRenderCompat()` in
-  `primitives.tsx` is how a component opts out of GLSL, but not every layer has
-  a node-material equivalent yet, and the path has never been verified on real
-  hardware. Leave the flag unset.
+**WebGPU-first, WebGL2 fallback — one code path, not two.**
+
+There is a single renderer class, three's `WebGPURenderer`. It runs on its
+WebGPU backend where the browser gives up an adapter and on its own WebGL2
+backend where it does not, and the choice is made once at startup:
+
+```
+adapter? ──yes──> WebGPU backend ──device init fails──┐
+   │no                                                 │
+   └─────────────────> WebGL2 backend <────────────────┘
+```
+
+Every material in the scene is **TSL**, which compiles to WGSL or GLSL from the
+same node graph, so both backends draw the same scene. `RENDER · <backend>` in
+the HUD reports the backend that actually loaded — not the renderer class,
+which claims `isWebGPURenderer` on both.
+
+This replaced a dual-renderer arrangement in which the WebGPU branch swapped in
+different materials, dropped the background grid entirely and skipped the whole
+post-processing chain. That branch shared almost no code with the one the tests
+exercised, which is exactly why it shipped broken. Now the fallback path is the
+same code, so the test suite covers all of it but the WGSL backend itself.
+
+Two libraries could not come along, both for the same reason — they build
+materials by splicing strings into GLSL, which a node material never runs:
+
+| Dropped | Replaced by |
+|---|---|
+| `@react-three/postprocessing` | `RenderPipeline` + TSL passes (`effects/PostFX.tsx`) |
+| drei `<Text>` (troika) | canvas-texture labels (`effects/textTexture.ts`) |
+| drei `<Line>` (Line2 + `LineMaterial`) | three's WebGPU `Line2` + `Line2NodeMaterial` |
+| drei `MeshDistortMaterial` | `createCoreMaterial()`, TSL noise displacement |
+
+Also degrading, unchanged:
+
+- Software renderers (SwiftShader / llvmpipe) are detected and the heavy
+  passes — depth of field, god rays — are skipped.
 - `(max-width: 768px)` or `prefers-reduced-motion` → reduced mode (lower DPR,
   fewer particles, simplified HUD).
 - `webglcontextlost` → canvas rebuilt automatically via key remount.

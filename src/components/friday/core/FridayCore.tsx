@@ -1,8 +1,7 @@
 "use client";
 
-import { useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
-import { MeshDistortMaterial } from "@react-three/drei";
 import { type Group, type Mesh } from "three";
 import { useFridayStore } from "@/lib/store";
 import { STATE_LOOK } from "@/lib/stateLook";
@@ -10,11 +9,8 @@ import CoreParticles from "./CoreParticles";
 import CoreRings from "./CoreRings";
 import WaveformRing from "./WaveformRing";
 import { TechLabel } from "../primitives";
-import "../effects/materials";
+import { createCoreMaterial, createHologramMaterial } from "../effects/materials";
 
-interface HoloUniforms {
-  uTime: number;
-}
 
 /** How far the core withdraws behind an active visualization. */
 const VIZ_SCALE = 0.4;
@@ -22,15 +18,12 @@ const VIZ_SCALE = 0.4;
 /**
  * §2 — the central hologram. Eight stacked layers so it reads as a complex
  * technological object rather than a glowing ball.
- * `compat` swaps GLSL-only materials for WebGPU-safe equivalents.
  */
 export default function FridayCore({
   particleCount = 900,
-  compat = false,
   onCoreMesh,
 }: {
   particleCount?: number;
-  compat?: boolean;
   /** Publishes the core mesh so the god-ray pass can use it as its light source. */
   onCoreMesh?: (mesh: Mesh | null) => void;
 }) {
@@ -50,14 +43,28 @@ export default function FridayCore({
     ? { ...base, glow: base.glow * 0.5, particleIntensity: base.particleIntensity * 0.5 }
     : base;
 
+  // Built once each. Everything the state look drives is a uniform, so a
+  // transition re-tints these rather than recompiling two shaders mid-frame.
+  const coreMat = useMemo(() => createCoreMaterial(), []);
+  const shellMat = useMemo(() => createHologramMaterial({ fresnelPower: 1.6, wireframe: true }), []);
+
+  useEffect(() => {
+    return () => {
+      coreMat.material.dispose();
+      shellMat.material.dispose();
+    };
+  }, [coreMat, shellMat]);
+
   const groupRef = useRef<Group>(null);
   const coreRef = useRef<Mesh>(null);
   const shellRef = useRef<Mesh>(null);
-  const shellMatRef = useRef<HoloUniforms>(null);
   const innerShellRef = useRef<Mesh>(null);
 
   useFrame((_, delta) => {
     const t = performance.now() * 0.001;
+
+    coreMat.apply(look.color, look.glow, look.coreDistort, look.coreSpeed);
+    shellMat.apply(look.color, look.scanSpeed);
 
     if (coreRef.current) {
       coreRef.current.scale.setScalar(1 + Math.sin(t * look.coreSpeed) * 0.05);
@@ -71,7 +78,6 @@ export default function FridayCore({
       innerShellRef.current.rotation.y += delta * (0.1 + look.ringSpeed * 0.4);
       innerShellRef.current.rotation.z -= delta * 0.05;
     }
-    if (shellMatRef.current && !compat) shellMatRef.current.uTime += delta;
 
     if (groupRef.current) {
       // eased, so handing the stage over reads as a move, not a cut
@@ -101,25 +107,7 @@ export default function FridayCore({
         }}
       >
         <sphereGeometry args={[0.5, 48, 48]} />
-        {compat ? (
-          <meshStandardMaterial
-            color={look.color}
-            emissive={look.color}
-            emissiveIntensity={look.glow}
-            roughness={0.25}
-            metalness={0.3}
-          />
-        ) : (
-          <MeshDistortMaterial
-            color={look.color}
-            emissive={look.color}
-            emissiveIntensity={look.glow}
-            distort={look.coreDistort}
-            speed={look.coreSpeed}
-            roughness={0.2}
-            metalness={0.4}
-          />
-        )}
+        <primitive object={coreMat.material} attach="material" />
       </mesh>
 
       {/* layer 2 — inner lattice */}
@@ -131,18 +119,14 @@ export default function FridayCore({
       {/* fresnel shell */}
       <mesh ref={shellRef}>
         <icosahedronGeometry args={[0.86, 2]} />
-        {compat ? (
-          <meshBasicMaterial color={look.color} wireframe transparent opacity={0.22} toneMapped={false} depthWrite={false} />
-        ) : (
-          <hologramMaterial ref={shellMatRef} uColor={look.color} uFresnelPower={1.6} transparent depthWrite={false} wireframe />
-        )}
+        <primitive object={shellMat.material} attach="material" />
       </mesh>
 
       {/* layer 3 + 5 — ring system and dials */}
-      <CoreRings color={look.color} accent={look.accent} speed={look.ringSpeed} scanSpeed={look.scanSpeed} compat={compat} />
+      <CoreRings color={look.color} accent={look.accent} speed={look.ringSpeed} scanSpeed={look.scanSpeed} />
 
       {/* layer 4 — orbital particle field */}
-      <CoreParticles count={particleCount} color={look.color} intensity={look.particleIntensity} compat={compat} />
+      <CoreParticles count={particleCount} color={look.color} intensity={look.particleIntensity} />
 
       {/* layer 7 — audio-reactive outer ring */}
       <group rotation={[Math.PI / 2.15, 0, 0]}>

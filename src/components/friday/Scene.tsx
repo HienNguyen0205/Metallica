@@ -3,23 +3,14 @@
 import { useEffect, useRef, useState } from "react";
 import { Canvas, useFrame } from "@react-three/fiber";
 import { AdaptiveDpr, AdaptiveEvents } from "@react-three/drei";
-import {
-  Bloom,
-  DepthOfField,
-  GodRays,
-  ChromaticAberration,
-  EffectComposer,
-  Noise,
-  Vignette,
-} from "@react-three/postprocessing";
-import { Vector2, Vector3, type Mesh } from "three";
+import { type Mesh } from "three";
 import { useFridayStore } from "@/lib/store";
 import { STATE_CAMERA, STATE_LOOK } from "@/lib/stateLook";
-import { createRenderer, detectWebGPU, webgpuRequested } from "@/lib/rendererBackend";
+import { createRenderer } from "@/lib/rendererBackend";
 import FridayCore from "./core/FridayCore";
 import SpatialHud from "./hud/SpatialHud";
 import FridayVisualization from "./visualization/FridayVisualization";
-import { RenderCompatProvider } from "./primitives";
+import PostFX from "./effects/PostFX";
 import { reportCamera } from "@/lib/telemetry";
 
 /**
@@ -67,10 +58,6 @@ function StateLights() {
   );
 }
 
-const CHROMA = new Vector2(0.0012, 0.0012);
-/** The core sits at the origin; focus never leaves it. */
-const FOCUS_TARGET = new Vector3(0, 0, 0);
-
 /** SwiftShader / llvmpipe rasterise on the CPU — skip the expensive passes. */
 function isSoftwareRenderer(gl: { getContext?: () => WebGLRenderingContext }): boolean {
   try {
@@ -85,8 +72,13 @@ function isSoftwareRenderer(gl: { getContext?: () => WebGLRenderingContext }): b
 }
 
 /**
- * Everything inside the canvas. On WebGPU the GLSL-only pieces
- * (post-processing chain, hologram shaders) swap for compatible materials.
+ * Everything inside the canvas.
+ *
+ * There is no backend branch here any more. The renderer is always
+ * `WebGPURenderer` — on its WebGPU backend where an adapter exists, on its
+ * WebGL2 backend otherwise — and every material below is TSL, so both backends
+ * draw the same scene. The old `compat` prop threading and the WebGPU-only
+ * bypass of the whole post chain are gone with it.
  */
 function SceneBody({
   reduced,
@@ -97,12 +89,11 @@ function SceneBody({
   heavy: boolean;
   denseDisplay: boolean;
 }) {
-  const gpu = useFridayStore((s) => s.renderBackend === "webgpu");
   // the core mesh doubles as the god-ray light source
   const [sun, setSun] = useState<Mesh | null>(null);
 
   return (
-    <RenderCompatProvider value={gpu}>
+    <>
       <color attach="background" args={["#02050a"]} />
       <fog attach="fog" args={["#02050a", 7, 16]} />
 
@@ -110,7 +101,7 @@ function SceneBody({
       <CameraRig reduced={reduced} />
 
       <SpatialHud reduced={reduced} />
-      <FridayCore particleCount={reduced ? 260 : 950} compat={gpu} onCoreMesh={setSun} />
+      <FridayCore particleCount={reduced ? 260 : 950} onCoreMesh={setSun} />
       <FridayVisualization />
 
       {/* No `pixelated`: it stamps image-rendering:pixelated on the canvas while
@@ -119,64 +110,8 @@ function SceneBody({
       <AdaptiveDpr />
       <AdaptiveEvents />
 
-      {/* autoClear={false} is required by the GodRays pass: it renders an extra
-          internal pass, and without it that pass's occlusion by other objects is
-          computed against a cleared buffer and reads wrong. */}
-      {!gpu && (
-        <EffectComposer
-          enableNormalPass={false}
-          autoClear={false}
-          // Measured, not assumed: at dpr 2 the wireframe lattice looks like it
-          // should not need MSAA — 4x the samples per CSS pixel already. It
-          // does. Without it the lines break into visible stair-steps, while an
-          // edge-energy metric reads *higher* (aliasing is high-frequency too),
-          // so this one has to be checked by eye.
-          multisampling={4}
-        >
-          <Bloom
-            intensity={0.75}
-            luminanceThreshold={0.18}
-            luminanceSmoothing={0.85}
-            mipmapBlur
-            radius={0.65}
-            resolutionScale={denseDisplay ? 0.5 : 1}
-          />
-          {/* §12 — focus locked on the core, so the outer field softens with
-              distance and the composition reads as photographed depth. */}
-          {/* §13 volumetric shafts radiating out of the core. Weight and
-              exposure stay low — this should read as light in the air, not
-              as a lens flare washing the HUD out. */}
-          {heavy && sun ? (
-            <GodRays
-              sun={sun}
-              samples={30}
-              density={0.9}
-              decay={0.92}
-              weight={0.28}
-              exposure={0.2}
-              clampMax={0.85}
-              blur
-              resolutionScale={denseDisplay ? 0.5 : 1}
-            />
-          ) : (
-            <></>
-          )}
-          {heavy ? (
-            /* Deep focal range on purpose: a shallow one (0.06) blurred the
-               spatial labels into mush. Only the far field softens. */
-            <DepthOfField target={FOCUS_TARGET} focalLength={0.42} bokehScale={1.1} height={720} />
-          ) : (
-            <></>
-          )}
-          {/* Radial, not uniform: a flat offset splits the tiny centre labels
-              into red/cyan ghosts. Clean out to 40% radius, lens fringing
-              only toward the edges. */}
-          <ChromaticAberration offset={CHROMA} radialModulation modulationOffset={0.4} />
-          <Noise opacity={reduced ? 0.012 : 0.022} />
-          <Vignette eskil={false} offset={0.22} darkness={0.92} />
-        </EffectComposer>
-      )}
-    </RenderCompatProvider>
+      <PostFX heavy={heavy} reduced={reduced} denseDisplay={denseDisplay} sun={sun} />
+    </>
   );
 }
 
@@ -184,7 +119,6 @@ export default function Scene() {
   // §19 — mobile gets a simplified scene, not a shrunken desktop one
   const [reduced, setReduced] = useState(false);
   const [ctxKey, setCtxKey] = useState(0);
-  const [preferGPU, setPreferGPU] = useState(false);
   // Tri-state on purpose. Defaulting to "capable" would mount the depth-of-field
   // pass for the first frames and tear it down once detection ran, and adding
   // then removing a pass mid-composer leaves the GL state inconsistent.
@@ -213,20 +147,10 @@ export default function Scene() {
     return () => mq.removeEventListener("change", apply);
   }, []);
 
-  useEffect(() => {
-    if (!webgpuRequested()) return;
-    let cancelled = false;
-    void detectWebGPU().then((ok) => {
-      if (!cancelled && ok) setPreferGPU(true);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   return (
     <Canvas
-      key={`${ctxKey}-${preferGPU}`}
+      key={ctxKey}
       /* Was capped at 1.75, so a devicePixelRatio-2 display rendered at 87.5%
          of native and was upscaled — measurably soft, and the most common
          "looks blurry on a big screen" cause. AdaptiveDpr still walks this
@@ -236,8 +160,14 @@ export default function Scene() {
       className="!absolute inset-0"
       gl={(props) => createRenderer(props as never).then(({ renderer }) => renderer)}
       onCreated={({ gl }) => {
+        // `isWebGPURenderer` is true even when WebGPURenderer fell back to its
+        // WebGL2 backend, so it reports the class, not what is actually
+        // drawing. The HUD said WEBGPU on a machine running WebGL2 because of
+        // exactly that. Read the loaded backend instead.
         setRenderBackend(
-          (gl as unknown as { isWebGPURenderer?: boolean }).isWebGPURenderer ? "webgpu" : "webgl2",
+          (gl as unknown as { backend?: { isWebGPUBackend?: boolean } }).backend?.isWebGPUBackend
+            ? "webgpu"
+            : "webgl2",
         );
         setGpuClass(isSoftwareRenderer(gl) ? "software" : "hardware");
         gl.domElement.addEventListener("webglcontextlost", (e) => {

@@ -2,7 +2,7 @@
 
 import { useRef } from "react";
 import { useFrame } from "@react-three/fiber";
-import { Billboard, Text } from "@react-three/drei";
+import { Billboard } from "@react-three/drei";
 import { DoubleSide, type Group } from "three";
 import type { MetricDatum } from "@/lib/store";
 import { ArcSegments, Connector, TechLabel, TickDial, useMaterialize } from "../primitives";
@@ -100,28 +100,12 @@ function MetricNode({
                 span={-Math.PI * 2}
               />
               <TickDial radius={0.46} count={36} color={color} opacity={0.25} length={0.032} />
-              <Text
-                fontSize={0.15}
-                color="#e5f6ff"
-                anchorX="center"
-                anchorY="middle"
-                outlineWidth={0.018}
-                outlineColor="#02050a"
-              >
+              <TechLabel position={[0, 0, 0]} size={0.15} color="#e5f6ff">
                 {`${Math.round(metric.value)}${metric.unit ?? ""}`}
-              </Text>
-              <Text
-                fontSize={0.082}
-                color={color}
-                anchorX="center"
-                anchorY="middle"
-                position={[0, -0.62, 0]}
-                letterSpacing={0.18}
-                outlineWidth={0.01}
-                outlineColor="#02050a"
-              >
-                {metric.label.toUpperCase()}
-              </Text>
+              </TechLabel>
+              <TechLabel position={[0, -0.62, 0]} size={0.082} color={color}>
+                {metric.label}
+              </TechLabel>
             </Billboard>
           </group>
         </group>

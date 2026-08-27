@@ -1,28 +1,13 @@
 "use client";
 
-import {
-  createContext,
-  useContext,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useFrame } from "@react-three/fiber";
-import { Billboard, Line, Text } from "@react-three/drei";
-import {
-  BufferGeometry,
-  Color,
-  DoubleSide,
-  Line as ThreeLine,
-  LineBasicMaterial,
-  Object3D,
-  Vector3,
-  type Group,
-  type InstancedMesh,
-} from "three";
-import "./effects/materials";
+import { Billboard } from "@react-three/drei";
+import { DoubleSide, Object3D, type Group, type InstancedMesh } from "three";
+import { createLabelTexture } from "./effects/textTexture";
+import { Line2NodeMaterial } from "three/webgpu";
+import { Line2 } from "three/addons/lines/webgpu/Line2.js";
+import { LineGeometry } from "three/addons/lines/LineGeometry.js";
 
 /**
  * §3 — dashed arc built from instanced quads. Matrices are written once on
@@ -258,24 +243,22 @@ export function TechLabel({
   decode?: boolean;
 }) {
   const text = useDecoded(children.toUpperCase(), decode);
+  const label = useMemo(() => createLabelTexture(text, color, opacity), [text, color, opacity]);
+
+  useEffect(() => label.dispose, [label]);
+
+  // the texture carries padding around the glyphs, so the quad is scaled from
+  // the drawn line height rather than from `size` directly
+  const height = size * 2.2;
+  const width = height * label.aspect;
+  const shift = anchorX === "center" ? 0 : anchorX === "left" ? width / 2 : -width / 2;
+
   return (
     <Billboard position={position}>
-      <Text
-        fontSize={size}
-        color={color}
-        anchorX={anchorX}
-        anchorY="middle"
-        letterSpacing={0.16}
-        fillOpacity={opacity}
-        // Every label sits over bloom, particles and grid. A thin cut of the
-        // background colour behind the glyphs is what makes them readable —
-        // without it thin type dissolves into whatever glows behind it.
-        outlineWidth={size * 0.12}
-        outlineColor="#02050a"
-        outlineOpacity={opacity * 0.9}
-      >
-        {text}
-      </Text>
+      <mesh position={[shift, 0, 0]}>
+        <planeGeometry args={[width, height]} />
+        <primitive object={label.material} attach="material" />
+      </mesh>
     </Billboard>
   );
 }
@@ -319,28 +302,14 @@ export function Connector({
 }
 
 /**
- * Rendering-compat flag: true inside a WebGPU session where Line2/GLSL
- * materials are unavailable and hairlines must come from LineBasicMaterial.
- */
-const HairlinesOnly = createContext(false);
-
-export function RenderCompatProvider({ value, children }: { value: boolean; children: React.ReactNode }) {
-  return <HairlinesOnly.Provider value={value}>{children}</HairlinesOnly.Provider>;
-}
-
-/**
- * True inside a WebGPU session, where custom GLSL `ShaderMaterial`s cannot be
- * compiled ("THREE.NodeBuilder: Material 'ShaderMaterial' is not compatible").
+ * A technical hairline with real screen-space width.
  *
- * Read this rather than threading a `compat` prop down. SpatialHud shipped a
- * raw shader material for months precisely because it never received one, and
- * nothing about adding a material tells you a prop is missing.
+ * Not drei's `<Line>`: that builds a `LineMaterial`, which is a raw
+ * `ShaderMaterial` and cannot compile on the node renderer. three ships a
+ * WebGPU-side `Line2` backed by `Line2NodeMaterial` that does the same
+ * screen-space widening, so the wide lines survive the move rather than
+ * collapsing to 1px GL lines — which at dpr 2 read as barely-there scratches.
  */
-export function useRenderCompat(): boolean {
-  return useContext(HairlinesOnly);
-}
-
-/** A technical hairline that renders on both WebGL2 (wide Line2) and WebGPU (1px GL lines). */
 export function HairLine({
   points,
   color,
@@ -352,30 +321,27 @@ export function HairLine({
   opacity?: number;
   lineWidth?: number;
 }) {
-  const hairlinesOnly = useContext(HairlinesOnly);
-
-  const primitive = useMemo(() => {
-    if (!hairlinesOnly) return null;
-    const geometry = new BufferGeometry().setFromPoints(points.map((p) => new Vector3(...p)));
-    const material = new LineBasicMaterial({
-      color: new Color(color),
+  const line = useMemo(() => {
+    const geometry = new LineGeometry();
+    geometry.setPositions(points.flat());
+    const material = new Line2NodeMaterial({
+      color,
+      linewidth: lineWidth,
       transparent: opacity < 1,
       opacity,
       toneMapped: false,
       depthWrite: false,
     });
-    return new ThreeLine(geometry, material);
+    return new Line2(geometry, material);
     // points identity changes when the caller recomputes data
-  }, [hairlinesOnly, points, color, opacity]);
+  }, [points, color, opacity, lineWidth]);
 
   useEffect(() => {
-    if (!primitive) return;
     return () => {
-      primitive.geometry.dispose();
-      (primitive.material as LineBasicMaterial).dispose();
+      line.geometry.dispose();
+      line.material.dispose();
     };
-  }, [primitive]);
+  }, [line]);
 
-  if (hairlinesOnly && primitive) return <primitive object={primitive} />;
-  return <Line points={points} color={color} transparent opacity={opacity} lineWidth={lineWidth} />;
+  return <primitive object={line} />;
 }
