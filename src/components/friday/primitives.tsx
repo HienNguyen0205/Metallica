@@ -243,8 +243,12 @@ export function TechLabel({
   decode?: boolean;
 }) {
   const text = useDecoded(children.toUpperCase(), decode);
-  const label = useMemo(() => createLabelTexture(text, color, opacity), [text, color, opacity]);
+  // Keyed on the character count, not the text: the font is monospace, so a
+  // readout whose digits change but whose width does not keeps the same canvas
+  // — which is the whole point, since these tick at 4 Hz.
+  const label = useMemo(() => createLabelTexture(text.length), [text.length]);
 
+  useEffect(() => label.draw(text, color, opacity), [label, text, color, opacity]);
   useEffect(() => label.dispose, [label]);
 
   // the texture carries padding around the glyphs, so the quad is scaled from
@@ -302,6 +306,19 @@ export function Connector({
 }
 
 /**
+ * Written here rather than inline so the assignments sit outside component
+ * code: the React Compiler rejects writing to a property of anything a hook
+ * returned, and re-tinting a line is a material write, not React state.
+ */
+function styleLine(line: Line2, color: string, opacity: number, lineWidth: number): void {
+  const material = line.material as Line2NodeMaterial;
+  material.color.set(color);
+  material.opacity = opacity;
+  material.transparent = opacity < 1;
+  material.linewidth = lineWidth;
+}
+
+/**
  * A technical hairline with real screen-space width.
  *
  * Not drei's `<Line>`: that builds a `LineMaterial`, which is a raw
@@ -321,20 +338,20 @@ export function HairLine({
   opacity?: number;
   lineWidth?: number;
 }) {
+  /* Keyed on the coordinates, not the array's identity. Callers build these
+   * inline (`points={[[0, 0, 0], to]}`), so identity changes on every parent
+   * render — and colour changes on every state transition. Both used to free
+   * and reallocate the geometry and material, which is what
+   * `Buffer used in submit while destroyed` is: a buffer released while the
+   * frame that referenced it was still queued. Style is applied below instead. */
+  const key = points.flat().join(",");
   const line = useMemo(() => {
     const geometry = new LineGeometry();
-    geometry.setPositions(points.flat());
-    const material = new Line2NodeMaterial({
-      color,
-      linewidth: lineWidth,
-      transparent: opacity < 1,
-      opacity,
-      toneMapped: false,
-      depthWrite: false,
-    });
-    return new Line2(geometry, material);
-    // points identity changes when the caller recomputes data
-  }, [points, color, opacity, lineWidth]);
+    geometry.setPositions(key.split(",").map(Number));
+    return new Line2(geometry, new Line2NodeMaterial({ toneMapped: false, depthWrite: false }));
+  }, [key]);
+
+  useEffect(() => styleLine(line, color, opacity, lineWidth), [line, color, opacity, lineWidth]);
 
   useEffect(() => {
     return () => {

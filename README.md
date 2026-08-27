@@ -2,13 +2,17 @@
 
 # METALLICA // FRIDAY
 
-**A holographic AI interface, rendered in real-time WebGL.**
+**A holographic AI interface, rendered in real-time on WebGPU.**
 
 A sci-fi style "FRIDAY" assistant hologram — pulsing AI core, orbital rings,
 GPU particle fields, spatial HUD and ten types of 3D data visualizations —
 built with Next.js 16, React Three Fiber and a spec-driven rendering architecture.
 
-[![CI](https://github.com/OWNER/REPO/actions/workflows/ci.yml/badge.svg)](https://github.com/OWNER/REPO/actions/workflows/ci.yml)
+<!-- Via shields.io rather than GitHub's own badge endpoint: that one ships no
+     Access-Control-Allow-Origin and no Cross-Origin-Resource-Policy, so it
+     renders on github.com and nowhere else — every local Markdown preview shows
+     a broken image. shields.io sets both, and matches the badges below. -->
+[![CI](https://img.shields.io/github/actions/workflow/status/HienNguyen0205/Metallica/ci.yml?branch=main&label=CI)](https://github.com/HienNguyen0205/Metallica/actions/workflows/ci.yml)
 ![TypeScript](https://img.shields.io/badge/TypeScript-strict-blue)
 ![Next.js](https://img.shields.io/badge/Next.js-16-black)
 ![React Three Fiber](https://img.shields.io/badge/react--three--fiber-9-7d4cdb)
@@ -64,17 +68,17 @@ to the current state.
 - 🔮 **Holographic core** — 8 stacked layers: distorted energy sphere, wireframe
   lattice, fresnel + scanline shader shell, tilted ring system, one-draw-call
   GPU particle field (950 particles), instanced waveform ring (96 bars).
-- 🎨 **4 TSL node materials** — fresnel hologram, dotted grid plane with radial
-  ripples, GPU-animated particle field, noise-displaced energy core; one node
-  graph each, compiled to WGSL or GLSL by whichever backend loaded.
+- 🎨 **3 TSL node materials** — fresnel hologram, GPU-animated particle field,
+  noise-displaced energy core; one node graph each, compiled to WGSL or GLSL by
+  whichever backend loaded.
 - 📊 **10 visualization types** — gauges, health rings, radar sweep, waveform,
   network graph, 3D line/bar charts, particle flow, globe, timeline — selected
   by a rules-based query planner via a typed `VisualizationSpec`.
 - 🖱️ **Drill-down interaction** — click any metric node / chart element to lock
   a focus reticle onto it in 3D space.
-- 🎥 **Cinematic post-processing** — Bloom, Depth of Field, radial Chromatic
-  Aberration, Noise and Vignette, plus DOM-level scanlines, scan-bar sweep and
-  vignette overlays.
+- 🎥 **Cinematic post-processing** — Bloom, volumetric god rays, radial
+  Chromatic Aberration, film grain and vignette, plus DOM-level scanlines and
+  scan-bar sweep overlays.
 - 🎛️ **Live telemetry** — FPS, worst-frame time, JS heap, downlink and camera
   vector sampled at 4 Hz outside React's render loop.
 - 🧵 **Conversational memory** — the last 3 exchanges per tab are replayed into
@@ -84,8 +88,8 @@ to the current state.
 - 🔊 **Audio cues** — WebAudio oscillator blips per state change, no assets.
 - ♿ **Accessibility & responsiveness** — WCAG AA contrast enforced by tests;
   mobile / `prefers-reduced-motion` falls back to a simplified scene.
-- ⚙️ **Software-renderer detection** — depth of field and god rays are skipped
-  on SwiftShader / llvmpipe rather than crawling.
+- ⚙️ **Software-renderer detection** — god rays are skipped on SwiftShader /
+  llvmpipe rather than crawling.
 
 ## Tech Stack
 
@@ -105,7 +109,7 @@ to the current state.
 Requirements: **Node.js ≥ 20** (CI uses Node 22) and npm.
 
 ```bash
-git clone https://github.com/OWNER/REPO.git metallica
+git clone https://github.com/HienNguyen0205/Metallica.git metallica
 cd metallica
 npm install
 npm run dev
@@ -148,6 +152,7 @@ npm run start
 | Variable | Where | Default | Description |
 |---|---|---|---|
 | `NEXT_PUBLIC_FORCE_WEBGL` | frontend | unset | Set to `1` to pin the renderer to its WebGL2 backend. An escape hatch for debugging; leave unset. |
+| `NEXT_PUBLIC_DEV_RAILS` | frontend | unset | Set to `1` to show the state and visualization dev rails in a production build. They call the state machine's unguarded setter, so they are off in production; `next dev` shows them without this. |
 | `NEXT_PUBLIC_FRIDAY_API` | frontend | `http://localhost:8000` | Orchestrator base URL, **inlined at build time**. When unreachable the UI falls back to the local rules planner with canned data. |
 
 Copy `.env.example` to `.env.local` to set these for local development. Real
@@ -169,9 +174,12 @@ The UI suite overrides `NEXT_PUBLIC_FRIDAY_API` to `http://127.0.0.1:8123` (see
 port the suite would collide with a real backend left running, and the frontend
 would then quietly take its offline fallback instead of failing — so the tests
 would pass while exercising the wrong path.
+
+| Variable | Where | Default | Description |
+|---|---|---|---|
 | `GEMINI_API_KEY` | backend | unset | Provider key. Free from [AI Studio](https://aistudio.google.com/apikey), no card. Without it `/query` emits an `error` event. |
 | `FRIDAY_LLM_BASE_URL` | backend | Gemini | Any OpenAI-compatible endpoint (Groq, Cerebras, OpenRouter, local Ollama). |
-| `FRIDAY_LLM_MODEL` | backend | `gemini-2.5-flash` | Model name for that endpoint. |
+| `FRIDAY_LLM_MODEL` | backend | `gemini-3.5-flash-lite` | Model name for that endpoint. |
 | `FRIDAY_LLM_API_KEY` | backend | unset | Generic alias for the key; wins over `GEMINI_API_KEY`. |
 | `FRIDAY_ALLOWED_ORIGINS` | backend | `http://localhost:3000` | Comma-separated CORS allowlist. |
 
@@ -261,8 +269,8 @@ materials by splicing strings into GLSL, which a node material never runs:
 
 Also degrading, unchanged:
 
-- Software renderers (SwiftShader / llvmpipe) are detected and the heavy
-  passes — depth of field, god rays — are skipped.
+- Software renderers (SwiftShader / llvmpipe) are detected and the heavy pass —
+  god rays — is skipped.
 - `(max-width: 768px)` or `prefers-reduced-motion` → reduced mode (lower DPR,
   fewer particles, simplified HUD).
 - `webglcontextlost` → canvas rebuilt automatically via key remount.
@@ -344,18 +352,21 @@ src/
 │   ├── layout.tsx              # Root layout — Geist fonts, metadata, typed LayoutProps
 │   └── page.tsx                # "/" — Canvas + DOM HUD overlays
 ├── components/friday/
-│   ├── Scene.tsx               # <Canvas>, camera rig, lights, postprocessing
+│   ├── Scene.tsx               # <Canvas>, camera rig, lights, renderer setup
 │   ├── primitives.tsx          # ArcSegments, TickDial, Reticle, TechLabel, ...
 │   ├── core/
 │   │   ├── FridayCore.tsx      # 8-layer central hologram
 │   │   ├── CoreRings.tsx       # Tilted ring & arc system
 │   │   ├── CoreParticles.tsx   # One-draw-call GPU particle field
 │   │   └── WaveformRing.tsx    # Instanced audio-reactive bars
-│   ├── effects/materials.ts    # 3 custom shaderMaterials (+ JSX typings)
+│   ├── effects/
+│   │   ├── materials.ts        # TSL node materials (hologram, particles, core)
+│   │   ├── PostFX.tsx          # Node post chain: bloom, god rays, CA, grain
+│   │   └── textTexture.ts      # Canvas-texture labels, redrawn in place
 │   ├── hud/
 │   │   ├── Hud.tsx             # TopHud, EdgeTelemetry, rails, AnswerLine, AudioCues
 │   │   ├── InputBar.tsx        # ASK FRIDAY input
-│   │   └── SpatialHud.tsx      # In-scene 3D HUD (grid, readouts, level columns)
+│   │   └── SpatialHud.tsx      # In-scene 3D HUD (readouts, level columns)
 │   └── visualization/
 │       ├── FridayVisualization.tsx  # Spec → REGISTRY dispatch + DrillDown
 │       ├── vizRadial.tsx        # Gauge, HealthCore, Radar, Waveform
@@ -364,7 +375,8 @@ src/
 └── lib/
     ├── store.ts                # Zustand store + guarded state machine + spec types
     ├── vizPlanner.ts           # Query → VisualizationSpec rules + samples + summaries
-    ├── demoQuery.ts            # Timed simulated agent pipeline
+    ├── agentStream.ts          # SSE event stream → store; offline fallback
+    ├── voice.ts                # §12/§13 SpeechRecognition in, speechSynthesis out
     ├── stateLook.ts            # Per-state colors/motion/camera parameters
     ├── telemetry.ts            # rAF singleton: fps, frames, heap, camera
     ├── uiSound.ts              # WebAudio state blips
@@ -376,14 +388,15 @@ tests/
 
 ## Performance Notes
 
-- **Draw-call discipline** — particles are a single `<points>` draw call with
-  all motion computed in the vertex shader; arcs, ticks and bars are instanced.
+- **Draw-call discipline** — particles are one instanced sprite with all motion
+  computed on the GPU; arcs, ticks and bars are instanced too. Labels and
+  hairlines allocate once and are then rewritten in place rather than rebuilt.
 - **Telemetry off the hot path** — one shared rAF loop measures counters in
   500 ms windows; React re-samples at 4 Hz instead of per frame.
 - **Adaptive quality** — `AdaptiveDpr` + `AdaptiveEvents`; reduced mode caps
-  DPR at 1.25 and drops particle count from 950 to 260.
-- **Post-processing gated** — DoF disabled on reduced motion and software GL;
-  the entire composer is skipped on the WebGPU path.
+  DPR at 1.5 and drops particle count from 950 to 260.
+- **Post-processing gated** — god rays are skipped on reduced motion and
+  software GL. The chain itself runs on both backends, because it is TSL.
 
 ## Documentation
 

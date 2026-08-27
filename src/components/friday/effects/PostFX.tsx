@@ -16,7 +16,6 @@ import {
   vec3,
 } from "three/tsl";
 import { bloom } from "three/addons/tsl/display/BloomNode.js";
-import { dof } from "three/addons/tsl/display/DepthOfFieldNode.js";
 import { chromaticAberration } from "three/addons/tsl/display/ChromaticAberrationNode.js";
 import { film } from "three/addons/tsl/display/FilmNode.js";
 
@@ -60,14 +59,26 @@ export default function PostFX({
   const { post, sunScreen } = useMemo(() => {
     const scenePass = pass(scene, camera);
     const color = scenePass.getTextureNode("output");
-    const viewZ = scenePass.getViewZNode();
 
     const sunScreen = uniform(new Vector2(0.5, 0.5));
 
     // Bloom is additive on the node pipeline — it returns the glow, not the
     // composite. Half resolution on dense displays: at dpr 2 that still lands
     // at or above the pixel density a 1x display gets, and it is a blur anyway.
-    const bloomed = color.add(bloom(color, 0.75, 0.65, 0.18));
+    /* Tuned for this node, not carried over from the old chain.
+     *
+     * The first port passed `@react-three/postprocessing`'s numbers straight
+     * across (0.75 / 0.65 / threshold 0.18). They mean different things here:
+     * three's bloom is UnrealBloom, and in a scene that is entirely cyan on
+     * near-black almost every pixel clears a 0.18 luminance gate — so the whole
+     * image bloomed, not just the core.
+     *
+     * That reads as blur rather than glow, and it gets worse the larger the
+     * display: this node renders at half resolution and is upscaled, so the
+     * lower the threshold, the more of the final frame is a soft half-res
+     * layer. A high threshold puts the glow back where it belongs — on the
+     * core, which is the only thing bright enough to earn it. */
+    const bloomed = color.add(bloom(color, 0.55, 0.3, 0.62));
     // Every stock pass declares its own concrete node class as its return type,
     // so a chain that reassigns one variable trips the checker at each hand-off
     // even though they all share Node's method chaining at runtime. One alias,
@@ -96,8 +107,10 @@ export default function PostFX({
           coord.subAssign(step);
           const sample = color.sample(coord).rgb;
           // only genuinely bright pixels throw shafts, so the HUD text does not
+          // gate matched to the bloom threshold above, so the two glow layers
+          // agree on what counts as bright
           const lum = sample.dot(vec3(0.2126, 0.7152, 0.0722));
-          acc.addAssign(sample.mul(smoothstep(0.35, 0.9, lum)).mul(decay));
+          acc.addAssign(sample.mul(smoothstep(0.6, 1.0, lum)).mul(decay));
           decay.mulAssign(0.92);
         });
 
@@ -108,11 +121,11 @@ export default function PostFX({
       output = output.add(shafts);
     }
 
-    if (heavy) {
-      // Deep focal range on purpose: a shallow one blurred the spatial labels
-      // into mush. Only the far field softens.
-      output = dof(output, viewZ, 6.8, 0.42, 1.1) as unknown as FxNode;
-    }
+    /* No depth of field. Measured before removing it: `bokehScale` sets the
+     * blur radius as `1 / resolution * bokehScale * CoC`, so the ported 1.1
+     * amounted to about one pixel — invisible, for a full-resolution pass. The
+     * far field it was meant to soften was mostly the dotted grid, which is
+     * gone. */
 
     // Radial, not uniform: a flat offset splits the tiny centre labels into
     // red/cyan ghosts. Fringing grows toward the edges only.

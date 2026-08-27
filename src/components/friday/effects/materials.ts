@@ -1,11 +1,10 @@
-import { AdditiveBlending, Color, DoubleSide, InstancedBufferAttribute, Sprite } from "three";
+import { AdditiveBlending, Color, InstancedBufferAttribute, Sprite } from "three";
 import { MeshBasicNodeMaterial, MeshStandardNodeMaterial, PointsNodeMaterial } from "three/webgpu";
 import {
   float,
   fract,
   instancedBufferAttribute,
   mx_noise_float,
-  normalLocal,
   normalView,
   positionLocal,
   positionView,
@@ -92,43 +91,6 @@ export function createHologramMaterial({
     apply(color: string, scan: number) {
       uColor.value.set(color);
       uScanSpeed.value = scan;
-    },
-  };
-}
-
-/**
- * §3 — background dotted grid with a radial fade and an outward ripple.
- * One plane, one draw call, instead of thousands of dot meshes.
- */
-export function createHoloGridMaterial({
-  opacity = 0.5,
-  spacing = 34,
-}: {
-  opacity?: number;
-  spacing?: number;
-}) {
-  const uColor = uniform(new Color(INITIAL_COLOR));
-  const elapsed = time;
-
-  const cell = fract(uv().mul(spacing)).sub(vec2(0.5, 0.5));
-  const dot = smoothstep(0.14, 0, cell.length());
-  const r = uv().sub(vec2(0.5, 0.5)).length();
-  const fade = float(1).sub(smoothstep(0.1, 0.5, r));
-  const ripple = elapsed.mul(0.6).sub(r.mul(26)).sin().mul(0.3).add(0.7);
-
-  const material = new MeshBasicNodeMaterial({
-    transparent: true,
-    depthWrite: false,
-    toneMapped: false,
-    side: DoubleSide,
-  });
-  material.colorNode = uColor;
-  material.opacityNode = dot.mul(fade).mul(ripple).mul(opacity);
-
-  return {
-    material,
-    apply(color: string) {
-      uColor.value.set(color);
     },
   };
 }
@@ -242,8 +204,14 @@ export function createCoreMaterial() {
   const uSpeed = uniform(1.4);
 
   const material = new MeshStandardNodeMaterial({ roughness: 0.2, metalness: 0.4 });
-  const noise = mx_noise_float(vec3(positionLocal.mul(2.4).add(time.mul(uSpeed))));
-  material.positionNode = positionLocal.add(normalLocal.mul(noise.mul(uDistort).mul(0.25)));
+  /* Matches what `MeshDistortMaterial` actually did, which the first port did
+   * not: a low-frequency radial swell, amplitude `distort²`, drifting slowly.
+   * The port had used a five-times higher noise frequency advanced at the raw
+   * state speed, so the surface boiled instead of breathing — at this sphere's
+   * size on a large display that is sub-pixel shimmer, and shimmer reads as a
+   * soft, unfocused blob rather than as motion. */
+  const noise = mx_noise_float(vec3(positionLocal.div(2).add(time.mul(uSpeed).mul(0.1))));
+  material.positionNode = positionLocal.mul(noise.mul(uDistort.pow(2)).add(1));
   material.colorNode = uColor;
   material.emissiveNode = uColor.mul(uGlow);
 

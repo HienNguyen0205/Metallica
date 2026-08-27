@@ -59,7 +59,13 @@ export default defineConfig({
         // it at a dedicated port: on :8000 the suite collides with a real
         // backend a developer has running, and the frontend then silently
         // takes its offline fallback instead of failing loudly.
-        env: { NEXT_PUBLIC_FRIDAY_API: "http://127.0.0.1:8123" },
+        env: {
+          NEXT_PUBLIC_FRIDAY_API: "http://127.0.0.1:8123",
+          // The suite builds for production, where the dev rails ship off — but
+          // they are how these tests drive states and visualizations, so turn
+          // them back on for the run.
+          NEXT_PUBLIC_DEV_RAILS: "1",
+        },
         timeout: 420_000,
         reuseExistingServer: !process.env.CI,
         stdout: "pipe",

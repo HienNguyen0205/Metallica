@@ -39,8 +39,14 @@ export default function CoreParticles({
 
   useEffect(() => {
     return () => {
+      // The material is ours; the geometry is NOT. `Sprite` holds a single
+      // module-level `BufferGeometry` shared by every sprite ever constructed,
+      // and `dispose()` does not reset the module slot — so freeing it here
+      // destroys the quad for every other particle field on the page and three
+      // never rebuilds it. That is what `Buffer used in submit while destroyed`
+      // was: opening the particle-flow visualization mounts a second field, and
+      // unmounting either one took the core's field down with it.
       sprite.material.dispose();
-      sprite.geometry.dispose();
     };
   }, [sprite]);
 

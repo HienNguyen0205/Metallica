@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef } from "react";
+import { useRef } from "react";
 import { useFrame, useThree } from "@react-three/fiber";
 import { DoubleSide, type Group, type Mesh } from "three";
 import { useFridayStore } from "@/lib/store";
@@ -13,25 +13,6 @@ import {
   TechLabel,
   TickDial,
 } from "../primitives";
-import { createHoloGridMaterial } from "../effects/materials";
-
-/** §3 background layer — dotted grid far behind the core, one draw call. */
-function DottedGrid({ color, opacity = 0.42 }: { color: string; opacity?: number }) {
-  // This layer used to disappear entirely on WebGPU — the dot pattern lives in
-  // the fragment shader and there was no node equivalent to swap in. As TSL it
-  // renders on both backends, which is the point of the move.
-  const { material, apply } = useMemo(() => createHoloGridMaterial({ opacity }), [opacity]);
-
-  useEffect(() => () => material.dispose(), [material]);
-  useFrame(() => apply(color));
-
-  return (
-    <mesh position={[0, 0, -4.5]}>
-      <planeGeometry args={[26, 16]} />
-      <primitive object={material} attach="material" />
-    </mesh>
-  );
-}
 
 /** The big framing arcs — large radial geometry cropped by the viewport. */
 function OuterFrame({ color, speed, dim = 1 }: { color: string; speed: number; dim?: number }) {
@@ -194,8 +175,6 @@ export default function SpatialHud({ reduced = false }: { reduced?: boolean }) {
 
   return (
     <group>
-      <DottedGrid color={look.color} opacity={hasViz ? 0.14 : 0.42} />
-
       {!reduced && (
         <group ref={drift}>
           <OuterFrame color={look.color} speed={look.ringSpeed} dim={hasViz ? 0.45 : 1} />
