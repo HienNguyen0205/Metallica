@@ -77,6 +77,8 @@ to the current state.
   vignette overlays.
 - 🎛️ **Live telemetry** — FPS, worst-frame time, JS heap, downlink and camera
   vector sampled at 4 Hz outside React's render loop.
+- 🧵 **Conversational memory** — the last 3 exchanges per tab are replayed into
+  the next prompt, so follow-ups like "and the disk?" resolve.
 - 🎙️ **Voice in and out** — press the mic, speak, and the transcript starts a
   turn; the reply is read back. Browser-native, so no key and no cost.
 - 🔊 **Audio cues** — WebAudio oscillator blips per state change, no assets.

@@ -7,6 +7,30 @@ export function getApiBase(): string {
   return API;
 }
 
+/**
+ * §15 — identifies this tab to the orchestrator so it can replay the last few
+ * exchanges into the next prompt.
+ *
+ * `sessionStorage`, not `localStorage`: the memory it keys into lives in the
+ * orchestrator's process and does not survive a restart, so a browser-side id
+ * that outlived the tab would point at nothing while implying continuity. Per
+ * tab also means two tabs are two conversations, which is what they look like.
+ */
+function sessionId(): string | undefined {
+  if (typeof window === "undefined") return undefined;
+  try {
+    let id = window.sessionStorage.getItem("friday.session");
+    if (!id) {
+      id = crypto.randomUUID();
+      window.sessionStorage.setItem("friday.session", id);
+    }
+    return id;
+  } catch {
+    // storage can be blocked outright; a turn without continuity beats no turn
+    return undefined;
+  }
+}
+
 export interface QueryOptions {
   signal?: AbortSignal;
   onEvent: (event: FridayEvent) => void;
@@ -25,7 +49,7 @@ export async function streamQuery(query: string, opts: QueryOptions): Promise<vo
     response = await fetch(`${API}/query`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ query }),
+      body: JSON.stringify({ query, session_id: sessionId() }),
       signal,
     });
   } catch (err) {
