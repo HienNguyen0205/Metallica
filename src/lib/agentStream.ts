@@ -1,150 +1,142 @@
-import type { FridayStore, PendingConfirm, VisualizationSpec } from "@/lib/store";
+import type { FridayStore } from "@/lib/store";
 import { planVisualization, summarize } from "@/lib/vizPlanner";
-
-const API = process.env.NEXT_PUBLIC_FRIDAY_API ?? "http://localhost:8000";
-
-/**
- * The dangerous misconfiguration is not a crash, it is a site that looks fine.
- *
- * NEXT_PUBLIC_FRIDAY_API is inlined at build time. Forget it on the deploy and
- * the bundle ships pointing at localhost:8000 — which, from a visitor's
- * browser, means *their* machine. The fetch fails, the offline rules planner
- * answers with canned data, and the page behaves exactly like a working one.
- */
-function warnIfMisconfigured() {
-  if (typeof window === "undefined") return;
-  const pageIsLocal = /^(localhost|127\.0\.0\.1|\[::1\])$/.test(window.location.hostname);
-  const apiIsLocal = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:|\/|$)/.test(API);
-  if (!pageIsLocal && apiIsLocal) {
-    console.error(
-      `[friday] NEXT_PUBLIC_FRIDAY_API is "${API}" on a deployed page. ` +
-        "Every answer below is canned demo data from the offline planner, not a real one. " +
-        "Set it to the orchestrator's URL and rebuild — an env-var change alone will not do it.",
-    );
-  }
-}
+import { streamQuery, confirmDecision, warnIfMisconfigured } from "@/lib/api/fridayClient";
+import type { FridayEvent } from "@/lib/agent/events";
+import { normalizeVisualization } from "@/lib/visualization/normalization";
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 type FlowStore = Pick<
   FridayStore,
-  "transition" | "setAnswer" | "setVisualization" | "setPendingConfirm"
+  | "transition"
+  | "setAnswer"
+  | "setVisualization"
+  | "setPendingConfirm"
+  | "addVisualization"
+  | "clearVisualizations"
+  | "setToolActivity"
+  | "setDeniedTool"
+  | "setSessionError"
+  | "setLiveMode"
 >;
 
-interface SseEvent {
-  event: string;
-  data: Record<string, unknown>;
-}
-
 /**
- * Parses an SSE byte stream into events.
- *
- * POST rather than EventSource on purpose: EventSource is GET-only, which would
- * put the user's question into the URL — and therefore into every access log
- * and proxy along the way.
+ * Central event dispatcher — single place where BE events become store mutations.
+ * This is the `typed FridayEvent → Zustand` bridge from §4/§5.
  */
-async function* readEvents(body: ReadableStream<Uint8Array>): AsyncGenerator<SseEvent> {
-  const reader = body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buffer += decoder.decode(value, { stream: true });
-
-    // frames are separated by a blank line; the tail may be a partial frame
-    let split = buffer.indexOf("\n\n");
-    while (split !== -1) {
-      const frame = buffer.slice(0, split);
-      buffer = buffer.slice(split + 2);
-      split = buffer.indexOf("\n\n");
-
-      let event = "message";
-      let data = "{}";
-      for (const line of frame.split("\n")) {
-        if (line.startsWith("event: ")) event = line.slice(7);
-        else if (line.startsWith("data: ")) data = line.slice(6);
+function dispatch(store: FlowStore, event: FridayEvent): void {
+  switch (event.type) {
+    case "state":
+      store.transition(event.state);
+      if (event.state === "tool_execution") {
+        // keep tool activity visible while state remains
       }
-      try {
-        yield { event, data: JSON.parse(data) };
-      } catch {
-        // a frame we cannot parse is not worth killing the turn over
-      }
+      break;
+    case "tool":
+      store.setToolActivity?.({ tool: event.tool, risk: event.risk });
+      // clear previous denied marker when a new tool starts
+      store.setDeniedTool?.(null);
+      break;
+    case "viz": {
+      const spec = normalizeVisualization(event.spec);
+      // §8 — multiple viz: materialize immediately, don't remount previous
+      if (store.addVisualization) store.addVisualization(spec);
+      else store.setVisualization(spec);
+      break;
     }
+    case "confirm":
+      store.setPendingConfirm(event);
+      break;
+    case "denied":
+      store.setDeniedTool?.(event.tool);
+      store.setToolActivity?.(null);
+      break;
+    case "answer":
+      store.setAnswer(event.text);
+      break;
+    case "error":
+      store.setSessionError?.(event.message);
+      console.warn("[friday]", event.message);
+      break;
+    case "done":
+      store.setToolActivity?.(null);
+      break;
   }
 }
 
 /**
  * §9 — drives the state machine from backend events.
- *
- * Falls back to the local rules planner when the orchestrator is unreachable,
- * so the interface still answers with no backend running. That fallback is
- * canned data: it is a demo path, not a degraded live one.
+ * Falls back to the local rules planner when the orchestrator is unreachable.
  */
-export async function runQuery(store: FlowStore, query: string) {
-  const { transition, setAnswer, setVisualization, setPendingConfirm } = store;
+export async function runQuery(store: FlowStore, query: string, signal?: AbortSignal) {
+  const { setAnswer, setVisualization, setPendingConfirm } = store;
 
   setAnswer(null);
-  setVisualization(null);
+  // clear both legacy and multi-viz
+  if (store.clearVisualizations) store.clearVisualizations();
+  else setVisualization(null);
   setPendingConfirm(null);
+  store.setDeniedTool?.(null);
+  store.setSessionError?.(null);
+  store.setToolActivity?.(null);
+  store.setLiveMode?.("connecting");
   warnIfMisconfigured();
 
   let answered = false;
+  let hadLiveStream = false;
 
   try {
-    const response = await fetch(`${API}/query`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ query }),
+    await streamQuery(query, {
+      signal,
+      onEvent: (ev) => {
+        hadLiveStream = true;
+        // first successful event confirms liveness
+        if (store.setLiveMode) store.setLiveMode("live");
+        if (ev.type === "answer") answered = true;
+        dispatch(store, ev);
+      },
+      onError: (msg) => {
+        console.warn("[friday]", msg);
+      },
     });
-    if (!response.ok || !response.body) throw new Error(`orchestrator ${response.status}`);
-
-    for await (const { event, data } of readEvents(response.body)) {
-      switch (event) {
-        case "state":
-          transition(data.state as Parameters<typeof transition>[0]);
-          break;
-        case "viz":
-          setVisualization(data as unknown as VisualizationSpec);
-          break;
-        case "answer":
-          setAnswer(String(data.text));
-          answered = true;
-          break;
-        case "confirm":
-          // §11 — the orchestrator is blocked until /confirm answers.
-          setPendingConfirm(data as unknown as PendingConfirm);
-          break;
-        case "denied":
-        case "tool":
-          break;
-        case "error":
-          console.warn("[friday]", data.message);
-          break;
-      }
-    }
+    // If stream never yielded anything, treat as unreachable to trigger fallback?
+    // But stub tests rely on empty-data path not happening; so only fallback on throw.
+    if (!hadLiveStream) throw new Error("empty stream");
   } catch (err) {
+    if ((err as Error).name === "AbortError" || signal?.aborted) return;
+    // If we already streamed something, don't fallback — just surface error
+    if (hadLiveStream) {
+      console.warn("[friday] stream interrupted:", err);
+      store.setSessionError?.(err instanceof Error ? err.message : String(err));
+      store.transition("error");
+      await wait(1200);
+      store.transition("idle");
+      return;
+    }
     console.warn("[friday] orchestrator unreachable, using local rules planner:", err);
+    store.setLiveMode?.("offline");
     await runLocal(store, query);
     return;
   }
 
+  // Keep answer visible briefly before settling
   if (answered) await wait(3600);
-  transition("idle");
+  store.transition("idle");
   setAnswer(null);
-  setVisualization(null);
+  // Visualization persists until next query per §8 error handling (brief says don't wipe on error, but for success we clear after idle)
+  // Keep for a moment then clear? Original cleared immediately after idle.
+  if (store.clearVisualizations) store.clearVisualizations();
+  else setVisualization(null);
   setPendingConfirm(null);
+  store.setToolActivity?.(null);
+  store.setDeniedTool?.(null);
+  store.setLiveMode?.("idle");
 }
 
 /** §11 — send the operator's decision so the blocked tool call can proceed. */
 export async function decide(id: string, approved: boolean) {
   try {
-    await fetch(`${API}/confirm`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ id, approved }),
-    });
+    await confirmDecision(id, approved);
   } catch (err) {
     console.warn("[friday] could not deliver decision:", err);
   }
@@ -152,20 +144,27 @@ export async function decide(id: string, approved: boolean) {
 
 /** The pre-backend scripted flow, kept as the offline demo path. */
 async function runLocal(store: FlowStore, query: string) {
-  const { transition, setAnswer, setVisualization } = store;
+  const { transition, setAnswer } = store;
+  const setVis = (s: unknown) => {
+    const spec = s as import("@/lib/store").VisualizationSpec;
+    if (store.addVisualization) store.addVisualization(spec);
+    else store.setVisualization(spec);
+  };
 
   transition("thinking");
   await wait(800);
   transition("searching");
   await wait(700);
   transition("tool_execution");
+  store.setToolActivity?.({ tool: "get_system_metrics", risk: "low" });
   await wait(700);
   transition("processing");
+  store.setToolActivity?.(null);
   await wait(500);
 
   const spec = planVisualization(query);
   transition("visualizing");
-  setVisualization(spec);
+  setVis(spec);
   await wait(1500);
 
   transition("speaking");
@@ -174,5 +173,7 @@ async function runLocal(store: FlowStore, query: string) {
 
   transition("idle");
   setAnswer(null);
-  setVisualization(null);
+  if (store.clearVisualizations) store.clearVisualizations();
+  else store.setVisualization(null);
+  store.setLiveMode?.("idle");
 }

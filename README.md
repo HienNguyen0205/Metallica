@@ -78,8 +78,8 @@ to the current state.
 - 🔊 **Audio cues** — WebAudio oscillator blips per state change, no assets.
 - ♿ **Accessibility & responsiveness** — WCAG AA contrast enforced by tests;
   mobile / `prefers-reduced-motion` falls back to a simplified scene.
-- ⚙️ **WebGPU opt-in** — `NEXT_PUBLIC_WEBGPU=1` enables WebGPU with automatic
-  WebGL2 fallback and software-renderer detection.
+- ⚙️ **Software-renderer detection** — depth of field and god rays are skipped
+  on SwiftShader / llvmpipe rather than crawling.
 
 ## Tech Stack
 
@@ -140,7 +140,7 @@ npm run start
 
 | Variable | Where | Default | Description |
 |---|---|---|---|
-| `NEXT_PUBLIC_WEBGPU` | frontend | unset | Set to `1` to opt the scene into a WebGPU renderer (falls back to WebGL2 when unavailable). |
+| `NEXT_PUBLIC_WEBGPU` | frontend | unset | **Experimental, currently broken — leave unset.** See below. |
 | `NEXT_PUBLIC_FRIDAY_API` | frontend | `http://localhost:8000` | Orchestrator base URL, **inlined at build time**. When unreachable the UI falls back to the local rules planner with canned data. |
 
 Copy `.env.example` to `.env.local` to set these for local development. Real
@@ -219,8 +219,16 @@ a post-processing stack (WebGL path only).
 
 ### Rendering backends & graceful degradation
 
-- **WebGL2 by default**, WebGPU opt-in via env var.
-- Software renderers detected → depth-of-field and heavy effects disabled.
+- **WebGL2 by default**, always. Software renderers are detected and the heavy
+  post-processing passes are skipped.
+- **WebGPU (`NEXT_PUBLIC_WEBGPU=1`) is experimental and currently broken.**
+  The fallback only covers WebGPU being *unavailable*; if the browser supports
+  it, the renderer is created and then fails — custom GLSL `ShaderMaterial`s
+  cannot be compiled by three's `NodeBuilder`, which cascades into invalid
+  draw calls and destroyed-buffer submits. `useRenderCompat()` in
+  `primitives.tsx` is how a component opts out of GLSL, but not every layer has
+  a node-material equivalent yet, and the path has never been verified on real
+  hardware. Leave the flag unset.
 - `(max-width: 768px)` or `prefers-reduced-motion` → reduced mode (lower DPR,
   fewer particles, simplified HUD).
 - `webglcontextlost` → canvas rebuilt automatically via key remount.

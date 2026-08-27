@@ -6,7 +6,14 @@ import { DoubleSide, type Group, type Mesh } from "three";
 import { useFridayStore } from "@/lib/store";
 import { STATE_LOOK } from "@/lib/stateLook";
 import { useTelemetry } from "@/lib/telemetry";
-import { ArcSegments, CornerBrackets, Reticle, TechLabel, TickDial } from "../primitives";
+import {
+  ArcSegments,
+  CornerBrackets,
+  Reticle,
+  TechLabel,
+  TickDial,
+  useRenderCompat,
+} from "../primitives";
 import "../effects/materials";
 
 interface GridUniforms {
@@ -16,9 +23,17 @@ interface GridUniforms {
 /** §3 background layer — dotted grid far behind the core, one draw call. */
 function DottedGrid({ color, opacity = 0.42 }: { color: string; opacity?: number }) {
   const matRef = useRef<GridUniforms>(null);
+  const compat = useRenderCompat();
   useFrame((_, delta) => {
     if (matRef.current) matRef.current.uTime += delta;
   });
+
+  // The dot pattern only exists in the fragment shader, so there is no
+  // node-material equivalent to swap in — a flat plane would read as a grey
+  // wall, not a grid. This layer is ambient depth cueing; dropping it degrades
+  // the scene far less than breaking the renderer does.
+  if (compat) return null;
+
   return (
     <mesh position={[0, 0, -4.5]}>
       <planeGeometry args={[26, 16]} />

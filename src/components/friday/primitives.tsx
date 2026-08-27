@@ -328,6 +328,18 @@ export function RenderCompatProvider({ value, children }: { value: boolean; chil
   return <HairlinesOnly.Provider value={value}>{children}</HairlinesOnly.Provider>;
 }
 
+/**
+ * True inside a WebGPU session, where custom GLSL `ShaderMaterial`s cannot be
+ * compiled ("THREE.NodeBuilder: Material 'ShaderMaterial' is not compatible").
+ *
+ * Read this rather than threading a `compat` prop down. SpatialHud shipped a
+ * raw shader material for months precisely because it never received one, and
+ * nothing about adding a material tells you a prop is missing.
+ */
+export function useRenderCompat(): boolean {
+  return useContext(HairlinesOnly);
+}
+
 /** A technical hairline that renders on both WebGL2 (wide Line2) and WebGPU (1px GL lines). */
 export function HairLine({
   points,

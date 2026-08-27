@@ -10,6 +10,7 @@ import {
   type VizData,
 } from "@/lib/store";
 import { STATE_LOOK } from "@/lib/stateLook";
+import { resolveVisualizationLayout } from "@/lib/visualization/layoutResolver";
 import { Connector, Reticle, TechLabel } from "../primitives";
 import { HealthCore, RadialGauge, Radar, Waveform } from "./vizRadial";
 import { BarChart3D, LineChart3D, Timeline3D } from "./vizCharts";
@@ -150,38 +151,132 @@ function FocusMarker() {
   );
 }
 
+function VizNode({
+  spec,
+  count,
+  index,
+  viewportWidth,
+  color,
+  accent,
+}: {
+  spec: VisualizationSpec;
+  count: number;
+  index: number;
+  viewportWidth: number;
+  color: string;
+  accent: string;
+}) {
+  const Renderer = REGISTRY[spec.type];
+  if (!Renderer) return null;
+  const layout = resolveVisualizationLayout(spec, {
+    count,
+    index,
+    viewportWidth,
+    hasCore: true,
+  });
+  // If spec already declares position/scale, layout respects it
+  const pos = spec.position ?? layout.position;
+  const sc = spec.scale ?? layout.scale;
+  return (
+    <group position={pos} scale={sc}>
+      <DrillDown enabled={spec.interaction !== "none"}>
+        <Pulse enabled={spec.animation === "pulse"}>
+          <Renderer data={spec.data ?? {}} color={color} accent={accent} />
+        </Pulse>
+        {spec.title && (
+          <TechLabel position={[0, 2.35, 0]} color={color} size={0.11} opacity={0.9} decode>
+            {spec.title}
+          </TechLabel>
+        )}
+      </DrillDown>
+    </group>
+  );
+}
+
 export default function FridayVisualization({ spec }: { spec?: VisualizationSpec | null }) {
   const stored = useFridayStore((s) => s.visualization);
+  const entries = useFridayStore((s) => s.visualizations);
   const state = useFridayStore((s) => s.state);
   const setFocus = useFridayStore((s) => s.setFocus);
-  const active = spec ?? stored;
   const look = STATE_LOOK[state];
 
   useEffect(() => {
     setFocus(null);
-  }, [active, setFocus]);
+  }, [spec?.type, spec?.title, stored?.type, entries.length, setFocus]);
 
-  if (!active) return null;
+  // legacy prop path — single spec override (used by tests/dev)
+  if (spec) {
+    const Renderer = REGISTRY[spec.type];
+    if (!Renderer) return null;
+    const color = spec.theme?.color ?? look.color;
+    const accent = spec.theme?.accent ?? look.accent;
+    return (
+      <group position={spec.position ?? [0, 0, 0]} scale={spec.scale ?? 1}>
+        <DrillDown enabled={spec.interaction !== "none"}>
+          <Pulse enabled={spec.animation === "pulse"}>
+            <Renderer data={spec.data ?? {}} color={color} accent={accent} />
+          </Pulse>
+          {spec.title && (
+            <TechLabel position={[0, 2.35, 0]} color={color} size={0.11} opacity={0.9} decode>
+              {spec.title}
+            </TechLabel>
+          )}
+          <FocusMarker />
+        </DrillDown>
+      </group>
+    );
+  }
 
-  const Renderer = REGISTRY[active.type];
-  if (!Renderer) return null;
+  // Multi-viz scene (§13). `visualization` legacy stays in sync, but entries is the source of truth.
+  const activeEntries = entries.length > 0 ? entries : stored ? [{ spec: stored, lifecycle: "active" as const }] : [];
 
-  const color = active.theme?.color ?? look.color;
-  const accent = active.theme?.accent ?? look.accent;
+  if (activeEntries.length === 0) return null;
 
+  // Single-viz fast path keeps exact previous layout/position semantics
+  if (activeEntries.length === 1) {
+    const active = activeEntries[0].spec;
+    const Renderer = REGISTRY[active.type];
+    if (!Renderer) return null;
+    const color = active.theme?.color ?? look.color;
+    const accent = active.theme?.accent ?? look.accent;
+    return (
+      <group position={active.position ?? [0, 0, 0]} scale={active.scale ?? 1}>
+        <DrillDown enabled={active.interaction !== "none"}>
+          <Pulse enabled={active.animation === "pulse"}>
+            <Renderer data={active.data ?? {}} color={color} accent={accent} />
+          </Pulse>
+          {active.title && (
+            <TechLabel position={[0, 2.35, 0]} color={color} size={0.11} opacity={0.9} decode>
+              {active.title}
+            </TechLabel>
+          )}
+          <FocusMarker />
+        </DrillDown>
+      </group>
+    );
+  }
+
+  // §13/§14 — multiple visualizations coexist with deterministic spatial layout
+  // We use a static viewport width estimate here; parent Scene could provide precise.
+  const viewportWidth = typeof window !== "undefined" ? window.innerWidth : 1440;
   return (
-    <group position={active.position ?? [0, 0, 0]} scale={active.scale ?? 1}>
-      <DrillDown enabled={active.interaction !== "none"}>
-        <Pulse enabled={active.animation === "pulse"}>
-          <Renderer data={active.data ?? {}} color={color} accent={accent} />
-        </Pulse>
-        {active.title && (
-          <TechLabel position={[0, 2.35, 0]} color={color} size={0.11} opacity={0.9} decode>
-            {active.title}
-          </TechLabel>
-        )}
-        <FocusMarker />
-      </DrillDown>
+    <group>
+      {activeEntries.map((entry, i) => {
+        const color = entry.spec.theme?.color ?? look.color;
+        const accent = entry.spec.theme?.accent ?? look.accent;
+        return (
+          <VizNode
+            key={`${entry.spec.type}-${entry.spec.title ?? i}-${i}`}
+            spec={entry.spec}
+            count={activeEntries.length}
+            index={i}
+            viewportWidth={viewportWidth}
+            color={color}
+            accent={accent}
+          />
+        );
+      })}
+      <FocusMarker />
     </group>
   );
 }

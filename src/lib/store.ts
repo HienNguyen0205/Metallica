@@ -1,17 +1,8 @@
 import { create } from "zustand";
+import { canTransition, reportIllegal, TRANSITIONS } from "@/lib/agent/stateMachine";
+import type { FridayState } from "@/lib/agent/stateMachine";
 
-/** §17 — the state every holographic component subscribes to. */
-export type FridayState =
-  | "idle"
-  | "listening"
-  | "thinking"
-  | "searching"
-  | "processing"
-  | "tool_execution"
-  | "visualizing"
-  | "speaking"
-  | "warning"
-  | "error";
+export type { FridayState };
 
 /** §16 — visualization kinds the renderer can materialize. */
 export type VisualizationType =
@@ -79,6 +70,22 @@ export interface VizFocus {
   position: [number, number, number];
 }
 
+export type VizLifecycle = "materializing" | "active" | "updating" | "settling";
+
+export interface VisualizationEntry {
+  spec: VisualizationSpec;
+  lifecycle: VizLifecycle;
+}
+
+/** §13 — active tool instrumentation (secondary to core, not a card). */
+export interface ToolActivity {
+  tool: string;
+  risk: "low" | "medium" | "high";
+}
+
+/** §18 — live vs offline demo distinguishability. */
+export type LiveMode = "connecting" | "live" | "offline" | "idle";
+
 /**
  * §11 — a high-risk tool call waiting on the operator. Deliberately not a
  * FridayState: approval is a question about one tool, not a mode the whole
@@ -94,23 +101,12 @@ export interface PendingConfirm {
 /** Actual rendering backend reported by the created renderer. */
 export type RenderBackend = "webgl2" | "webgpu";
 
-/** §17 — the allowed edges of the machine. */
-const TRANSITIONS: Record<FridayState, FridayState[]> = {
-  idle: ["listening", "thinking", "warning", "error"],
-  listening: ["thinking", "idle", "warning", "error"],
-  thinking: ["searching", "tool_execution", "processing", "visualizing", "speaking", "warning", "error"],
-  searching: ["processing", "tool_execution", "visualizing", "speaking", "warning", "error"],
-  processing: ["visualizing", "tool_execution", "speaking", "warning", "error"],
-  tool_execution: ["processing", "visualizing", "speaking", "warning", "error"],
-  visualizing: ["speaking", "processing", "idle", "warning", "error"],
-  speaking: ["idle", "listening", "warning", "error"],
-  warning: ["idle", "speaking", "error"],
-  error: ["idle"],
-};
+// Re-export canonical transition table for backwards compat (some tests may import via store)
+export { TRANSITIONS };
 
 export interface FridayStore {
   state: FridayState;
-  /** Guarded move along the machine; ignores illegal edges. */
+  /** Guarded move along the machine; ignores illegal edges but reports them in dev. */
   transition: (next: FridayState) => void;
   /** Unguarded — used by the state rail for previewing looks. */
   setState: (state: FridayState) => void;
@@ -118,10 +114,25 @@ export interface FridayStore {
   setAnswer: (answer: string | null) => void;
   visualization: VisualizationSpec | null;
   setVisualization: (viz: VisualizationSpec | null) => void;
+  /** §13/§8 — multi-viz scene; kept in sync with `visualization` for legacy tests. */
+  visualizations: VisualizationEntry[];
+  addVisualization: (viz: VisualizationSpec) => void;
+  setVisualizations: (vizs: VisualizationSpec[]) => void;
+  clearVisualizations: () => void;
   focus: VizFocus | null;
   setFocus: (focus: VizFocus | null) => void;
   pendingConfirm: PendingConfirm | null;
   setPendingConfirm: (pending: PendingConfirm | null) => void;
+  /** §11/§2 — live tool instrumentation */
+  toolActivity: ToolActivity | null;
+  setToolActivity: (activity: ToolActivity | null) => void;
+  deniedTool: string | null;
+  setDeniedTool: (tool: string | null) => void;
+  /** §18 — live vs offline indicator */
+  liveMode: LiveMode;
+  setLiveMode: (mode: LiveMode) => void;
+  sessionError: string | null;
+  setSessionError: (msg: string | null) => void;
   renderBackend: RenderBackend;
   setRenderBackend: (backend: RenderBackend) => void;
   audioEnabled: boolean;
@@ -132,21 +143,66 @@ export interface FridayStore {
 export const useFridayStore = create<FridayStore>((set, get) => ({
   state: "idle",
   transition: (next) => {
-    if (TRANSITIONS[get().state].includes(next)) set({ state: next });
+    const from = get().state;
+    if (from === next) return;
+    if (canTransition(from, next)) set({ state: next });
+    else reportIllegal(from, next, "transition");
   },
   setState: (state) => set({ state }),
   answer: null,
   setAnswer: (answer) => set({ answer }),
   visualization: null,
-  setVisualization: (visualization) => set({ visualization }),
+  setVisualization: (visualization) => {
+    if (!visualization) {
+      set({ visualization: null, visualizations: [] });
+      return;
+    }
+    set({
+      visualization,
+      visualizations: [{ spec: visualization, lifecycle: "materializing" as const }],
+    });
+  },
+  visualizations: [],
+  addVisualization: (spec) =>
+    set((s) => {
+      const entry: VisualizationEntry = { spec, lifecycle: "materializing" };
+      const next = [...s.visualizations.map((e) => ({ ...e, lifecycle: "active" as const })), entry];
+      // keep legacy single-viz pointer to latest for old consumers
+      return { visualizations: next, visualization: spec };
+    }),
+  setVisualizations: (vizs) =>
+    set({
+      visualizations: vizs.map((spec) => ({ spec, lifecycle: "materializing" as const })),
+      visualization: vizs.at(-1) ?? null,
+    }),
+  clearVisualizations: () => set({ visualizations: [], visualization: null }),
   focus: null,
   setFocus: (focus) => set({ focus }),
   pendingConfirm: null,
   setPendingConfirm: (pendingConfirm) => set({ pendingConfirm }),
+  toolActivity: null,
+  setToolActivity: (toolActivity) => set({ toolActivity }),
+  deniedTool: null,
+  setDeniedTool: (deniedTool) => set({ deniedTool }),
+  liveMode: "idle",
+  setLiveMode: (liveMode) => set({ liveMode }),
+  sessionError: null,
+  setSessionError: (sessionError) => set({ sessionError }),
   renderBackend: "webgl2",
   setRenderBackend: (renderBackend) => set({ renderBackend }),
   audioEnabled: true,
   toggleAudio: () => set({ audioEnabled: !get().audioEnabled }),
   reset: () =>
-    set({ state: "idle", answer: null, visualization: null, focus: null, pendingConfirm: null }),
+    set({
+      state: "idle",
+      answer: null,
+      visualization: null,
+      visualizations: [],
+      focus: null,
+      pendingConfirm: null,
+      toolActivity: null,
+      deniedTool: null,
+      liveMode: "idle",
+      sessionError: null,
+    }),
 }));
