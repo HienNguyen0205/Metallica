@@ -2,6 +2,7 @@ import { test, expect } from "@playwright/test";
 import { AA_SMALL, gotoScene, readFlow, recordFlow, textContrast } from "./helpers";
 import {
   CONFIRM_FLOW,
+  MEMORY_FLOW,
   STREAMING_FLOW,
   TOOL_FLOW,
   startStubOrchestrator,
@@ -229,6 +230,32 @@ test("§18 the hologram builds up as tool results arrive", async ({ page }) => {
       (await readFlow(page)).findIndex((e) => e.answer.length > 0),
       "no answer after the streamed sequence",
     ).toBeGreaterThan(-1);
+  } finally {
+    await stub.close();
+  }
+});
+
+// ---------- Task 12: learned memories surfaced in the HUD ----------
+
+test("a memory learned from a web page is shown in the HUD and marked FROM WEB", async ({
+  page,
+}) => {
+  const stub = await startStubOrchestrator(MEMORY_FLOW);
+  try {
+    await page.reload();
+    await page.waitForSelector("canvas");
+
+    await page.locator("input").click();
+    await page.locator("input").pressSequentially("remember this", { delay: 15 });
+    await page.keyboard.press("Enter");
+
+    // The marker is the operator's only signal a remembered fact came from a
+    // stranger's page rather than their own words — assert the fact text too,
+    // so this covers the whole line, not just the tacked-on marker.
+    const learned = page.getByText(/LEARNED/);
+    await expect(learned).toBeVisible({ timeout: 15_000 });
+    await expect(learned).toContainText("THE OFFICE CLOSES AT 9PM ON FRIDAYS");
+    await expect(learned).toContainText("FROM WEB");
   } finally {
     await stub.close();
   }

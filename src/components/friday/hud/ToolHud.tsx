@@ -64,7 +64,8 @@ export function ToolHud() {
 export function LiveIndicator() {
   const mode = useFridayStore((s) => s.liveMode);
   const sessionError = useFridayStore((s) => s.sessionError);
-  if (mode === "idle" && !sessionError) return null;
+  const memories = useFridayStore((s) => s.memories);
+  if (mode === "idle" && !sessionError && memories.length === 0) return null;
   const label =
     mode === "live"
       ? "LIVE CORE"
@@ -73,7 +74,7 @@ export function LiveIndicator() {
         : mode === "connecting"
           ? "CONNECTING"
           : null;
-  if (!label && !sessionError) return null;
+  if (!label && !sessionError && memories.length === 0) return null;
   return (
     <div className="pointer-events-none absolute left-8 top-[4.5rem] flex flex-col gap-1 font-mono text-[9px] tracking-[0.22em]">
       {label && (
@@ -83,6 +84,15 @@ export function LiveIndicator() {
         </span>
       )}
       {sessionError && <span className="max-w-[20rem] break-words text-red-300/70">{sessionError.toUpperCase()}</span>}
+      {memories.length > 0 && (
+        // Cùng lối amber như DENIED: cả hai là chuyện vừa xảy ra mà operator
+        // cần nhìn thấy, và một dòng ghi vào ký ức vĩnh viễn thì đáng chú ý
+        // không kém một tool bị từ chối.
+        <span className="text-amber-300/80">
+          LEARNED · {memories[0].fact.toUpperCase()}
+          {memories[0].provenance === "tool" && " · FROM WEB"}
+        </span>
+      )}
     </div>
   );
 }

@@ -109,6 +109,24 @@ export const STREAMING_FLOW: StubEvent[] = [
   { event: "done", data: {}, after: 20 },
 ];
 
+/**
+ * Task 12 — a fact FRIDAY chose to remember mid-turn, sourced from a page it
+ * searched rather than the operator's own words. `provenance: "tool"` is the
+ * only signal the HUD has to mark that distinctly from a memory the operator
+ * stated directly.
+ */
+export const MEMORY_FLOW: StubEvent[] = [
+  { event: "state", data: { state: "thinking" }, after: 60 },
+  {
+    event: "memory",
+    data: { id: 1, fact: "the office closes at 9pm on fridays", provenance: "tool" },
+    after: 150,
+  },
+  { event: "state", data: { state: "speaking" }, after: 150 },
+  { event: "answer", data: { text: "Noted." }, after: 20 },
+  { event: "done", data: {}, after: 20 },
+];
+
 /** A high-risk call that blocks until POST /confirm answers it. */
 export const CONFIRM_FLOW: StubEvent[] = [
   { event: "state", data: { state: "thinking" }, after: 60 },

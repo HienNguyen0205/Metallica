@@ -119,3 +119,27 @@ test("render backend defaults to webgl2 and records changes", () => {
   expect(api.getState().renderBackend).toBe("webgpu");
   api.getState().setRenderBackend("webgl2");
 });
+
+test("a memory event lands in the store so the operator can see it", () => {
+  api.getState().addMemory({ id: 1, fact: "thích đơn vị mét", provenance: "user" });
+  expect(api.getState().memories[0].fact).toBe("thích đơn vị mét");
+});
+
+test("clearing wipes the learned line", () => {
+  api.getState().addMemory({ id: 1, fact: "thích đơn vị mét", provenance: "user" });
+  api.getState().clearMemories();
+  expect(api.getState().memories).toEqual([]);
+});
+
+test("only the most recent memories are kept on screen", () => {
+  for (let i = 0; i < 10; i++) {
+    api.getState().addMemory({ id: i, fact: `m${i}`, provenance: "user" });
+  }
+  // HUD là một dòng, không phải nhật ký. Giữ hết thì nó trôi khỏi màn hình —
+  // nhưng nếu addMemory không làm gì cả thì độ dài cũng là 0, nên phải kiểm
+  // tra cả số lượng chính xác lẫn thứ tự (mới nhất ở đầu) để bài test này
+  // thật sự phân biệt được "giữ 3 cái gần nhất" với "vứt hết".
+  const memories = api.getState().memories;
+  expect(memories.length).toBe(3);
+  expect(memories[0].fact).toBe("m9");
+});

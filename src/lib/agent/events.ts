@@ -15,6 +15,7 @@ export type FridayEvent =
   | { type: "viz"; spec: VisualizationSpec }
   | { type: "answer"; text: string }
   | { type: "error"; message: string }
+  | { type: "memory"; id: number; fact: string; provenance: "user" | "tool" }
   | { type: "done" };
 
 export interface RawFrame {
@@ -75,6 +76,15 @@ export function parseFridayEvent(raw: RawFrame): FridayEvent | null {
     case "error": {
       const message = String(payload.message ?? payload.text ?? "unknown error");
       return { type: "error", message };
+    }
+    case "memory": {
+      if (typeof payload.fact !== "string") return null;
+      return {
+        type: "memory",
+        id: Number(payload.id),
+        fact: payload.fact,
+        provenance: payload.provenance === "tool" ? "tool" : "user",
+      };
     }
     default:
       return null;
