@@ -125,6 +125,12 @@ test("a memory event lands in the store so the operator can see it", () => {
   expect(api.getState().memories[0].fact).toBe("thích đơn vị mét");
 });
 
+test("clearing wipes the learned line", () => {
+  api.getState().addMemory({ id: 1, fact: "thích đơn vị mét", provenance: "user" });
+  api.getState().clearMemories();
+  expect(api.getState().memories).toEqual([]);
+});
+
 test("only the most recent memories are kept on screen", () => {
   for (let i = 0; i < 10; i++) {
     api.getState().addMemory({ id: i, fact: `m${i}`, provenance: "user" });

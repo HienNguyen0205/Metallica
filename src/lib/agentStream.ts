@@ -25,6 +25,7 @@ type FlowStore = Pick<
   | "setSessionError"
   | "setLiveMode"
   | "addMemory"
+  | "clearMemories"
 >;
 
 /**
@@ -95,6 +96,7 @@ export async function runQuery(
   else setVisualization(null);
   setPendingConfirm(null);
   store.setDeniedTool?.(null);
+  store.clearMemories?.();
   store.setSessionError?.(null);
   store.setToolActivity?.(null);
   store.setLiveMode?.("connecting");

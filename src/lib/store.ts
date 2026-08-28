@@ -151,6 +151,7 @@ export interface FridayStore {
   /** Facts FRIDAY just learned, newest first; HUD shows only the latest. */
   memories: MemoryNote[];
   addMemory: (note: MemoryNote) => void;
+  clearMemories: () => void;
   reset: () => void;
 }
 
@@ -211,6 +212,10 @@ export const useFridayStore = create<FridayStore>((set, get) => ({
     // HUD hiện một dòng, không phải nhật ký — giữ ba cái gần nhất là đủ để
     // thấy FRIDAY vừa học gì mà không đẩy mọi thứ khác ra khỏi màn hình.
     set((s) => ({ memories: [note, ...s.memories].slice(0, 3) })),
+  // Dọn ở đầu mỗi lượt, cùng chỗ với deniedTool. Không có nó, một sự thật học
+  // được một lần hiện mãi mãi - qua mọi lượt sau và cả lúc rảnh - và một cảnh
+  // báo luôn bật thì không còn là cảnh báo.
+  clearMemories: () => set({ memories: [] }),
   reset: () =>
     set({
       state: "idle",
