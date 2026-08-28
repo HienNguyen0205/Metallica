@@ -54,8 +54,8 @@ Latest news about football     best=0.500
 | Dải | Khoảng |
 |---|---|
 | ký ức đúng cho câu hỏi của nó | 0.625 – 0.785 |
-| ký ức khác trên một câu hỏi liên quan | 0.41 – 0.600 |
-| mọi ký ức trên câu hỏi **không** liên quan | ≤ 0.504 |
+| ký ức khác trên một câu hỏi liên quan | 0.45 – 0.600 |
+| mọi ký ức trên câu hỏi **không** liên quan | 0.41 – 0.504 |
 
 ## Ngưỡng: 0.6 → **0.58**
 
