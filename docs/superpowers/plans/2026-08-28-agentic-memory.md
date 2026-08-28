@@ -12,6 +12,12 @@
 
 ## Global Constraints
 
+- **Đây là hai git repo, không phải một.** `backend/` là repo riêng lồng trong
+  repo frontend. Thay đổi backend commit trong `backend/`; thay đổi frontend
+  (`src/`, `tests/`, `docs/`) commit ở repo gốc. Mọi lệnh `git` cho backend phải
+  chạy từ trong `backend/` với đường dẫn tương đối repo đó — `git add
+  backend/friday/...` từ repo ngoài sẽ không thấy file nào.
+
 - **Không thêm dependency Python nào.** `requirements.txt` không được đổi. Mọi HTTP đi bằng `urllib.request`, đúng tiền lệ `friday/tools/integrations/search.py`.
 - **Không dùng `numpy`.** Tích vô hướng viết bằng Python thuần.
 - **Memory là phần thêm, không bao giờ là điều kiện để trả lời được.** Mọi lỗi của store/embedding phải để turn chạy tiếp và vẫn phát `done`.
@@ -98,7 +104,7 @@ Expected: cả ba PASS. Nếu FAIL thì có import đang trỏ vào `friday.memo
 - [ ] **Step 5: Commit**
 
 ```bash
-git add backend/friday/memory backend/friday/memory.py
+cd backend && git add friday/memory friday/memory.py
 git commit -m "Move memory into a package ahead of long-term storage"
 ```
 
@@ -369,7 +375,7 @@ Nếu `test_credentials_ride_on_every_request` fail vì key sai hoa/thường: `
 - [ ] **Step 5: Commit**
 
 ```bash
-git add backend/friday/memory/store.py backend/tests/unit/test_memory_store.py
+cd backend && git add friday/memory/store.py tests/unit/test_memory_store.py
 git commit -m "Add Supabase memory store over stdlib urllib"
 ```
 
@@ -569,7 +575,7 @@ Expected: PASS, 6 dòng `ok`.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add backend/friday/memory/embed.py backend/tests/unit/test_memory_embed.py
+cd backend && git add friday/memory/embed.py tests/unit/test_memory_embed.py
 git commit -m "Add normalized batch embedding for memory"
 ```
 
@@ -829,7 +835,7 @@ Expected: PASS, 9 dòng `ok`.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add backend/friday/memory/long_term.py backend/tests/unit/test_long_term.py
+cd backend && git add friday/memory/long_term.py tests/unit/test_long_term.py
 git commit -m "Add memory cache, cosine ranking and the fenced recall block"
 ```
 
@@ -1106,7 +1112,7 @@ __all__ = ["MAX_SESSIONS", "MAX_TURNS", "clear", "history", "long_term", "rememb
 - [ ] **Step 6: Commit**
 
 ```bash
-git add backend/friday/memory backend/tests/unit/test_long_term_io.py
+cd backend && git add friday/memory tests/unit/test_long_term_io.py
 git commit -m "Add memory load, write and turn provenance"
 ```
 
@@ -1289,7 +1295,7 @@ Expected: tất cả PASS. `test_stream.py` có `test_only_high_risk_tools_are_g
 - [ ] **Step 7: Commit**
 
 ```bash
-git add backend/friday/tools/registry.py backend/friday/agent/agent.py backend/tests/integration/test_remember_flow.py
+cd backend && git add friday/tools/registry.py friday/agent/agent.py tests/integration/test_remember_flow.py
 git commit -m "Register the remember tool and emit memory events"
 ```
 
@@ -1525,7 +1531,7 @@ Expected: cả hai PASS. `test_stream.py` có các `fake_agent` với chữ ký 
 - [ ] **Step 7: Commit**
 
 ```bash
-git add backend/friday/agent/agent.py backend/friday/api/routes.py backend/contracts/events.json backend/tests/integration/test_recall_stream.py backend/tests/integration/test_stream.py
+cd backend && git add friday/agent/agent.py friday/api/routes.py contracts/events.json tests/integration/test_recall_stream.py tests/integration/test_stream.py
 git commit -m "Recall memories into the prompt and stream memory events"
 ```
 
@@ -1659,7 +1665,7 @@ Expected: PASS, 4 dòng `ok`.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add backend/friday/api/routes.py backend/tests/integration/test_memory_api.py
+cd backend && git add friday/api/routes.py tests/integration/test_memory_api.py
 git commit -m "Add the memory review and delete endpoints"
 ```
 
@@ -1887,7 +1893,7 @@ Expected: tất cả PASS.
 - [ ] **Step 7: Commit**
 
 ```bash
-git add backend/friday/memory/consolidate.py backend/friday/api/routes.py backend/tests/unit/test_consolidate.py
+cd backend && git add friday/memory/consolidate.py friday/api/routes.py tests/unit/test_consolidate.py
 git commit -m "Add background memory consolidation"
 ```
 
@@ -1939,7 +1945,7 @@ Expected: một dòng `long-term memory: 0 facts`. Không có Supabase thì cũn
 - [ ] **Step 4: Commit**
 
 ```bash
-git add backend/friday/core/lifecycle.py
+cd backend && git add friday/core/lifecycle.py
 git commit -m "Load long-term memory at startup"
 ```
 
@@ -2066,8 +2072,15 @@ cd backend && for t in tests/unit/*.py tests/integration/*.py; do PYTHONPATH=. p
 ```
 
 ```bash
-git add backend/friday/core/config.py backend/.env.example backend/render.yaml backend/README.md backend/supabase_schema.sql backend/.github/workflows/ci.yml README.md
-git commit -m "Configure and document long-term memory"
+cd backend && git add friday/core/config.py .env.example render.yaml README.md supabase_schema.sql .github/workflows/ci.yml
+cd backend && git commit -m "Configure and document long-term memory"
+```
+
+Bảng env ở `README.md` gốc thuộc repo ngoài, nên nó là một commit riêng:
+
+```bash
+git add README.md
+git commit -m "Document the long-term memory environment variables"
 ```
 
 ---
@@ -2267,8 +2280,15 @@ Tạo `docs/AGENTIC_MEMORY_RESULTS.md` theo khuôn của `docs/FRIDAY_SIMULATION
 - [ ] **Step 6: Commit**
 
 ```bash
-git add backend/friday/memory/long_term.py docs/AGENTIC_MEMORY_RESULTS.md
-git commit -m "Calibrate the recall threshold against a real corpus"
+cd backend && git add friday/memory/long_term.py
+cd backend && git commit -m "Calibrate the recall threshold against a real corpus"
+```
+
+`docs/` thuộc repo ngoài:
+
+```bash
+git add docs/AGENTIC_MEMORY_RESULTS.md
+git commit -m "Record the agentic memory live run"
 ```
 
 ---
