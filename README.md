@@ -184,6 +184,9 @@ would pass while exercising the wrong path.
 | `FRIDAY_ALLOWED_ORIGINS` | backend | `http://localhost:3000` | Comma-separated allowlist. Not only CORS — `/query` refuses an off-list `Origin` with `403` *before* spending a model call. |
 | `FRIDAY_RATE_LIMIT_PER_HOUR` | backend | `30` | §22 per-caller cap on `/query`. |
 | `FRIDAY_GLOBAL_LIMIT_PER_HOUR` | backend | `100` | §22 cap across all callers — the one that actually bounds the provider bill, since per-caller buckets key on a forgeable header. |
+| `SUPABASE_URL` | backend | unset | Long-term memory store. Unset means FRIDAY runs with short-term memory only — no restart-durable facts. |
+| `SUPABASE_SERVICE_KEY` | backend | unset | Bypasses row-level security. Backend-only — never prefix with `NEXT_PUBLIC_` or ship it to the frontend bundle. |
+| `FRIDAY_EMBED_MODEL` | backend | `gemini-embedding-001` | Embedding model for long-term memory recall/write. |
 
 These backend variables are listed for reference — the orchestrator is a
 separate repository. It owns the SSE event contract (`state`, `viz`, `answer`,
