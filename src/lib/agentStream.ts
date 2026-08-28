@@ -24,6 +24,7 @@ type FlowStore = Pick<
   | "setDeniedTool"
   | "setSessionError"
   | "setLiveMode"
+  | "addMemory"
 >;
 
 /**
@@ -63,6 +64,9 @@ function dispatch(store: FlowStore, event: FridayEvent): void {
     case "error":
       store.setSessionError?.(event.message);
       console.warn("[friday]", event.message);
+      break;
+    case "memory":
+      store.addMemory?.(event);
       break;
     case "done":
       store.setToolActivity?.(null);

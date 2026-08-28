@@ -101,6 +101,17 @@ export interface PendingConfirm {
 /** Actual rendering backend reported by the created renderer. */
 export type RenderBackend = "webgl2" | "webgpu";
 
+/**
+ * A fact FRIDAY chose to remember on its own. `provenance: "tool"` means it
+ * came from a page the model searched, not the operator's own words — the
+ * HUD must mark that distinctly since nothing else gates the write.
+ */
+export interface MemoryNote {
+  id: number;
+  fact: string;
+  provenance: "user" | "tool";
+}
+
 // Re-export canonical transition table for backwards compat (some tests may import via store)
 export { TRANSITIONS };
 
@@ -137,6 +148,9 @@ export interface FridayStore {
   setRenderBackend: (backend: RenderBackend) => void;
   audioEnabled: boolean;
   toggleAudio: () => void;
+  /** Facts FRIDAY just learned, newest first; HUD shows only the latest. */
+  memories: MemoryNote[];
+  addMemory: (note: MemoryNote) => void;
   reset: () => void;
 }
 
@@ -192,6 +206,11 @@ export const useFridayStore = create<FridayStore>((set, get) => ({
   setRenderBackend: (renderBackend) => set({ renderBackend }),
   audioEnabled: true,
   toggleAudio: () => set({ audioEnabled: !get().audioEnabled }),
+  memories: [],
+  addMemory: (note) =>
+    // HUD hiện một dòng, không phải nhật ký — giữ ba cái gần nhất là đủ để
+    // thấy FRIDAY vừa học gì mà không đẩy mọi thứ khác ra khỏi màn hình.
+    set((s) => ({ memories: [note, ...s.memories].slice(0, 3) })),
   reset: () =>
     set({
       state: "idle",
@@ -204,5 +223,6 @@ export const useFridayStore = create<FridayStore>((set, get) => ({
       deniedTool: null,
       liveMode: "idle",
       sessionError: null,
+      memories: [],
     }),
 }));
