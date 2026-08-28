@@ -31,6 +31,23 @@ function sessionId(): string | undefined {
   }
 }
 
+/**
+ * The orchestrator answered and refused: §22 origin check (403) or a rate
+ * limit (429). Distinct from unreachable on purpose — the caller must not
+ * answer a refusal with the offline planner's canned data, which would show
+ * the user an invented number and no reason it is not a real one.
+ */
+export class OrchestratorRefused extends Error {
+  constructor(
+    readonly status: number,
+    /** Seconds until the window frees up; null when the header is absent. */
+    readonly retryAfter: number | null,
+  ) {
+    super(status === 429 ? "rate limited by the orchestrator" : "orchestrator refused this origin");
+    this.name = "OrchestratorRefused";
+  }
+}
+
 export interface QueryOptions {
   signal?: AbortSignal;
   onEvent: (event: FridayEvent) => void;
@@ -55,6 +72,13 @@ export async function streamQuery(query: string, opts: QueryOptions): Promise<vo
   } catch (err) {
     if ((err as Error).name === "AbortError") return;
     throw err;
+  }
+
+  if (response.status === 403 || response.status === 429) {
+    // Readable cross-origin only because the backend lists Retry-After in
+    // Access-Control-Expose-Headers; without that this is always null.
+    const retry = Number(response.headers.get("retry-after"));
+    throw new OrchestratorRefused(response.status, Number.isFinite(retry) && retry > 0 ? retry : null);
   }
 
   if (!response.ok || !response.body) {

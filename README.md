@@ -181,7 +181,9 @@ would pass while exercising the wrong path.
 | `FRIDAY_LLM_BASE_URL` | backend | Gemini | Any OpenAI-compatible endpoint (Groq, Cerebras, OpenRouter, local Ollama). |
 | `FRIDAY_LLM_MODEL` | backend | `gemini-3.5-flash-lite` | Model name for that endpoint. |
 | `FRIDAY_LLM_API_KEY` | backend | unset | Generic alias for the key; wins over `GEMINI_API_KEY`. |
-| `FRIDAY_ALLOWED_ORIGINS` | backend | `http://localhost:3000` | Comma-separated CORS allowlist. |
+| `FRIDAY_ALLOWED_ORIGINS` | backend | `http://localhost:3000` | Comma-separated allowlist. Not only CORS — `/query` refuses an off-list `Origin` with `403` *before* spending a model call. |
+| `FRIDAY_RATE_LIMIT_PER_HOUR` | backend | `30` | §22 per-caller cap on `/query`. |
+| `FRIDAY_GLOBAL_LIMIT_PER_HOUR` | backend | `100` | §22 cap across all callers — the one that actually bounds the provider bill, since per-caller buckets key on a forgeable header. |
 
 These backend variables are listed for reference — the orchestrator is a
 separate repository. It owns the SSE event contract (`state`, `viz`, `answer`,

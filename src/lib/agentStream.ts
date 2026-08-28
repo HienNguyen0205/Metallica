@@ -1,7 +1,12 @@
 import type { FridayStore } from "@/lib/store";
 import { planVisualization, summarize } from "@/lib/vizPlanner";
 import { speak, stopSpeaking } from "@/lib/voice";
-import { streamQuery, confirmDecision, warnIfMisconfigured } from "@/lib/api/fridayClient";
+import {
+  streamQuery,
+  confirmDecision,
+  warnIfMisconfigured,
+  OrchestratorRefused,
+} from "@/lib/api/fridayClient";
 import type { FridayEvent } from "@/lib/agent/events";
 import { normalizeVisualization } from "@/lib/visualization/normalization";
 
@@ -123,6 +128,18 @@ export async function runQuery(
       store.transition("idle");
       return;
     }
+    // A refusal is not an outage. The orchestrator is up and said no, so the
+    // offline demo path would replace a real limit with a fabricated answer.
+    if (err instanceof OrchestratorRefused) {
+      const wait_s = err.retryAfter ? ` — retry in ${Math.ceil(err.retryAfter / 60)} min` : "";
+      store.setSessionError?.(`${err.message}${wait_s}`);
+      store.setLiveMode?.("idle");
+      store.transition("error");
+      await wait(1600);
+      store.transition("idle");
+      return;
+    }
+
     console.warn("[friday] orchestrator unreachable, using local rules planner:", err);
     store.setLiveMode?.("offline");
     await runLocal(store, query, voice);
