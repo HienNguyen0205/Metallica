@@ -55,14 +55,17 @@ create table friday_memory (
   provenance   text        not null check (provenance in ('user', 'tool')),
   embedding    vector(768) not null,
   created_at   timestamptz not null default now(),
-  last_used_at timestamptz not null default now(),
-  use_count    int         not null default 0
+  last_used_at timestamptz not null default now()
 );
 ```
 
 Không có cột phân loại (`kind`/`category`): nó trông hữu ích rồi không truy vấn
-nào dùng tới. `created_at` + `last_used_at` + `use_count` đủ để lượt hợp nhất
-biết cái gì cũ và cái gì chưa từng được nhớ tới.
+nào dùng tới. `created_at` + `last_used_at` đủ để lượt hợp nhất biết cái gì cũ
+và cái gì chưa từng được nhớ tới - một mục chưa bao giờ được recall thì
+`last_used_at` vẫn đúng bằng `created_at`.
+
+Bản thảo đầu có thêm `use_count`; nó bị bỏ trong lần review toàn nhánh vì
+không chỗ nào đọc tới, và `last_used_at` đã trả lời đúng câu hỏi đó.
 
 `provenance` **không** phải YAGNI — nó là một nửa của biện pháp bảo vệ ở §9.
 
@@ -106,7 +109,7 @@ Trước khi agent chạy, mỗi turn:
 2. Tích vô hướng với toàn bộ vector trong cache; lấy `TOP_K` mục vượt
    `SIMILARITY_FLOOR`.
 3. Chèn vào system prompt như một khối có rào (§9), cắt ở `RECALL_BLOCK_MAX_CHARS`.
-4. Cập nhật `use_count` / `last_used_at` cho các mục đã dùng — nền, không chặn.
+4. Cập nhật `last_used_at` cho các mục đã dùng — nền, không chặn.
 
 **Chuẩn hoá là bắt buộc.** Vector Gemini sau khi cắt MRL xuống 768 không còn
 đảm bảo chuẩn đơn vị, nên tích vô hướng trên vector thô không phải cosine và
@@ -130,8 +133,8 @@ không chờ. Service vốn đã bị ghim vào một process duy nhất vì `PE
 (xem `render.yaml`), nên một task nền và một bộ đếm trong RAM không tốn thêm tự
 do triển khai nào chưa bị tiêu.
 
-Việc của nó: gộp mục trùng, bỏ mục mâu thuẫn với mục mới hơn, xoá mục
-`use_count = 0` đã quá cũ. Trần cứng `MAX_MEMORIES`; vượt thì loại theo
+Việc của nó: gộp mục trùng, bỏ mục mâu thuẫn với mục mới hơn, xoá mục cũ chưa
+từng được nhớ tới. Trần cứng `MAX_MEMORIES`; vượt thì loại theo
 `last_used_at` cũ nhất.
 
 Một lượt hợp nhất thất bại không được làm hỏng gì: nó chỉ log và bỏ qua.
@@ -141,7 +144,7 @@ Một lượt hợp nhất thất bại không được làm hỏng gì: nó ch�
 Đây là biện pháp bảo vệ duy nhất trong phương án đã chọn, nên nó nằm trong phạm
 vi bắt buộc chứ không phải "làm sau".
 
-- `GET /memory` → danh sách ký ức kèm `provenance`, `created_at`, `use_count`.
+- `GET /memory` → danh sách ký ức kèm `provenance`, `created_at`, `last_used_at`.
 - `DELETE /memory/{id}` → xoá vĩnh viễn, dọn cả cache RAM.
 - Cả hai sau `require_known_origin`. Không tính vào rate limit của `/query`:
   chúng không gọi model.
@@ -192,7 +195,7 @@ Nguyên tắc: **memory là phần thêm, không bao giờ là điều kiện đ
 | Supabase không kết nối được lúc khởi động | Cache rỗng, log mức WARNING nêu rõ đang chạy không có ký ức dài hạn. Turn bình thường. |
 | Embedding lỗi lúc đọc | Bỏ recall turn này, đi tiếp. Không có event lỗi cho người dùng. |
 | Embedding hoặc INSERT lỗi lúc ghi | `remember` trả `{"error": ...}` cho model; model nói ra. Turn vẫn `done`. |
-| Cập nhật `use_count` lỗi | Nuốt, chỉ log. Đây là số liệu, không phải dữ liệu. |
+| Cập nhật `last_used_at` lỗi | Nuốt, chỉ log. Đây là số liệu, không phải dữ liệu. |
 | Lượt hợp nhất lỗi | Log rồi bỏ qua. Thử lại ở lần kích hoạt sau. |
 
 ## 11. Bố cục module
