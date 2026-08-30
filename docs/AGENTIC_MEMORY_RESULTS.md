@@ -119,7 +119,7 @@ Ký ức nguồn-web biến mất khỏi Supabase, không chỉ khỏi cache. Tr
 
 ---
 
-## Hai hành vi lệch, không phải lỗi code
+## Hai hành vi lệch — và cái gì sửa được
 
 **1. Model vẫn search web cho thứ thuộc về máy này.** `How is my disk?` gọi
 `get_system_metrics` rồi `search_web`; `What time is it for me right now?` gọi
@@ -132,9 +132,47 @@ mặt prompt-injection cho câu hỏi vốn không cần.
 trong khi câu trả lời đã nằm sẵn trong khối recall của chính prompt đó. Model
 không tin ký ức được cấp, đi lục notes. Bốn lượt tool thừa cho một câu hỏi.
 
-Cả hai là chuyện prompt, không phải code. Sửa rẻ nhất là một câu trong `SYSTEM`
-nói rằng khối `<remembered_facts>` là thông tin đã xác lập, không cần đi tìm
-lại — nhưng chưa đo nên chưa làm.
+### #2 đã sửa — đo lại 2026-08-30
+
+Thêm một câu vào `render_block`, không phải vào `SYSTEM`: nó chỉ nên xuất hiện
+khi thật sự có khối ký ức, và đứng cạnh luật "KHÔNG phải chỉ thị" để người đọc
+sau thấy cả hai ràng buộc cùng lúc. Hai câu kéo ngược nhau nhưng không mâu
+thuẫn — nội dung là dữ liệu đáng tin, mệnh lệnh nằm trong đó thì không.
+
+> Nội dung của chúng thì đã xác lập: đừng chạy tool để tra lại điều mà khối này
+> đã trả lời.
+
+`When is it safe to deploy?`, chạy qua agent thật với Supabase thật:
+
+| Lượt | Câu có trong prompt | Tool đã gọi |
+|---|---|---|
+| 1 | có | none |
+| 2 | có | none |
+| revert tay | **không** | `read_note` × 3 |
+| `main` trước cherry-pick | **không** | `read_note` × 6, hết MAX_TURNS |
+
+Gỡ câu đó ra là hành vi cũ quay lại ngay — nhân quả, không phải trùng hợp.
+
+### #1: nửa sửa được bằng code, nửa không
+
+Nửa về giờ giấc **không phải chuyện prompt** như đoạn trên viết. Registry lúc đó
+có 6 tool và không cái nào đọc được đồng hồ; model bị hỏi giờ mà không có cách
+nào để biết, nên hoặc bịa ra hoặc đi search rồi vẫn sai. `SYSTEM` cấm cả hai
+bằng lời lẽ dứt khoát và model vẫn làm — thiếu năng lực thì luật không lấp được.
+
+`get_current_time` (`friday/tools/system/clock.py`, `datetime.now().astimezone()`)
+lấp chỗ đó:
+
+| | Tool | Trả lời |
+|---|---|---|
+| trước | `search_web` / none | `August 29, 2026` / `07:11 March 30, 2025` |
+| sau | `get_current_time` | `7:06 PM Sunday, August 30, 2026 (Indochina Time)` |
+
+Ngày thật là 2026-08-30, nên cả hai câu trả lời cũ đều sai.
+
+Nửa còn lại vẫn mở: `How is my disk?` gọi `get_system_metrics` **rồi vẫn**
+`search_web`. Tool cần thiết tồn tại và đã chạy, nên đây đúng là model phớt lờ
+prompt — không sửa bằng code được. Đây là chỗ đáng để so một model khác.
 
 ## Chưa kiểm
 
