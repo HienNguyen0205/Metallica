@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { canTransition, reportIllegal, TRANSITIONS } from "@/lib/agent/stateMachine";
+import { canTransition, reportIllegal } from "@/lib/agent/stateMachine";
 import type { FridayState } from "@/lib/agent/stateMachine";
 
 export type { FridayState };
@@ -111,9 +111,6 @@ export interface MemoryNote {
   fact: string;
   provenance: "user" | "tool";
 }
-
-// Re-export canonical transition table for backwards compat (some tests may import via store)
-export { TRANSITIONS };
 
 export interface FridayStore {
   state: FridayState;

@@ -57,20 +57,3 @@ export function resolveAnimation(spec: VisualizationSpec): MotionPreset {
 
   return base;
 }
-
-export function motionDuration(preset: MotionPreset): number {
-  switch (preset) {
-    case "draw":
-      return 1.2;
-    case "rise":
-      return 0.9;
-    case "flow":
-      return 0;
-    case "scan":
-      return 0;
-    case "flash":
-      return 0.35;
-    default:
-      return 0.8;
-  }
-}

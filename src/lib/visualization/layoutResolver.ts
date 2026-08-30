@@ -51,17 +51,3 @@ export function resolveVisualizationLayout(
     scale: count > 4 ? 0.62 : count > 2 ? 0.78 : 0.9,
   };
 }
-
-export function composeSceneLayout(
-  specs: VisualizationSpec[],
-  viewportWidth = 1440,
-): LayoutPlacement[] {
-  return specs.map((s, i) =>
-    resolveVisualizationLayout(s, {
-      count: specs.length,
-      index: i,
-      viewportWidth,
-      hasCore: true,
-    }),
-  );
-}

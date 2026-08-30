@@ -24,15 +24,3 @@ export function resolveVisualization(
   });
   return { spec: normalized, preset, layout };
 }
-
-/**
- * For multi-viz scenes: normalize + animate + layout all at once.
- */
-export function resolveVisualizationScene(
-  specs: VisualizationSpec[],
-  viewportWidth = 1440,
-): ResolvedVisualization[] {
-  return specs.map((s, i) =>
-    resolveVisualization(s, { count: specs.length, index: i, viewportWidth }),
-  );
-}
