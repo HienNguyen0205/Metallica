@@ -12,6 +12,12 @@ export default function InputBar() {
   const busy = state !== "idle" && !listening;
   // the live recogniser, kept out of state — stopping it is not a render
   const stopRef = useRef<(() => void) | null>(null);
+  /**
+   * The turn in flight. `runQuery` has always accepted a signal and handled
+   * abort; nothing ever passed one, so a hung orchestrator left the input and
+   * the mic both disabled with no way out but a reload.
+   */
+  const turnRef = useRef<AbortController | null>(null);
 
   // A browser capability, not state: it never changes, but it must be read on
   // the client only — the server has no `window`, and the button must not
@@ -22,14 +28,42 @@ export default function InputBar() {
     () => false,
   );
 
-  useEffect(() => () => stopRef.current?.(), []);
-
   const ask = (query: string, voice: boolean) => {
     const trimmed = query.trim();
     if (!trimmed) return;
     setValue("");
-    void runQuery(useFridayStore.getState(), trimmed, { voice });
+    turnRef.current?.abort();
+    const turn = new AbortController();
+    turnRef.current = turn;
+    void runQuery(useFridayStore.getState(), trimmed, { voice, signal: turn.signal });
   };
+
+  /**
+   * `runQuery` returns silently on abort — deliberately, since an aborted turn
+   * has no outcome to report — which leaves the machine wherever it stopped.
+   * Cancelling is the one move that has to land from any state, and most states
+   * have no legal edge back to idle, so this resets rather than transitions.
+   */
+  const cancel = () => {
+    if (!turnRef.current) return;
+    turnRef.current.abort();
+    turnRef.current = null;
+    stopSpeaking();
+    useFridayStore.getState().reset();
+  };
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      // The input is disabled mid-turn, so its own onKeyDown never fires here.
+      if (e.key === "Escape") cancel();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      stopRef.current?.();
+      turnRef.current?.abort();
+    };
+  }, []);
 
   const toggleMic = () => {
     if (stopRef.current) {
@@ -86,6 +120,10 @@ export default function InputBar() {
           onChange={(e) => setValue(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && !busy && ask(value, false)}
           disabled={busy}
+          // Stays empty mid-turn: `disabled:opacity-30` below would render any
+          // hint here at roughly a fifth of the contrast the rest of the HUD
+          // holds. The cancel affordance is announced from `LiveIndicator`,
+          // which is already on screen for the whole turn and already legible.
           placeholder={busy ? "" : listening ? "LISTENING" : "ASK FRIDAY"}
           className="flex-1 bg-transparent text-center font-mono text-[11px] uppercase tracking-[0.3em] text-cyan-100 placeholder:text-cyan-300/60 focus:outline-none disabled:opacity-30"
         />

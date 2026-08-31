@@ -83,12 +83,24 @@ export function LiveIndicator() {
           <span className="ml-2 inline-block h-1.5 w-1.5 rounded-full align-middle opacity-70" style={{ background: mode === "live" ? "#6ee7b7" : mode === "offline" ? "#fbbf24" : "#38e8ff" }} />
         </span>
       )}
-      {sessionError && <span className="max-w-[20rem] break-words text-red-300/70">{sessionError.toUpperCase()}</span>}
+      {/* A turn is in flight and every other control is disabled — this is the
+          only moment ESC does anything, so it is the only moment to say so. */}
+      {(mode === "connecting" || mode === "live" || mode === "offline") && (
+        <span className="text-cyan-300/60">ESC · CANCEL</span>
+      )}
+      {/* role="alert" rather than a pre-mounted live region: this span is
+          inserted only when a turn fails, and an injected alert is the one
+          pattern screen readers announce reliably without one. */}
+      {sessionError && (
+        <span role="alert" className="max-w-[20rem] break-words text-red-300/70">
+          {sessionError.toUpperCase()}
+        </span>
+      )}
       {memories.length > 0 && (
         // Cùng lối amber như DENIED: cả hai là chuyện vừa xảy ra mà operator
         // cần nhìn thấy, và một dòng ghi vào ký ức vĩnh viễn thì đáng chú ý
         // không kém một tool bị từ chối.
-        <span className="text-amber-300/80">
+        <span role="status" className="text-amber-300/80">
           LEARNED · {memories[0].fact.toUpperCase()}
           {memories[0].provenance === "tool" && " · FROM WEB"}
         </span>

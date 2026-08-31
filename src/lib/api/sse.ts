@@ -136,19 +136,3 @@ function parseFrame(frameText: string): RawSseFrame | null {
     ...(retry !== undefined ? { retry } : {}),
   };
 }
-
-/**
- * Synchronous helper for tests: split a complete SSE text into frames.
- * Not streaming — just for unit verification.
- */
-export function parseSseText(text: string): RawSseFrame[] {
-  const normalized = text.replace(/\r\n/g, "\n");
-  const frames: RawSseFrame[] = [];
-  const parts = normalized.split("\n\n");
-  for (const part of parts) {
-    if (!part.trim()) continue;
-    const f = parseFrame(part);
-    if (f) frames.push(f);
-  }
-  return frames;
-}

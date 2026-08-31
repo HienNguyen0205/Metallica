@@ -3,12 +3,7 @@
 import { useEffect, useRef, type ComponentType, type ReactNode } from "react";
 import { useFrame, type ThreeEvent } from "@react-three/fiber";
 import { DoubleSide, Matrix4, Vector3, type Group, type InstancedMesh, type Object3D } from "three";
-import {
-  useFridayStore,
-  type VisualizationSpec,
-  type VisualizationType,
-  type VizData,
-} from "@/lib/store";
+import { useFridayStore, type VisualizationSpec, type VisualizationType, type VizData } from "@/lib/store";
 import { STATE_LOOK } from "@/lib/stateLook";
 import { resolveVisualizationLayout } from "@/lib/visualization/layoutResolver";
 import { Connector, Reticle, TechLabel } from "../primitives";
@@ -53,14 +48,23 @@ function findVizTag(obj: Object3D): VizTag | null {
   return null;
 }
 
-/** §5 interaction:"drill_down" — click an element to inspect it, click again to release. */
+/**
+ * §5 interaction:"drill_down" — click an element to inspect it, click again to release.
+ *
+ * The focus position is recorded in **world** space. It used to be converted to
+ * this group's local space and the marker rendered as a child, which is only
+ * equivalent while the group sits at the origin at scale 1 — true for a lone
+ * visualization and false for every node of a multi-viz scene, where the marker
+ * landed at the wrong place. World coordinates let one marker at the scene root
+ * serve both, which is also what let the three copies of this render path
+ * collapse into one.
+ */
 function DrillDown({ enabled, children }: { enabled: boolean; children: ReactNode }) {
-  const ref = useRef<Group>(null);
   const focus = useFridayStore((s) => s.focus);
   const setFocus = useFridayStore((s) => s.setFocus);
 
   const onClick = (e: ThreeEvent<MouseEvent>) => {
-    if (!enabled || !ref.current) return;
+    if (!enabled) return;
     let tag = findVizTag(e.object);
     const world = new Vector3();
     const bar = e.object.userData?.vizBar as { label: string; values: number[] } | undefined;
@@ -83,8 +87,7 @@ function DrillDown({ enabled, children }: { enabled: boolean; children: ReactNod
     }
 
     if (world.lengthSq() === 0) e.object.getWorldPosition(world);
-    const local = ref.current.worldToLocal(world.clone());
-    setFocus({ ...tag, position: [local.x, local.y, local.z] });
+    setFocus({ ...tag, position: [world.x, world.y, world.z] });
   };
 
   const onPointerOver = (e: ThreeEvent<PointerEvent>) => {
@@ -96,7 +99,6 @@ function DrillDown({ enabled, children }: { enabled: boolean; children: ReactNod
 
   return (
     <group
-      ref={ref}
       onClick={onClick}
       onPointerOver={onPointerOver}
       onPointerOut={onPointerOut}
@@ -166,19 +168,15 @@ function VizNode({
   color: string;
   accent: string;
 }) {
+  // `spec.type` arrives off the wire, so an unknown one renders nothing rather
+  // than throwing inside the canvas.
   const Renderer = REGISTRY[spec.type];
   if (!Renderer) return null;
-  const layout = resolveVisualizationLayout(spec, {
-    count,
-    index,
-    viewportWidth,
-    hasCore: true,
-  });
-  // If spec already declares position/scale, layout respects it
-  const pos = spec.position ?? layout.position;
-  const sc = spec.scale ?? layout.scale;
+
+  const layout = resolveVisualizationLayout(spec, { count, index, viewportWidth, hasCore: true });
+
   return (
-    <group position={pos} scale={sc}>
+    <group position={layout.position} scale={layout.scale}>
       <DrillDown enabled={spec.interaction !== "none"}>
         <Pulse enabled={spec.animation === "pulse"}>
           <Renderer data={spec.data ?? {}} color={color} accent={accent} />
@@ -193,89 +191,40 @@ function VizNode({
   );
 }
 
-export default function FridayVisualization({ spec }: { spec?: VisualizationSpec | null }) {
-  const stored = useFridayStore((s) => s.visualization);
+export default function FridayVisualization() {
   const entries = useFridayStore((s) => s.visualizations);
   const state = useFridayStore((s) => s.state);
   const setFocus = useFridayStore((s) => s.setFocus);
   const look = STATE_LOOK[state];
 
+  /**
+   * Keyed on what is on screen, not on how many: swapping one visualization for
+   * another keeps the count at 1, and a focus reticle left pointing at the
+   * previous hologram's node is stale.
+   */
+  const vizKey = entries.map((e) => `${e.spec.type}:${e.spec.title ?? ""}`).join("|");
   useEffect(() => {
     setFocus(null);
-  }, [spec?.type, spec?.title, stored?.type, entries.length, setFocus]);
+  }, [vizKey, setFocus]);
 
-  // legacy prop path — single spec override (used by tests/dev)
-  if (spec) {
-    const Renderer = REGISTRY[spec.type];
-    if (!Renderer) return null;
-    const color = spec.theme?.color ?? look.color;
-    const accent = spec.theme?.accent ?? look.accent;
-    return (
-      <group position={spec.position ?? [0, 0, 0]} scale={spec.scale ?? 1}>
-        <DrillDown enabled={spec.interaction !== "none"}>
-          <Pulse enabled={spec.animation === "pulse"}>
-            <Renderer data={spec.data ?? {}} color={color} accent={accent} />
-          </Pulse>
-          {spec.title && (
-            <TechLabel position={[0, 2.35, 0]} color={color} size={0.11} opacity={0.9} decode>
-              {spec.title}
-            </TechLabel>
-          )}
-          <FocusMarker />
-        </DrillDown>
-      </group>
-    );
-  }
-
-  // Multi-viz scene (§13). `visualization` legacy stays in sync, but entries is the source of truth.
-  const activeEntries = entries.length > 0 ? entries : stored ? [{ spec: stored, lifecycle: "active" as const }] : [];
-
-  if (activeEntries.length === 0) return null;
-
-  // Single-viz fast path keeps exact previous layout/position semantics
-  if (activeEntries.length === 1) {
-    const active = activeEntries[0].spec;
-    const Renderer = REGISTRY[active.type];
-    if (!Renderer) return null;
-    const color = active.theme?.color ?? look.color;
-    const accent = active.theme?.accent ?? look.accent;
-    return (
-      <group position={active.position ?? [0, 0, 0]} scale={active.scale ?? 1}>
-        <DrillDown enabled={active.interaction !== "none"}>
-          <Pulse enabled={active.animation === "pulse"}>
-            <Renderer data={active.data ?? {}} color={color} accent={accent} />
-          </Pulse>
-          {active.title && (
-            <TechLabel position={[0, 2.35, 0]} color={color} size={0.11} opacity={0.9} decode>
-              {active.title}
-            </TechLabel>
-          )}
-          <FocusMarker />
-        </DrillDown>
-      </group>
-    );
-  }
+  if (entries.length === 0) return null;
 
   // §13/§14 — multiple visualizations coexist with deterministic spatial layout
-  // We use a static viewport width estimate here; parent Scene could provide precise.
   const viewportWidth = typeof window !== "undefined" ? window.innerWidth : 1440;
+
   return (
     <group>
-      {activeEntries.map((entry, i) => {
-        const color = entry.spec.theme?.color ?? look.color;
-        const accent = entry.spec.theme?.accent ?? look.accent;
-        return (
-          <VizNode
-            key={`${entry.spec.type}-${entry.spec.title ?? i}-${i}`}
-            spec={entry.spec}
-            count={activeEntries.length}
-            index={i}
-            viewportWidth={viewportWidth}
-            color={color}
-            accent={accent}
-          />
-        );
-      })}
+      {entries.map((entry, i) => (
+        <VizNode
+          key={`${entry.spec.type}-${entry.spec.title ?? i}-${i}`}
+          spec={entry.spec}
+          count={entries.length}
+          index={i}
+          viewportWidth={viewportWidth}
+          color={entry.spec.theme?.color ?? look.color}
+          accent={entry.spec.theme?.accent ?? look.accent}
+        />
+      ))}
       <FocusMarker />
     </group>
   );
