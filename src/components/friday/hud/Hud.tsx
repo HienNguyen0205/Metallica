@@ -230,8 +230,10 @@ export function devRailsEnabled(): boolean {
 
 /** Dev rail — materializes any visualization type with sample data on click. */
 export function VizRail() {
-  const visualization = useFridayStore((s) => s.visualization);
-  const setVisualization = useFridayStore((s) => s.setVisualization);
+  // The type of what is on screen, not the spec: a primitive keeps this
+  // selector from handing zustand a fresh value on every store write.
+  const activeType = useFridayStore((s) => s.visualizations.at(-1)?.spec.type);
+  const setVisualizations = useFridayStore((s) => s.setVisualizations);
   const setState = useFridayStore((s) => s.setState);
 
   if (!devRailsEnabled()) return null;
@@ -245,14 +247,16 @@ export function VizRail() {
         <button
           key={t}
           onClick={() => {
-            setVisualization(sampleSpec(t));
+            // replaces the scene rather than appending to it — the rail picks
+            // one visualization to look at, it does not build a collection
+            setVisualizations([sampleSpec(t)]);
             setState("visualizing");
           }}
           className={`transition-colors ${
-            visualization?.type === t ? "text-cyan-200" : "text-cyan-300/60 hover:text-cyan-200"
+            activeType === t ? "text-cyan-200" : "text-cyan-300/60 hover:text-cyan-200"
           }`}
         >
-          {visualization?.type === t ? "▸ " : ""}
+          {activeType === t ? "▸ " : ""}
           {t.replace("_", " ").toUpperCase()}
         </button>
       ))}

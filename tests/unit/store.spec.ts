@@ -17,7 +17,7 @@ test.beforeEach(() => {
 test("starts idle with nothing on screen", () => {
   expect(now()).toBe("idle");
   expect(api.getState().answer).toBeNull();
-  expect(api.getState().visualization).toBeNull();
+  expect(api.getState().visualizations).toEqual([]);
 });
 
 test("walks the documented happy path", () => {
@@ -83,13 +83,13 @@ test("setState is unguarded so the dev rail can preview any look", () => {
 test("reset clears the answer and the visualization together", () => {
   api.getState().setState("speaking");
   api.getState().setAnswer("System integrity at 87 percent.");
-  api.getState().setVisualization({ type: "health_core" });
+  api.getState().setVisualizations([{ type: "health_core" }]);
 
   api.getState().reset();
 
   expect(now()).toBe("idle");
   expect(api.getState().answer).toBeNull();
-  expect(api.getState().visualization).toBeNull();
+  expect(api.getState().visualizations).toEqual([]);
 });
 
 test("audio toggle flips and persists", () => {

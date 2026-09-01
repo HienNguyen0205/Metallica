@@ -35,7 +35,7 @@ export default function FridayCore({
    * drawn over a blown-out white sphere and could not be read at all.
    * It now withdraws to a marker: the data is what you are looking at.
    */
-  const hasViz = useFridayStore((s) => !!s.visualization);
+  const hasViz = useFridayStore((s) => s.visualizations.length > 0);
   const recede = useRef(1);
   // scale alone is not enough: bloom on the emissive core bleeds well past its
   // silhouette, so the glow has to come down with it.

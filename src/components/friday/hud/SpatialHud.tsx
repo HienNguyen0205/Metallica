@@ -98,7 +98,7 @@ const COLUMN_INSET = 0.5;
 
 function LevelColumns({ color, accent }: { color: string; accent: string }) {
   const viewportWidth = useThree((s) => s.viewport.width);
-  const visualization = useFridayStore((s) => s.visualization);
+  const hasViz = useFridayStore((s) => s.visualizations.length > 0);
   const groupRef = useRef<Group>(null);
   const t = useTelemetry();
 
@@ -116,7 +116,7 @@ function LevelColumns({ color, accent }: { color: string; accent: string }) {
     groupRef.current.position.x = camera.position.x - halfAtPlane + COLUMN_INSET;
   });
 
-  if (visualization || viewportWidth < MIN_FRAME_WIDTH) return null;
+  if (hasViz || viewportWidth < MIN_FRAME_WIDTH) return null;
 
   // real where a real source exists; NET falls back to a link estimate
   const pwr = Math.min(100, (t.fps / 60) * 100);
@@ -165,7 +165,7 @@ export default function SpatialHud({ reduced = false }: { reduced?: boolean }) {
    * particular sat right behind every line and bar. It steps back while a
    * visualization holds the frame instead of being read as data.
    */
-  const hasViz = useFridayStore((s) => !!s.visualization);
+  const hasViz = useFridayStore((s) => s.visualizations.length > 0);
 
   useFrame(() => {
     if (!drift.current) return;

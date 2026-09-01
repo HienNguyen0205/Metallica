@@ -23,7 +23,6 @@ function recorder() {
     calls,
     transition: note("transition"),
     setAnswer: note("setAnswer"),
-    setVisualization: note("setVisualization"),
     setPendingConfirm: note("setPendingConfirm"),
     addVisualization: note("addVisualization"),
     clearVisualizations: note("clearVisualizations"),

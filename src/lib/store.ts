@@ -120,9 +120,14 @@ export interface FridayStore {
   setState: (state: FridayState) => void;
   answer: string | null;
   setAnswer: (answer: string | null) => void;
-  visualization: VisualizationSpec | null;
-  setVisualization: (viz: VisualizationSpec | null) => void;
-  /** §13/§8 — multi-viz scene; kept in sync with `visualization` for legacy tests. */
+  /**
+   * §13/§8 — the visualization scene, and the only record of it.
+   *
+   * A `visualization` field used to sit alongside this holding "the latest
+   * spec", re-derived by hand in four separate setters. It was never anything
+   * but `visualizations.at(-1)?.spec`, and two fields that must agree are two
+   * fields that can disagree. Consumers that want the latest read it here.
+   */
   visualizations: VisualizationEntry[];
   addVisualization: (viz: VisualizationSpec) => void;
   setVisualizations: (vizs: VisualizationSpec[]) => void;
@@ -163,31 +168,17 @@ export const useFridayStore = create<FridayStore>((set, get) => ({
   setState: (state) => set({ state }),
   answer: null,
   setAnswer: (answer) => set({ answer }),
-  visualization: null,
-  setVisualization: (visualization) => {
-    if (!visualization) {
-      set({ visualization: null, visualizations: [] });
-      return;
-    }
-    set({
-      visualization,
-      visualizations: [{ spec: visualization, lifecycle: "materializing" as const }],
-    });
-  },
   visualizations: [],
   addVisualization: (spec) =>
-    set((s) => {
-      const entry: VisualizationEntry = { spec, lifecycle: "materializing" };
-      const next = [...s.visualizations.map((e) => ({ ...e, lifecycle: "active" as const })), entry];
-      // keep legacy single-viz pointer to latest for old consumers
-      return { visualizations: next, visualization: spec };
-    }),
+    set((s) => ({
+      visualizations: [
+        ...s.visualizations.map((e) => ({ ...e, lifecycle: "active" as const })),
+        { spec, lifecycle: "materializing" as const },
+      ],
+    })),
   setVisualizations: (vizs) =>
-    set({
-      visualizations: vizs.map((spec) => ({ spec, lifecycle: "materializing" as const })),
-      visualization: vizs.at(-1) ?? null,
-    }),
-  clearVisualizations: () => set({ visualizations: [], visualization: null }),
+    set({ visualizations: vizs.map((spec) => ({ spec, lifecycle: "materializing" as const })) }),
+  clearVisualizations: () => set({ visualizations: [] }),
   focus: null,
   setFocus: (focus) => set({ focus }),
   pendingConfirm: null,
@@ -217,7 +208,6 @@ export const useFridayStore = create<FridayStore>((set, get) => ({
     set({
       state: "idle",
       answer: null,
-      visualization: null,
       visualizations: [],
       focus: null,
       pendingConfirm: null,
