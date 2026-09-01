@@ -137,8 +137,11 @@ export function Globe3D({ points = DEFAULT_GEO, color, accent }: SpatialProps) {
           <sphereGeometry args={[R, 24, 14]} />
           <meshBasicMaterial color={color} wireframe transparent opacity={0.22} toneMapped={false} />
         </mesh>
-        {markers.map((m) => (
-          <group key={m.label} position={m.pos}>
+        {/* Keyed with the index alongside the label, the way Timeline3D already
+            is: `GeoPoint.label` is optional and becomes "" when absent, so two
+            unlabelled points off the wire would otherwise collide on one key. */}
+        {markers.map((m, i) => (
+          <group key={`${m.label}-${i}`} position={m.pos}>
             <mesh
               visible={false}
               userData={{ viz: { label: m.label.toUpperCase() || "EDGE", detail: "EDGE REGION" } }}

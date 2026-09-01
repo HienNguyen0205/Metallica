@@ -1,6 +1,6 @@
 "use client";
 
-import { useLayoutEffect, useMemo, useRef } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
 import { DoubleSide, Object3D, type InstancedMesh } from "three";
 import type { SeriesDatum, TimelineEvent } from "@/lib/store";
@@ -166,8 +166,31 @@ export function BarChart3D({ series = DEFAULT_SERIES, color, accent }: ChartProp
     grown.current = 0;
   }, [values]);
 
+  /**
+   * `bar_3d` draws one series, unlike `line_3d` which layers all of them in
+   * depth. The bars already spend the depth axis on their arc, so a second
+   * series has nowhere to sit that the first would not occlude — and nothing
+   * emits more than one today. So this stays a documented limit rather than a
+   * grouped-bar layout built for a caller that does not exist.
+   *
+   * What it must not be is silent: dropping half a payload with no trace is
+   * how a backend change becomes a rendering mystery. Dev-only, in the same
+   * idiom as the state machine's illegal-transition warning.
+   */
+  useEffect(() => {
+    if (process.env.NODE_ENV !== "production" && series.length > 1) {
+      const ignored = series.slice(1).map((s) => s.label).join(", ");
+      console.warn(`[friday] bar_3d renders one series; ignoring ${series.length - 1} (${ignored})`);
+    }
+  }, [series]);
+
   useFrame((_, delta) => {
-    if (!mesh.current) return;
+    // Stops once the bars have finished growing. Without this the loop kept
+    // rewriting matrices that no longer change and re-flagging
+    // `instanceMatrix` every frame — a GPU upload per frame, forever, for
+    // geometry standing still. `useLayoutEffect` above rewinds it when the
+    // data changes, so the animation still replays.
+    if (!mesh.current || grown.current >= 1) return;
     grown.current = Math.min(1, grown.current + delta * 1.6);
     for (let i = 0; i < values.length; i++) {
       const a = barAngle(i, values.length);

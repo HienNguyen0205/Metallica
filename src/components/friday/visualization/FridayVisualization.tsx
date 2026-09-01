@@ -3,7 +3,13 @@
 import { useEffect, useRef, type ComponentType, type ReactNode } from "react";
 import { useFrame, type ThreeEvent } from "@react-three/fiber";
 import { DoubleSide, Matrix4, Vector3, type Group, type InstancedMesh, type Object3D } from "three";
-import { useFridayStore, type VisualizationSpec, type VisualizationType, type VizData } from "@/lib/store";
+import {
+  useFridayStore,
+  type VisualizationSpec,
+  type VisualizationType,
+  type VizData,
+  type VizFocus,
+} from "@/lib/store";
 import { STATE_LOOK } from "@/lib/stateLook";
 import { resolveVisualizationLayout } from "@/lib/visualization/layoutResolver";
 import { Connector, Reticle, TechLabel } from "../primitives";
@@ -34,9 +40,28 @@ const REGISTRY: Record<VisualizationType, ComponentType<RendererProps>> = {
   particle_flow: ({ ...rest }) => <ParticleFlow {...rest} />,
 };
 
-interface VizTag {
+export interface VizTag {
   label: string;
   detail: string;
+}
+
+/**
+ * The drill-down decision: clicking the element already in focus releases it,
+ * clicking anything else focuses that.
+ *
+ * Lifted out of the click handler so it can be checked without a moving scene.
+ * Proving this through the canvas means clicking a screen coordinate at a node
+ * that bobs every frame, under a camera that drifts and swings — and a click
+ * that misses clears the focus too, so a release and a miss-then-hit are
+ * indistinguishable from the outside. Two attempts at an end-to-end test for
+ * it were each either flaky or unable to fail; see tests/ui/drilldown.spec.ts.
+ */
+export function nextFocus(
+  current: VizFocus | null,
+  tag: VizTag,
+  position: [number, number, number],
+): VizFocus | null {
+  return current?.label === tag.label ? null : { ...tag, position };
 }
 
 function findVizTag(obj: Object3D): VizTag | null {
@@ -81,13 +106,8 @@ function DrillDown({ enabled, children }: { enabled: boolean; children: ReactNod
     }
     if (!tag) return;
 
-    if (focus?.label === tag.label) {
-      setFocus(null);
-      return;
-    }
-
     if (world.lengthSq() === 0) e.object.getWorldPosition(world);
-    setFocus({ ...tag, position: [world.x, world.y, world.z] });
+    setFocus(nextFocus(focus, tag, [world.x, world.y, world.z]));
   };
 
   const onPointerOver = (e: ThreeEvent<PointerEvent>) => {

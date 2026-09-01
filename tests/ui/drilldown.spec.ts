@@ -55,6 +55,27 @@ async function focusText(page: Page): Promise<string> {
   return (await page.textContent("[data-testid='hud-focus']")) ?? "";
 }
 
+const CLEARED = "FOCUS · --";
+
+/**
+ * Clicks candidate points until one locks focus, reporting which point worked
+ * and what it locked.
+ *
+ * The points are computed from a *static* camera, but the scene never holds
+ * still: every metric node bobs each frame and the camera rig drifts and
+ * swings continuously. So a point is a good guess, not a guarantee, and which
+ * one lands varies from run to run.
+ */
+async function lockFocus(page: Page): Promise<{ point: Vec3; locked: string } | null> {
+  for (const point of gaugeNodePoints()) {
+    await page.mouse.click(point[0], point[1]);
+    await page.waitForTimeout(250);
+    const text = await focusText(page);
+    if (/FOCUS · (CPU|RAM|DISK|NET)/.test(text)) return { point, locked: text };
+  }
+  return null;
+}
+
 test.beforeEach(async ({ page }) => {
   await gotoScene(page);
 });
@@ -63,43 +84,33 @@ test("clicking a metric node drills into it", async ({ page }) => {
   await page.click("#viz-rail button:has-text('RADIAL GAUGE')");
   await page.waitForTimeout(1200);
 
-  expect(await focusText(page)).toBe("FOCUS · --");
+  expect(await focusText(page)).toBe(CLEARED);
 
-  let hit: Vec3 | null = null;
-  for (const p of gaugeNodePoints()) {
-    await page.mouse.click(p[0], p[1]);
-    await page.waitForTimeout(250);
-    if (/FOCUS · (CPU|RAM|DISK|NET)/.test(await focusText(page))) {
-      hit = p;
-      break;
-    }
-  }
+  const hit = await lockFocus(page);
   expect(hit, `no metric node was hit; last focus: "${await focusText(page)}"`).not.toBeNull();
 
   // the reticle adds new bright geometry around the selected node
-  console.log(`[drilldown] locked focus: "${await focusText(page)}"`);
+  console.log(`[drilldown] locked focus: "${hit!.locked}"`);
 });
 
-test("clicking the focused element again releases it", async ({ page }) => {
-  await page.click("#viz-rail button:has-text('RADIAL GAUGE')");
-  await page.waitForTimeout(1200);
-
-  let hit: Vec3 | null = null;
-  for (const p of gaugeNodePoints()) {
-    await page.mouse.click(p[0], p[1]);
-    await page.waitForTimeout(250);
-    if (!/^FOCUS · --$/.test(await focusText(page))) {
-      hit = p;
-      break;
-    }
-  }
-  expect(hit).not.toBeNull();
-
-  await page.mouse.click(hit![0], hit![1]);
-  await page.waitForTimeout(300);
-  expect(await focusText(page)).toBe("FOCUS · --");
-});
-
+/**
+ * There is deliberately no end-to-end test for the release half of the toggle.
+ *
+ * Two were written and both were withdrawn. The first clicked one screen point
+ * twice and demanded a release; the metric nodes bob every frame under a
+ * drifting camera, so the second click could land on a neighbour, and it failed
+ * about one run in nine on correct code — invisibly on CI, where `retries: 2`
+ * swallowed it. The second added a three-click confirmation to rule that out,
+ * and passed against a build with the release branch deleted: a click that
+ * misses clears the focus through `onPointerMissed` exactly as a release does,
+ * so "cleared, then locked again" proves a miss and a hit, not a toggle.
+ *
+ * A moving target reached by fixed coordinates cannot tell those apart. The
+ * decision itself is a pure function now — `nextFocus` — and it is checked
+ * exhaustively and deterministically in tests/unit/vizFocus.spec.ts. What the
+ * two tests here still cover is the part only a browser can: that a real click
+ * reaches the handler at all, and that focus is dropped when the scene changes.
+ */
 test("switching visualization clears a stale focus", async ({ page }) => {
   await page.click("#viz-rail button:has-text('RADIAL GAUGE')");
   await page.waitForTimeout(1200);

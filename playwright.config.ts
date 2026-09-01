@@ -19,6 +19,22 @@ export default defineConfig({
   expect: { timeout: 10_000 },
   // pixel and timing assertions deserve a retry on shared CI hardware
   retries: process.env.CI ? 2 : 0,
+  /**
+   * One worker, and it is not a leftover conservative default — raising it is
+   * measurably worse. Every test mounts a full WebGL scene, and on a machine
+   * without a GPU adapter three.js runs on SwiftShader, which rasterises on the
+   * CPU. Parallel scenes therefore do not divide the work, they contend for the
+   * same cores.
+   *
+   * Measured on this suite, 8 cores: `workers: 1` → 19.0-19.6 min, all green.
+   * `--workers=4` → 20.8 min and five failures, with hologram.spec going
+   * 7.4 → 16.2 min and memoryRail 1.1 → 8.4 min.
+   *
+   * Note also that Playwright parallelises across *files*, never within one, so
+   * `--workers=N` on a single spec changes nothing at all.
+   *
+   * Wall time on CI is cut by sharding across runners instead — see ci.yml.
+   */
   workers: 1,
   forbidOnly: !!process.env.CI,
   reporter: process.env.CI

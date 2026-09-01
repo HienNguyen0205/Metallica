@@ -41,11 +41,28 @@ jobs:
         run: npm run test:unit
 
   # The hologram suite: builds the app, boots it and drives real WebGL.
+  #
+  # Sharded across runners rather than parallelised inside one. Every test
+  # mounts a WebGL scene that rasterises on the CPU here, so extra workers on a
+  # single machine only contend for cores — measured at 20.8 min and five
+  # failures against 19 min green at one worker (see playwright.config.ts).
+  # Separate runners have separate cores, and separate ports for the stub
+  # orchestrator, so this is the split that actually pays.
+  #
+  # Two shards, not more: Playwright shards whole files, and this suite is four
+  # very uneven ones. At three the split came out 22 / 0 / 10 — an idle runner
+  # and no gain. Two lands friday+drilldown against hologram+memoryRail, which
+  # by the measured per-file times is roughly 10 min against 8.5.
   ui:
-    name: UI (WebGL)
+    name: UI (WebGL) ${{ matrix.shard }}/2
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 25
     needs: static
+    strategy:
+      # one shard failing should not cancel the evidence from the others
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
     steps:
       - uses: actions/checkout@v4
 
@@ -89,13 +106,14 @@ jobs:
       # The suite's webServer runs `npm run build && npm run start`, so this
       # step also covers the production build.
       - name: UI tests
-        run: npm run test:ui
+        run: npm run test:ui -- --shard=${{ matrix.shard }}/2
 
       - name: Upload Playwright report
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-report
+          # one name per shard: uploading both artifacts under one name fails
+          name: playwright-report-shard-${{ matrix.shard }}
           path: playwright-report/
           retention-days: 14
 
