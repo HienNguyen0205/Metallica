@@ -8,14 +8,15 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  /* was `Arial, Helvetica, sans-serif` from the create-next-app scaffold, which
+     contradicted the font actually loaded next door */
+  font-family: var(--font-geist-mono), ui-monospace, monospace;
 }
 
 .scanlines::before {
@@ -68,6 +69,23 @@ body {
   to {
     opacity: 1;
     transform: translateY(0);
+  }
+}
+
+/**
+ * The 3D scene has always honoured this — `Scene.tsx` drops the particle count,
+ * the pointer parallax and the god rays on it. These two overlays did not, and
+ * the scan bar is the largest moving thing on screen: a band crossing the whole
+ * viewport, restarting every 7s, forever. That is the motion the setting exists
+ * to stop, so it stops rather than slows.
+ */
+@media (prefers-reduced-motion: reduce) {
+  .scan-bar::after {
+    display: none;
+  }
+  /* the line still appears, it just stops sliding up into place */
+  .answer-rise {
+    animation: none;
   }
 }
 

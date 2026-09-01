@@ -9,8 +9,13 @@ export function noise(i: number, seed: number) {
   return x - Math.floor(x);
 }
 
+/**
+ * No `position` here. Every particle's position is computed on the GPU in
+ * `material.positionNode` from the attributes below, so the CPU-side array this
+ * used to carry was allocated per field, never written, and never read — while
+ * its name claimed to be where positions came from.
+ */
 export interface ParticleField {
-  position: Float32Array;
   aRadius: Float32Array;
   aAngle: Float32Array;
   aSpeed: Float32Array;
@@ -24,7 +29,6 @@ export function buildParticleField(
   innerRadius: number,
   span: number,
 ): ParticleField {
-  const position = new Float32Array(count * 3);
   const aRadius = new Float32Array(count);
   const aAngle = new Float32Array(count);
   const aSpeed = new Float32Array(count);
@@ -43,5 +47,5 @@ export function buildParticleField(
     aSize[i] = 0.4 + Math.pow(noise(i, 6), 2.4) * 1.7;
   }
 
-  return { position, aRadius, aAngle, aSpeed, aTilt, aY, aSize };
+  return { aRadius, aAngle, aSpeed, aTilt, aY, aSize };
 }
