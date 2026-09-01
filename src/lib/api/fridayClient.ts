@@ -114,6 +114,53 @@ export async function confirmDecision(
   if (!res.ok) throw new Error(`confirm ${res.status}`);
 }
 
+/**
+ * A fact already in the store, as `GET /memory` returns it.
+ *
+ * Narrower than the row the backend holds: it also carries `created_at` and
+ * `last_used_at`, which nothing here shows. Only what is rendered is parsed.
+ */
+export interface StoredMemory {
+  id: number;
+  fact: string;
+  provenance: "user" | "tool";
+}
+
+/**
+ * §8 of the memory design — the operator's half of "review and delete", which
+ * that section calls the only mitigation standing behind the decision to let
+ * the model write facts unprompted.
+ *
+ * Rows are validated rather than trusted. This crosses a process boundary, and
+ * a malformed row rendering as `undefined` next to a FORGET button is worse
+ * than one that never appears.
+ */
+export async function listMemories(signal?: AbortSignal): Promise<StoredMemory[]> {
+  const res = await fetch(`${API}/memory`, { signal });
+  if (!res.ok) throw new Error(`memory ${res.status}`);
+
+  const body: unknown = await res.json();
+  // Documented as `{ memories, from_cache }`; a bare array is accepted too
+  // because this repo cannot see the backend's source to be sure.
+  const rows: unknown[] = Array.isArray(body)
+    ? body
+    : Array.isArray((body as { memories?: unknown[] })?.memories)
+      ? (body as { memories: unknown[] }).memories
+      : [];
+
+  return rows.flatMap((row) => {
+    const r = row as Partial<Record<keyof StoredMemory, unknown>>;
+    if (typeof r?.id !== "number" || typeof r?.fact !== "string" || !r.fact) return [];
+    return [{ id: r.id, fact: r.fact, provenance: r.provenance === "tool" ? "tool" : "user" }];
+  });
+}
+
+/** `DELETE /memory/{id}` — permanent, and clears the backend's RAM cache too. */
+export async function forgetMemory(id: number, signal?: AbortSignal): Promise<void> {
+  const res = await fetch(`${API}/memory/${id}`, { method: "DELETE", signal });
+  if (!res.ok) throw new Error(`forget ${res.status}`);
+}
+
 /** Warn when NEXT_PUBLIC_FRIDAY_API was baked pointing at localhost on a deployed page. */
 export function warnIfMisconfigured(): void {
   if (typeof window === "undefined") return;

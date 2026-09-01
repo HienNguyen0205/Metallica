@@ -145,18 +145,31 @@ export interface StubHandle {
   decisions: { id: string; approved: boolean }[];
   /** Query strings received on POST /query, in order. */
   queries: string[];
+  /** Rows `GET /memory` serves; `DELETE /memory/{id}` removes from this. */
+  memories: { id: number; fact: string; provenance: "user" | "tool" }[];
+  /** Ids received on DELETE /memory/{id}, in order. */
+  forgotten: number[];
   close: () => Promise<void>;
 }
 
 /** Must match NEXT_PUBLIC_FRIDAY_API in playwright.config.ts. */
 export const STUB_PORT = 8123;
 
+/** What `GET /memory` serves unless a test overrides it. */
+export const STUB_MEMORIES: { id: number; fact: string; provenance: "user" | "tool" }[] = [
+  { id: 1, fact: "deploys are safe on tuesdays at 2am utc", provenance: "user" },
+  { id: 2, fact: "the office closes at 9pm on fridays", provenance: "tool" },
+];
+
 export async function startStubOrchestrator(
   script: StubEvent[],
   port = STUB_PORT,
+  seedMemories: { id: number; fact: string; provenance: "user" | "tool" }[] = STUB_MEMORIES,
 ): Promise<StubHandle> {
   const decisions: { id: string; approved: boolean }[] = [];
   const queries: string[] = [];
+  const memories = seedMemories.map((m) => ({ ...m }));
+  const forgotten: number[] = [];
   // Tests may end while an SSE response is still open (an approval prompt that
   // is never answered). Those sockets have to be destroyed explicitly or the
   // port is still held when the next test binds it — which shows up as the
@@ -170,10 +183,36 @@ export async function startStubOrchestrator(
     const cors = {
       "Access-Control-Allow-Origin": "*",
       "Access-Control-Allow-Headers": "content-type",
-      "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
+      // DELETE is here for `DELETE /memory/{id}`. A cross-origin DELETE is not
+      // a simple request, so the browser preflights it and drops the call
+      // outright if the method is missing from this list — which is what the
+      // real backend must also send for the forget control to work at all.
+      "Access-Control-Allow-Methods": "POST, GET, DELETE, OPTIONS",
     };
     if (req.method === "OPTIONS") {
       res.writeHead(204, cors).end();
+      return;
+    }
+
+    /**
+     * §8 of the memory design. Shape mirrors what the results doc recorded off
+     * the real backend: `{ memories, from_cache }` for the list, `{ ok: true }`
+     * for a delete.
+     */
+    if (req.url === "/memory" && req.method === "GET") {
+      res.writeHead(200, { ...cors, "content-type": "application/json" });
+      res.end(JSON.stringify({ memories, from_cache: false }));
+      return;
+    }
+
+    const forgetMatch = req.url?.match(/^\/memory\/(\d+)$/);
+    if (forgetMatch && req.method === "DELETE") {
+      const id = Number(forgetMatch[1]);
+      forgotten.push(id);
+      const at = memories.findIndex((m) => m.id === id);
+      if (at !== -1) memories.splice(at, 1);
+      res.writeHead(200, { ...cors, "content-type": "application/json" });
+      res.end(JSON.stringify({ ok: true }));
       return;
     }
 
@@ -234,6 +273,8 @@ export async function startStubOrchestrator(
     server,
     decisions,
     queries,
+    memories,
+    forgotten,
     close: () =>
       new Promise<void>((resolve) => {
         for (const socket of sockets) socket.destroy();

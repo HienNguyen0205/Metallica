@@ -1,7 +1,9 @@
 "use client";
 
+import { useEffect, useRef, useState } from "react";
 import { useFridayStore } from "@/lib/store";
 import { STATE_LOOK } from "@/lib/stateLook";
+import { forgetMemory, listMemories, type StoredMemory } from "@/lib/api/fridayClient";
 
 /**
  * §2/§11 — spatial tool instrumentation HUD.
@@ -105,6 +107,125 @@ export function LiveIndicator() {
           {memories[0].provenance === "tool" && " · FROM WEB"}
         </span>
       )}
+    </div>
+  );
+}
+
+/**
+ * §8 — the standing memory store, reviewable and erasable.
+ *
+ * `LiveIndicator` above announces a write at the moment it happens and then
+ * lets it go; the row it announced stays in Supabase for every later prompt.
+ * The design's own §9 states the residual risk plainly: one poisoned sentence
+ * only has to land once and it is permanent "cho tới khi người dùng tự nhìn
+ * thấy và xoá" — until the operator sees it and deletes it. Without this there
+ * was nowhere in the interface to do either.
+ *
+ * Deliberately not the browsing page §16 rules out: a rail in the same idiom as
+ * the others, fetched only when opened, holding no global state.
+ */
+export function MemoryRail() {
+  const [open, setOpen] = useState(false);
+  const [rows, setRows] = useState<StoredMemory[] | null>(null);
+  // Distinct from an empty list on purpose — "FRIDAY remembers nothing" and
+  // "the store could not be reached" must not look the same.
+  const [error, setError] = useState<string | null>(null);
+  const [busyId, setBusyId] = useState<number | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
+
+  /**
+   * Fetched from the click, not from an effect keyed on `open`. Opening the
+   * rail is an event, and reading a remote store is the response to it — an
+   * effect here would only be React re-deriving what the handler already knows,
+   * which is what the compiler's set-state-in-effect rule is pointing at.
+   *
+   * That also means the list is a snapshot from the moment it opened: a write
+   * landing mid-review is announced by `LiveIndicator` above but does not
+   * appear here until it is reopened, which is one click.
+   */
+  const load = async () => {
+    abortRef.current?.abort();
+    const ac = new AbortController();
+    abortRef.current = ac;
+    setRows(null);
+    setError(null);
+    try {
+      setRows(await listMemories(ac.signal));
+    } catch (err) {
+      if (ac.signal.aborted) return;
+      setRows(null);
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  const toggle = () => {
+    const next = !open;
+    setOpen(next);
+    if (next) void load();
+    else abortRef.current?.abort();
+  };
+
+  useEffect(() => () => abortRef.current?.abort(), []);
+
+  const forget = async (id: number) => {
+    setBusyId(id);
+    try {
+      await forgetMemory(id);
+      // Drop it locally rather than refetching: the row is gone, and a refetch
+      // that failed here would replace a correct list with an error.
+      setRows((current) => current?.filter((r) => r.id !== id) ?? null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  return (
+    <div className="pointer-events-auto absolute bottom-44 right-8 hidden max-w-[22rem] flex-col items-end gap-1 font-mono text-[9px] tracking-[0.22em] md:flex">
+      {open && (
+        <div
+          role="group"
+          aria-label="Stored memories"
+          className="mb-1 flex max-h-64 flex-col items-end gap-1.5 overflow-y-auto"
+        >
+          {error && (
+            <span role="alert" className="text-red-300/70">
+              MEMORY STORE UNREACHABLE · {error.toUpperCase()}
+            </span>
+          )}
+          {!error && rows === null && <span className="text-cyan-300/40">READING…</span>}
+          {!error && rows?.length === 0 && (
+            <span className="text-cyan-300/40">NOTHING REMEMBERED</span>
+          )}
+          {rows?.map((row) => (
+            <div key={row.id} className="flex items-start justify-end gap-2">
+              <span className="text-right leading-relaxed text-cyan-200/70">
+                {row.fact.toUpperCase()}
+                {/* the one thing that decides how far to trust the line */}
+                {row.provenance === "tool" && (
+                  <span className="text-amber-300/80"> · FROM WEB</span>
+                )}
+              </span>
+              <button
+                onClick={() => forget(row.id)}
+                disabled={busyId === row.id}
+                aria-label={`Forget: ${row.fact}`}
+                className="shrink-0 text-cyan-300/50 transition-colors hover:text-red-300 disabled:opacity-30"
+              >
+                FORGET
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+      <button
+        onClick={toggle}
+        aria-expanded={open}
+        className="tracking-[0.22em] text-cyan-300/60 transition-colors hover:text-cyan-200"
+      >
+        MEMORY · {open ? "HIDE" : "REVIEW"}
+      </button>
     </div>
   );
 }

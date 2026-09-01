@@ -11,7 +11,7 @@ import {
 } from "@/components/friday/hud/Hud";
 import InputBar from "@/components/friday/hud/InputBar";
 import ConfirmPrompt from "@/components/friday/hud/ConfirmPrompt";
-import { LiveIndicator, ToolHud } from "@/components/friday/hud/ToolHud";
+import { LiveIndicator, MemoryRail, ToolHud } from "@/components/friday/hud/ToolHud";
 
 const Scene = dynamic(() => import("@/components/friday/Scene"), { ssr: false });
 
@@ -34,6 +34,7 @@ export default function Home() {
       <VizRail />
       <StateRail />
       <ToolHud />
+      <MemoryRail />
       <AnswerLine />
       <InputBar />
       <ConfirmPrompt />
