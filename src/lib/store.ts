@@ -132,6 +132,8 @@ export interface FridayStore {
   addVisualization: (viz: VisualizationSpec) => void;
   setVisualizations: (vizs: VisualizationSpec[]) => void;
   clearVisualizations: () => void;
+  /** Flip a materializing entry to active once its entrance finishes. */
+  settleVisualization: (index: number) => void;
   focus: VizFocus | null;
   setFocus: (focus: VizFocus | null) => void;
   pendingConfirm: PendingConfirm | null;
@@ -174,7 +176,13 @@ export const useFridayStore = create<FridayStore>((set, get) => ({
       visualizations: [
         ...s.visualizations.map((e) => ({ ...e, lifecycle: "active" as const })),
         { spec, lifecycle: "materializing" as const },
-      ],
+      ].slice(-3),
+    })),
+  settleVisualization: (index) =>
+    set((s) => ({
+      visualizations: s.visualizations.map((e, i) =>
+        i === index ? { ...e, lifecycle: "active" as const } : e,
+      ),
     })),
   setVisualizations: (vizs) =>
     set({ visualizations: vizs.map((spec) => ({ spec, lifecycle: "materializing" as const })) }),

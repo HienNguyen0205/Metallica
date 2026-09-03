@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, type ComponentType, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ComponentType, type ReactNode } from "react";
 import { useFrame, type ThreeEvent } from "@react-three/fiber";
 import { DoubleSide, Matrix4, Vector3, type Group, type InstancedMesh, type Object3D } from "three";
 import {
@@ -87,9 +87,11 @@ function findVizTag(obj: Object3D): VizTag | null {
 function DrillDown({ enabled, children }: { enabled: boolean; children: ReactNode }) {
   const focus = useFridayStore((s) => s.focus);
   const setFocus = useFridayStore((s) => s.setFocus);
+  const [hover, setHover] = useState<{ tag: VizTag; position: [number, number, number] } | null>(
+    null,
+  );
 
-  const onClick = (e: ThreeEvent<MouseEvent>) => {
-    if (!enabled) return;
+  const resolveTag = (e: ThreeEvent<PointerEvent | MouseEvent>) => {
     let tag = findVizTag(e.object);
     const world = new Vector3();
     const bar = e.object.userData?.vizBar as { label: string; values: number[] } | undefined;
@@ -104,16 +106,29 @@ function DrillDown({ enabled, children }: { enabled: boolean; children: ReactNod
       mesh.getMatrixAt(e.instanceId, m);
       world.setFromMatrixPosition(m).applyMatrix4(mesh.matrixWorld);
     }
-    if (!tag) return;
-
+    if (!tag) return null;
     if (world.lengthSq() === 0) e.object.getWorldPosition(world);
-    setFocus(nextFocus(focus, tag, [world.x, world.y, world.z]));
+    return { tag, position: [world.x, world.y, world.z] as [number, number, number] };
+  };
+
+  const onClick = (e: ThreeEvent<MouseEvent>) => {
+    if (!enabled) return;
+    const hit = resolveTag(e);
+    if (!hit) return;
+    setHover(null);
+    setFocus(nextFocus(focus, hit.tag, hit.position));
   };
 
   const onPointerOver = (e: ThreeEvent<PointerEvent>) => {
-    if (enabled && findVizTag(e.object)) document.body.style.cursor = "pointer";
+    if (!enabled) return;
+    const hit = resolveTag(e);
+    if (hit) {
+      setHover(hit);
+      document.body.style.cursor = "pointer";
+    }
   };
   const onPointerOut = () => {
+    setHover(null);
     document.body.style.cursor = "auto";
   };
 
@@ -125,6 +140,13 @@ function DrillDown({ enabled, children }: { enabled: boolean; children: ReactNod
       onPointerMissed={() => enabled && setFocus(null)}
     >
       {children}
+      {hover && (
+        <group position={hover.position}>
+          <TechLabel position={[0, 0.38, 0]} color="#e5f6ff" size={0.07} opacity={0.95}>
+            {hover.tag.label}
+          </TechLabel>
+        </group>
+      )}
     </group>
   );
 }
@@ -175,6 +197,7 @@ function FocusMarker() {
 
 function VizNode({
   spec,
+  lifecycle,
   count,
   index,
   viewportWidth,
@@ -182,6 +205,7 @@ function VizNode({
   accent,
 }: {
   spec: VisualizationSpec;
+  lifecycle: "materializing" | "active" | "updating" | "settling";
   count: number;
   index: number;
   viewportWidth: number;
@@ -198,9 +222,11 @@ function VizNode({
   return (
     <group position={layout.position} scale={layout.scale}>
       <DrillDown enabled={spec.interaction !== "none"}>
-        <Pulse enabled={spec.animation === "pulse"}>
-          <Renderer data={spec.data ?? {}} color={color} accent={accent} />
-        </Pulse>
+        <Entrance lifecycle={lifecycle} index={index}>
+          <Pulse enabled={spec.animation === "pulse"}>
+            <Renderer data={spec.data ?? {}} color={color} accent={accent} />
+          </Pulse>
+        </Entrance>
         {spec.title && (
           <TechLabel position={[0, 2.35, 0]} color={color} size={0.11} opacity={0.9} decode>
             {spec.title}
@@ -209,6 +235,44 @@ function VizNode({
       </DrillDown>
     </group>
   );
+}
+
+/** Entrance wired to the store lifecycle: scale + rise, then settle to active. */
+function Entrance({
+  lifecycle,
+  index,
+  children,
+}: {
+  lifecycle: string;
+  index: number;
+  children: ReactNode;
+}) {
+  const ref = useRef<Group>(null);
+  const progress = useRef(lifecycle === "materializing" ? 0 : 1);
+  const settled = useRef(lifecycle !== "materializing");
+
+  useFrame((_, delta) => {
+    const g = ref.current;
+    if (!g) return;
+    if (settled.current) {
+      g.scale.setScalar(1);
+      g.position.y = 0;
+      return;
+    }
+    progress.current = Math.min(1, progress.current + delta * 2.2);
+    const t = progress.current;
+    const ease = 1 - Math.pow(1 - t, 3);
+    g.scale.setScalar(0.6 + 0.4 * ease);
+    g.position.y = (1 - ease) * 0.4;
+    if (t >= 1) {
+      settled.current = true;
+      g.scale.setScalar(1);
+      g.position.y = 0;
+      useFridayStore.getState().settleVisualization(index);
+    }
+  });
+
+  return <group ref={ref}>{children}</group>;
 }
 
 export default function FridayVisualization() {
@@ -238,6 +302,7 @@ export default function FridayVisualization() {
         <VizNode
           key={`${entry.spec.type}-${entry.spec.title ?? i}-${i}`}
           spec={entry.spec}
+          lifecycle={entry.lifecycle}
           count={entries.length}
           index={i}
           viewportWidth={viewportWidth}

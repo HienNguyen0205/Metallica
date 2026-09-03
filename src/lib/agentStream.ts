@@ -151,9 +151,9 @@ export async function runQuery(
   if (spoken) await (voice ? speak(spoken) : wait(3600));
   store.transition("idle");
   setAnswer(null);
-  // Visualization persists until next query per §8 error handling (brief says don't wipe on error, but for success we clear after idle)
-  // Keep for a moment then clear? Original cleared immediately after idle.
-  store.clearVisualizations();
+  // Viz persists until the next query (§8 history): the turn-start
+  // clearVisualizations() above is the only place that wipes the scene, so the
+  // operator can keep inspecting the hologram at idle.
   setPendingConfirm(null);
   store.setToolActivity(null);
   store.setDeniedTool(null);
@@ -196,6 +196,5 @@ async function runLocal(store: FlowStore, query: string, voice = false) {
 
   transition("idle");
   setAnswer(null);
-  store.clearVisualizations();
   store.setLiveMode("idle");
 }
