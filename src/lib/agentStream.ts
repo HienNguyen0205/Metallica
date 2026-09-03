@@ -150,10 +150,8 @@ export async function runQuery(
   // and the HUD returned to IDLE, while FRIDAY was still talking.
   if (spoken) await (voice ? speak(spoken) : wait(3600));
   store.transition("idle");
-  setAnswer(null);
-  // Viz persists until the next query (§8 history): the turn-start
-  // clearVisualizations() above is the only place that wipes the scene, so the
-  // operator can keep inspecting the hologram at idle.
+  // Answer stays on screen until the next query (turn-start setAnswer(null) is
+  // the only place that clears it), same as the viz scene above.
   setPendingConfirm(null);
   store.setToolActivity(null);
   store.setDeniedTool(null);
@@ -195,6 +193,5 @@ async function runLocal(store: FlowStore, query: string, voice = false) {
   await (voice ? speak(answer) : wait(3600));
 
   transition("idle");
-  setAnswer(null);
   store.setLiveMode("idle");
 }

@@ -60,7 +60,9 @@ const RULES: Rule[] = [
     }),
   },
   {
-    match: /where|region|location|global|map|globe|country|latency by/i,
+    // "map" is word-boundaried: without it "heatmap" matches the globe rule.
+    // The heatmap rule above still wins on order; this is the second lock.
+    match: /where|region|location|global|\bmap\b|globe|country|latency by/i,
     build: () => ({ type: "globe", title: "GLOBAL EDGE MAP", animation: "materialize" }),
   },
   {
