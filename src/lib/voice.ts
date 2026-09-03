@@ -122,6 +122,15 @@ export function startListening({
  * mid-sentence, or a platform with no installed voice, can leave the promise
  * hanging forever, and this one gates the return to IDLE.
  */
+let speakStart = 0;
+let speakEstimate = 0;
+
+/** 0..1 progress of the current utterance, or null when not speaking. */
+export function speakProgress(): number | null {
+  if (!speakStart || !speakEstimate) return null;
+  return Math.max(0, Math.min(1, (Date.now() - speakStart) / speakEstimate));
+}
+
 export function speak(text: string): Promise<void> {
   if (!canSpeak() || !text.trim()) return Promise.resolve();
 
@@ -131,11 +140,15 @@ export function speak(text: string): Promise<void> {
       if (done) return;
       done = true;
       clearTimeout(deadline);
+      speakStart = 0;
+      speakEstimate = 0;
       resolve();
     };
 
     // ~14 characters a second is slow speech; the extra 2s covers the lead-in
-    const deadline = setTimeout(finish, (text.length / 14) * 1000 + 2000);
+    speakEstimate = (text.length / 14) * 1000 + 2000;
+    speakStart = Date.now();
+    const deadline = setTimeout(finish, speakEstimate);
 
     const utterance = new SpeechSynthesisUtterance(text);
     utterance.onend = finish;
@@ -147,5 +160,7 @@ export function speak(text: string): Promise<void> {
 }
 
 export function stopSpeaking(): void {
+  speakStart = 0;
+  speakEstimate = 0;
   if (canSpeak()) window.speechSynthesis.cancel();
 }

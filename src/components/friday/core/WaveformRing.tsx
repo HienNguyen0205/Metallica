@@ -6,8 +6,8 @@ import { DoubleSide, Object3D, type InstancedMesh } from "three";
 
 /**
  * §7 — the ring that reacts to audio during LISTENING / SPEAKING.
- * Amplitude is currently synthesised; `getLevel` is the seam where a real
- * AnalyserNode (mic or TTS output) plugs in without touching the visuals.
+ * `getLevel` may return null (e.g. mic not attached) — that bin falls back
+ * to the synthesised motion, so a denied mic degrades instead of freezing.
  */
 export default function WaveformRing({
   radius = 2.05,
@@ -20,7 +20,7 @@ export default function WaveformRing({
   bars?: number;
   color: string;
   activity?: number;
-  getLevel?: (bin: number, time: number) => number;
+  getLevel?: (bin: number, time: number) => number | null | undefined;
 }) {
   const ref = useRef<InstancedMesh>(null);
   const dummy = useMemo(() => new Object3D(), []);
@@ -33,10 +33,10 @@ export default function WaveformRing({
     const t = time.current;
 
     for (let i = 0; i < bars; i++) {
-      const raw = getLevel
-        ? getLevel(i, t)
-        : // layered sines read as speech-like without a real analyser
-          (Math.sin(i * 0.7 + t * 6) * 0.5 + 0.5) * (Math.sin(i * 0.19 + t * 2.3) * 0.5 + 0.5);
+      // layered sines read as speech-like without a real analyser
+      const synth =
+        (Math.sin(i * 0.7 + t * 6) * 0.5 + 0.5) * (Math.sin(i * 0.19 + t * 2.3) * 0.5 + 0.5);
+      const raw = getLevel?.(i, t) ?? synth;
       const target = 0.06 + raw * 0.5 * activity;
       heights.current[i] += (target - heights.current[i]) * Math.min(1, delta * 12);
 

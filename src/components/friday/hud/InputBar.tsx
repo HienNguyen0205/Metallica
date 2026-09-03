@@ -4,12 +4,17 @@ import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "
 import { useFridayStore } from "@/lib/store";
 import { runQuery } from "@/lib/agentStream";
 import { canListen, startListening, stopSpeaking } from "@/lib/voice";
+import { attachMic, detachMic, resolveLang } from "@/lib/audioBus";
+
+const LANG_KEY = "friday.lang";
 
 export default function InputBar() {
   const [value, setValue] = useState("");
   const state = useFridayStore((s) => s.state);
   const listening = state === "listening";
   const busy = state !== "idle" && !listening;
+  const lang = useFridayStore((s) => s.lang);
+  const setLang = useFridayStore((s) => s.setLang);
   // the live recogniser, kept out of state — stopping it is not a render
   const stopRef = useRef<(() => void) | null>(null);
   /**
@@ -57,11 +62,22 @@ export default function InputBar() {
       // The input is disabled mid-turn, so its own onKeyDown never fires here.
       if (e.key === "Escape") cancel();
     };
+    // Smart default, not detection: stored choice wins, then the browser
+    // locale (navigator.language), so most operators never touch the toggle.
+    // True auto-detect needs hosted STT — the browser engine takes one lang.
+    try {
+      const stored = localStorage.getItem(LANG_KEY);
+      const next = resolveLang(navigator.language, stored);
+      if (next !== useFridayStore.getState().lang) useFridayStore.getState().setLang(next);
+    } catch {
+      /* private mode — en-US default stands */
+    }
     window.addEventListener("keydown", onKey);
     return () => {
       window.removeEventListener("keydown", onKey);
       stopRef.current?.();
       turnRef.current?.abort();
+      detachMic();
     };
   }, []);
 
@@ -69,6 +85,7 @@ export default function InputBar() {
     if (stopRef.current) {
       stopRef.current();
       stopRef.current = null;
+      detachMic();
       return;
     }
     // barge-in: talking over FRIDAY should stop it, not queue behind it
@@ -77,17 +94,24 @@ export default function InputBar() {
     useFridayStore.getState().setState("listening");
     let started = false;
 
+    // Mic into the shared bus for the waveform ring. Fire-and-forget: a
+    // denial just leaves the ring on its synthesised motion.
+    attachMic().catch((err) => console.warn("[friday] microphone bus:", err));
+
     stopRef.current = startListening({
+      lang,
       onInterim: setValue,
       onFinal: (text) => {
         started = true;
         stopRef.current = null;
+        detachMic();
         // `listening → thinking` is a legal edge, so the turn starts straight
         // from here; routing through idle would flicker the whole rig back out.
         ask(text, true);
       },
       onEnd: (error) => {
         stopRef.current = null;
+        detachMic();
         setValue("");
         if (error) console.warn("[friday] microphone:", error);
         // Tracked with a flag rather than by reading the state: `onend` follows
@@ -115,6 +139,14 @@ export default function InputBar() {
                 : "bg-cyan-300/10"
           }`}
         />
+        <button
+          onClick={() => setLang(lang === "vi-VN" ? "en-US" : "vi-VN")}
+          disabled={busy}
+          aria-label="Toggle recognition language"
+          className="shrink-0 font-mono text-[9px] tracking-[0.2em] text-cyan-300/50 transition-colors hover:text-cyan-200 disabled:opacity-30"
+        >
+          {lang === "vi-VN" ? "VI" : "EN"}
+        </button>
         <input
           value={value}
           onChange={(e) => setValue(e.target.value)}

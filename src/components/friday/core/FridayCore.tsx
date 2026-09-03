@@ -5,6 +5,8 @@ import { useFrame } from "@react-three/fiber";
 import { type Group, type Mesh } from "three";
 import { useFridayStore } from "@/lib/store";
 import { STATE_LOOK } from "@/lib/stateLook";
+import { readMicLevels, utteranceEnvelope } from "@/lib/audioBus";
+import { speakProgress } from "@/lib/voice";
 import CoreParticles from "./CoreParticles";
 import CoreRings from "./CoreRings";
 import WaveformRing from "./WaveformRing";
@@ -128,9 +130,26 @@ export default function FridayCore({
       {/* layer 4 — orbital particle field */}
       <CoreParticles count={particleCount} color={look.color} intensity={look.particleIntensity} />
 
-      {/* layer 7 — audio-reactive outer ring */}
+      {/* layer 7 — audio-reactive outer ring.
+          LISTENING reads the real mic via the shared bus (null → synth
+          fallback inside the ring, so a denied mic degrades gracefully);
+          SPEAKING breathes with utterance progress; anything else synths. */}
       <group rotation={[Math.PI / 2.15, 0, 0]}>
-        <WaveformRing radius={2.08} color={look.accent} activity={look.waveform} />
+        <WaveformRing
+          radius={2.08}
+          color={look.accent}
+          activity={look.waveform}
+          getLevel={
+            state === "listening"
+              ? (bin) => readMicLevels(96)?.[bin] ?? null
+              : state === "speaking"
+                ? () => {
+                    const p = speakProgress();
+                    return p === null ? 0.4 : utteranceEnvelope(p);
+                  }
+                : undefined
+          }
+        />
       </group>
 
       {/* layer 6 — core identity readout. Hidden under a visualization: it

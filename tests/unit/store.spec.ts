@@ -92,6 +92,15 @@ test("reset clears the answer and the visualization together", () => {
   expect(api.getState().visualizations).toEqual([]);
 });
 
+test("recognition language defaults to en-US and survives reset", () => {
+  expect(api.getState().lang).toBe("en-US");
+  api.getState().setLang("vi-VN");
+  expect(api.getState().lang).toBe("vi-VN");
+  api.getState().reset();
+  expect(api.getState().lang).toBe("vi-VN");
+  api.getState().setLang("en-US");
+});
+
 test("audio toggle flips and persists", () => {
   const before = api.getState().audioEnabled;
   api.getState().toggleAudio();

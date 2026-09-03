@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { canTransition, reportIllegal } from "@/lib/agent/stateMachine";
 import type { FridayState } from "@/lib/agent/stateMachine";
+import type { SupportedLang } from "@/lib/audioBus";
 
 export type { FridayState };
 
@@ -156,6 +157,9 @@ export interface FridayStore {
   setRenderBackend: (backend: RenderBackend) => void;
   quality: RenderQuality;
   setQuality: (quality: RenderQuality) => void;
+  /** Speech-recognition language. Persisted to localStorage, survives reset. */
+  lang: SupportedLang;
+  setLang: (lang: SupportedLang) => void;
   audioEnabled: boolean;
   toggleAudio: () => void;
   /** Facts FRIDAY just learned, newest first; HUD shows only the latest. */
@@ -209,6 +213,15 @@ export const useFridayStore = create<FridayStore>((set, get) => ({
   setRenderBackend: (renderBackend) => set({ renderBackend }),
   quality: "auto",
   setQuality: (quality) => set({ quality }),
+  lang: "en-US",
+  setLang: (lang) => {
+    try {
+      localStorage.setItem("friday.lang", lang);
+    } catch {
+      /* private mode — preference just doesn't survive */
+    }
+    set({ lang });
+  },
   audioEnabled: true,
   toggleAudio: () => set({ audioEnabled: !get().audioEnabled }),
   memories: [],
