@@ -15,7 +15,8 @@ export type VisualizationType =
   | "bar_3d"
   | "particle_flow"
   | "globe"
-  | "timeline";
+  | "timeline"
+  | "heatmap_3d";
 
 export interface MetricDatum {
   label: string;
@@ -101,6 +102,9 @@ export interface PendingConfirm {
 /** Actual rendering backend reported by the created renderer. */
 export type RenderBackend = "webgl2" | "webgpu";
 
+/** Render quality preference — auto follows hardware + reduced-motion. */
+export type RenderQuality = "auto" | "high" | "low";
+
 /**
  * A fact FRIDAY chose to remember on its own. `provenance: "tool"` means it
  * came from a page the model searched, not the operator's own words — the
@@ -150,6 +154,8 @@ export interface FridayStore {
   setSessionError: (msg: string | null) => void;
   renderBackend: RenderBackend;
   setRenderBackend: (backend: RenderBackend) => void;
+  quality: RenderQuality;
+  setQuality: (quality: RenderQuality) => void;
   audioEnabled: boolean;
   toggleAudio: () => void;
   /** Facts FRIDAY just learned, newest first; HUD shows only the latest. */
@@ -201,6 +207,8 @@ export const useFridayStore = create<FridayStore>((set, get) => ({
   setSessionError: (sessionError) => set({ sessionError }),
   renderBackend: "webgl2",
   setRenderBackend: (renderBackend) => set({ renderBackend }),
+  quality: "auto",
+  setQuality: (quality) => set({ quality }),
   audioEnabled: true,
   toggleAudio: () => set({ audioEnabled: !get().audioEnabled }),
   memories: [],

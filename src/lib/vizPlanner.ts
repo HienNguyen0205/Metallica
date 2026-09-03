@@ -44,6 +44,22 @@ const RULES: Rule[] = [
     }),
   },
   {
+    // before globe: "heatmap" contains the substring "map"
+    match: /heatmap|hotspot|density|correlation/i,
+    build: () => ({
+      type: "heatmap_3d",
+      title: "DENSITY HEATMAP",
+      animation: "materialize",
+      data: {
+        series: [
+          { label: "A", points: [34, 58, 22, 71, 47, 63, 39] },
+          { label: "B", points: [12, 44, 66, 28, 81, 52, 37] },
+          { label: "C", points: [61, 25, 48, 73, 33, 57, 69] },
+        ],
+      },
+    }),
+  },
+  {
     match: /where|region|location|global|map|globe|country|latency by/i,
     build: () => ({ type: "globe", title: "GLOBAL EDGE MAP", animation: "materialize" }),
   },
@@ -120,15 +136,16 @@ export function planVisualization(query: string): VisualizationSpec {
 /** One canonical sample spec per type — used by the dev viz rail. */
 const SAMPLES: Record<VisualizationType, () => VisualizationSpec> = {
   radial_gauge: () => DEFAULT_SPEC,
-  health_core: () => RULES[7].build(),
-  radar: () => RULES[6].build(),
-  waveform: () => RULES[8].build(),
-  line_3d: () => RULES[3].build(),
-  bar_3d: () => RULES[4].build(),
-  timeline: () => RULES[5].build(),
+  health_core: () => RULES[8].build(),
+  radar: () => RULES[7].build(),
+  waveform: () => RULES[9].build(),
+  line_3d: () => RULES[4].build(),
+  bar_3d: () => RULES[5].build(),
+  timeline: () => RULES[6].build(),
   network: () => RULES[0].build(),
-  globe: () => RULES[2].build(),
+  globe: () => RULES[3].build(),
   particle_flow: () => RULES[1].build(),
+  heatmap_3d: () => RULES[2].build(),
 };
 
 export function sampleSpec(type: VisualizationType): VisualizationSpec {
@@ -156,6 +173,8 @@ export function summarize(spec: VisualizationSpec): string {
       return "System integrity at 87 percent.";
     case "waveform":
       return "Audio channel open.";
+    case "heatmap_3d":
+      return "Hotspots concentrated in two zones.";
     default:
       return "System performance is normal. Disk usage is trending high.";
   }

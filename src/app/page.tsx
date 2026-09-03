@@ -5,6 +5,7 @@ import {
   AnswerLine,
   AudioCues,
   EdgeTelemetry,
+  FocusPanel,
   StateRail,
   TopHud,
   VizRail,
@@ -36,6 +37,7 @@ export default function Home() {
       <ToolHud />
       <MemoryRail />
       <AnswerLine />
+      <FocusPanel />
       <InputBar />
       <ConfirmPrompt />
       <AudioCues />

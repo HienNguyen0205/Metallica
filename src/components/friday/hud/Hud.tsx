@@ -120,6 +120,8 @@ export function EdgeTelemetry() {
   const toggleAudio = useFridayStore((s) => s.toggleAudio);
   const focus = useFridayStore((s) => s.focus);
   const renderBackend = useFridayStore((s) => s.renderBackend);
+  const quality = useFridayStore((s) => s.quality);
+  const setQuality = useFridayStore((s) => s.setQuality);
   const t = useTelemetry();
 
   const uplink = t.downlink > 0 ? `${t.downlink.toFixed(1)}MB/S` : "STABLE";
@@ -152,6 +154,19 @@ export function EdgeTelemetry() {
         >
           AUDIO · {audioEnabled ? "ON" : "OFF"}
         </button>
+        <span className="flex gap-2">
+          {(["auto", "high", "low"] as const).map((q) => (
+            <button
+              key={q}
+              onClick={() => setQuality(q)}
+              className={`pointer-events-auto tracking-[0.22em] transition-colors hover:text-cyan-200 ${
+                quality === q ? "text-cyan-200" : undefined
+              }`}
+            >
+              {q.toUpperCase()}
+            </button>
+          ))}
+        </span>
       </div>
     </>
   );
@@ -207,6 +222,7 @@ const VIZ_OPTIONS: VisualizationType[] = [
   "waveform",
   "line_3d",
   "bar_3d",
+  "heatmap_3d",
   "timeline",
   "network",
   "globe",
@@ -260,6 +276,36 @@ export function VizRail() {
           {t.replace("_", " ").toUpperCase()}
         </button>
       ))}
+    </div>
+  );
+}
+
+/** Drill-down detail card — DOM mirror of the 3D focus reticle. ESC or ✕ releases. */
+export function FocusPanel() {
+  const focus = useFridayStore((s) => s.focus);
+  const setFocus = useFridayStore((s) => s.setFocus);
+
+  useEffect(() => {
+    if (!focus) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setFocus(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [focus, setFocus]);
+
+  if (!focus) return null;
+  return (
+    <div className="pointer-events-auto absolute bottom-40 left-1/2 hidden -translate-x-1/2 items-center gap-3 border border-cyan-300/25 bg-[#02050a]/80 px-4 py-2 font-mono text-[10px] tracking-[0.22em] text-cyan-100 backdrop-blur-sm md:flex">
+      <span className="text-cyan-200">{focus.label}</span>
+      <span className="text-cyan-300/70">{focus.detail}</span>
+      <button
+        onClick={() => setFocus(null)}
+        aria-label="Release focus"
+        className="text-cyan-300/60 transition-colors hover:text-cyan-100"
+      >
+        ✕
+      </button>
     </div>
   );
 }

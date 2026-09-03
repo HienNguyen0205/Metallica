@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Canvas, useFrame } from "@react-three/fiber";
+import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { AdaptiveDpr, AdaptiveEvents } from "@react-three/drei";
 import { type Mesh } from "three";
 import { useFridayStore } from "@/lib/store";
@@ -22,6 +22,45 @@ function CameraRig({ reduced }: { reduced: boolean }) {
   const base = useRef(0);
   const fridayState = useFridayStore((s) => s.state);
   const target = STATE_CAMERA[fridayState];
+  const yaw = useRef(0);
+  const pitch = useRef(0);
+  const dragging = useRef(false);
+  const last = useRef<[number, number]>([0, 0]);
+  const gl = useThree((s) => s.gl);
+
+  useEffect(() => {
+    if (reduced) return;
+    const el = gl.domElement;
+    const down = (e: PointerEvent) => {
+      dragging.current = true;
+      last.current = [e.clientX, e.clientY];
+    };
+    const move = (e: PointerEvent) => {
+      if (!dragging.current) return;
+      const dx = e.clientX - last.current[0];
+      const dy = e.clientY - last.current[1];
+      last.current = [e.clientX, e.clientY];
+      yaw.current = Math.max(-0.6, Math.min(0.6, yaw.current + dx * 0.003));
+      pitch.current = Math.max(-0.25, Math.min(0.25, pitch.current - dy * 0.002));
+    };
+    const up = () => {
+      dragging.current = false;
+    };
+    const reset = () => {
+      yaw.current = 0;
+      pitch.current = 0;
+    };
+    el.addEventListener("pointerdown", down);
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+    el.addEventListener("dblclick", reset);
+    return () => {
+      el.removeEventListener("pointerdown", down);
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      el.removeEventListener("dblclick", reset);
+    };
+  }, [gl, reduced]);
 
   useFrame((state, delta) => {
     base.current += delta;
@@ -33,8 +72,9 @@ function CameraRig({ reduced }: { reduced: boolean }) {
     const py = reduced ? 0 : pointer.y * 0.3;
 
     // slow easing — the dolly should read as intent, not as a cut
-    camera.position.x += (px + driftX + swing - camera.position.x) * 0.03;
-    camera.position.y += (py + driftY + 0.15 - camera.position.y) * 0.03;
+    // user drag adds a clamped orbit offset on top of drift + parallax
+    camera.position.x += (px + driftX + swing + yaw.current - camera.position.x) * 0.03;
+    camera.position.y += (py + driftY + 0.15 + pitch.current - camera.position.y) * 0.03;
     camera.position.z += (target.distance - camera.position.z) * 0.02;
     camera.lookAt(0, 0, 0);
 
@@ -128,6 +168,7 @@ export default function Scene() {
   // pays for rendering the scene itself at native dpr.
   const [denseDisplay, setDenseDisplay] = useState(false);
   const setRenderBackend = useFridayStore((s) => s.setRenderBackend);
+  const quality = useFridayStore((s) => s.quality);
 
   useEffect(() => {
     // Subscribed, not read once: devicePixelRatio changes when the window is
@@ -148,6 +189,10 @@ export default function Scene() {
   }, []);
 
 
+  const effectiveReduced = quality === "low" ? true : quality === "high" ? false : reduced;
+  const heavy =
+    quality === "low" ? false : quality === "high" ? gpuClass !== "software" : !effectiveReduced && gpuClass === "hardware";
+
   return (
     <Canvas
       key={ctxKey}
@@ -155,7 +200,7 @@ export default function Scene() {
          of native and was upscaled — measurably soft, and the most common
          "looks blurry on a big screen" cause. AdaptiveDpr still walks this
          down when the GPU cannot keep up. */
-      dpr={reduced ? [1, 1.5] : [1, 2]}
+      dpr={effectiveReduced ? [1, 1.5] : [1, 2]}
       camera={{ position: [0, 0.15, 6.8], fov: 45 }}
       className="!absolute inset-0"
       gl={(props) => createRenderer(props as never).then(({ renderer }) => renderer)}
@@ -180,8 +225,8 @@ export default function Scene() {
       }}
     >
       <SceneBody
-        reduced={reduced}
-        heavy={!reduced && gpuClass === "hardware"}
+        reduced={effectiveReduced}
+        heavy={heavy}
         denseDisplay={denseDisplay}
       />
     </Canvas>

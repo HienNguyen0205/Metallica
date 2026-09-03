@@ -252,6 +252,104 @@ export function BarChart3D({ series = DEFAULT_SERIES, color, accent }: ChartProp
   );
 }
 
+/** §6 density → 3D heatmap grid. One instanced row each so drill-down reuses vizBar. */
+export function Heatmap3D({ series = DEFAULT_SERIES, color, accent }: ChartProps) {
+  const ref = useMaterialize(0.8);
+  const data = series.length ? series : DEFAULT_SERIES;
+  const cols = Math.max(...data.map((s) => s.points.length));
+  const max = Math.max(...data.flatMap((s) => s.points), 1);
+  const dummies = useMemo(() => new Object3D(), []);
+
+  return (
+    <group ref={ref} position={[0, 0.45, 1.1]}>
+      {data.map((row, r) => (
+        <HeatmapRow
+          key={row.label}
+          row={row}
+          rowIndex={r}
+          cols={cols}
+          max={max}
+          color={color}
+          accent={accent}
+          dummies={dummies}
+        />
+      ))}
+      {data.map((row, r) => (
+        <TechLabel
+          key={`label-${row.label}`}
+          position={[-2.6, 0.9 - r * 0.62, 0]}
+          color={color}
+          size={0.07}
+          opacity={0.7}
+          anchorX="left"
+        >
+          {row.label}
+        </TechLabel>
+      ))}
+    </group>
+  );
+}
+
+function HeatmapRow({
+  row,
+  rowIndex,
+  cols,
+  max,
+  color,
+  accent,
+  dummies,
+}: {
+  row: SeriesDatum;
+  rowIndex: number;
+  cols: number;
+  max: number;
+  color: string;
+  accent: string;
+  dummies: Object3D;
+}) {
+  const mesh = useRef<InstancedMesh>(null);
+  const y = 0.9 - rowIndex * 0.62;
+
+  useLayoutEffect(() => {
+    if (!mesh.current) return;
+    for (let c = 0; c < cols; c++) {
+      const v = row.points[c] ?? 0;
+      const s = 0.12 + (v / max) * 0.4;
+      dummies.position.set(-2 + c * 0.58, y, 0);
+      dummies.scale.set(s / 0.5, s / 0.5, 1);
+      dummies.updateMatrix();
+      mesh.current.setMatrixAt(c, dummies.matrix);
+    }
+    mesh.current.instanceMatrix.needsUpdate = true;
+  }, [row, cols, max, y, dummies]);
+
+  const peak = row.points.indexOf(Math.max(...row.points));
+  return (
+    <group>
+      <instancedMesh
+        ref={mesh}
+        args={[undefined, undefined, cols]}
+        userData={{ vizBar: { label: row.label.toUpperCase(), values: row.points } }}
+      >
+        <planeGeometry args={[0.5, 0.5]} />
+        <meshBasicMaterial
+          color={rowIndex === 0 ? color : accent}
+          transparent
+          opacity={0.72}
+          toneMapped={false}
+          depthWrite={false}
+          side={DoubleSide}
+        />
+      </instancedMesh>
+      {peak >= 0 && (
+        <TechLabel position={[-2 + peak * 0.58, y + 0.34, 0]} color="#e5f6ff" size={0.06} opacity={0.85}>
+          {String(row.points[peak])}
+        </TechLabel>
+      )}
+    </group>
+  );
+}
+
 const DEFAULT_EVENTS: TimelineEvent[] = [
   { label: "BOOT", at: 0 },
   { label: "SYNC", at: 0.28 },
