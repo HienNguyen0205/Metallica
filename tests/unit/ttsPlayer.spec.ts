@@ -196,3 +196,183 @@ test("resolves on unknown total once the queue drains", async () => {
   expect(player.active).toBe(false);
   expect(player.levels(4)).toBeNull();
 });
+
+async function waitFor(cond: () => boolean, ms = 5000): Promise<void> {
+  const start = Date.now();
+  while (!cond()) {
+    if (Date.now() - start > ms) throw new Error("timed out waiting for condition");
+    await new Promise((r) => setTimeout(r, 5));
+  }
+}
+
+function gatedStream(first: Uint8Array): {
+  chunks: AsyncGenerator<Uint8Array, void, void>;
+  release: () => void;
+} {
+  let release!: () => void;
+  const gate = new Promise<void>((r) => {
+    release = r;
+  });
+  async function* chunks(): AsyncGenerator<Uint8Array, void, void> {
+    yield first;
+    await gate;
+  }
+  return { chunks: chunks(), release };
+}
+
+type MsgHandler = (e: { data: unknown }) => void;
+
+interface ManualPort {
+  postMessage: (msg: unknown) => void;
+  addEventListener: (t: string, fn: MsgHandler) => void;
+  close: () => void;
+  handlers: MsgHandler[];
+}
+
+function emit(port: ManualPort, data: unknown): void {
+  for (const fn of port.handlers) fn({ data });
+}
+
+/** Fake ports with inspectable handlers; ready mode "once" replies ready only to the first feed. */
+function manualDeps(mode: "always" | "once" = "always"): {
+  deps: {
+    createContext: () => unknown;
+    createNode: () => unknown;
+    workletUrl: string;
+  };
+  ports: ManualPort[];
+  record: { posted: number; consumed: number };
+} {
+  const record = { posted: 0, consumed: 0 };
+  const ports: ManualPort[] = [];
+  let feeds = 0;
+  const analyser = {
+    fftSize: 0,
+    frequencyBinCount: 4,
+    getByteFrequencyData: (arr: Uint8Array) => {
+      arr.fill(200);
+    },
+    connect: () => {},
+    disconnect: () => {},
+  };
+  const context = {
+    state: "running",
+    resume: async () => {},
+    sampleRate: 24000,
+    audioWorklet: { addModule: async () => {} },
+    createAnalyser: () => analyser,
+    destination: {},
+  };
+  const deps = {
+    createContext: () => context,
+    createNode: () => {
+      const port: ManualPort = {
+        handlers: [],
+        postMessage: (msg: unknown) => {
+          const m = msg as { type: string; samples?: Float32Array };
+          if (m.type !== "feed") return;
+          const n = m.samples?.length ?? 0;
+          feeds++;
+          record.posted += n;
+          const thisFeed = feeds;
+          queueMicrotask(() => {
+            record.consumed += n;
+            for (const fn of port.handlers) fn({ data: { type: "consumed", count: n } });
+            if (mode === "always" || thisFeed === 1) {
+              for (const fn of port.handlers) fn({ data: { type: "ready" } });
+            }
+          });
+        },
+        addEventListener: (t: string, fn: MsgHandler) => {
+          if (t === "message") port.handlers.push(fn);
+        },
+        close: () => {},
+      };
+      ports.push(port);
+      return { port, connect: () => {}, disconnect: () => {} };
+    },
+    workletUrl: "/fake.js",
+  };
+  return { deps, ports, record };
+}
+
+test("abort after partial playback preserves framesFlowed", async () => {
+  const record = { posted: 0, consumed: 0 };
+  const player = new TtsPlayer(fakeDeps(record) as never);
+  const g = gatedStream(pcmChunk([5, 6, 7]));
+  const p = player.play({
+    header: { sampleRate: 24000, channels: 1, totalSamples: null },
+    chunks: g.chunks,
+  });
+  await waitFor(() => player.framesFlowed === 3);
+  player.stop();
+  g.release();
+  await expect(p).rejects.toMatchObject({ name: "AbortError" });
+  expect(player.framesFlowed).toBe(3);
+  expect(player.active).toBe(false);
+  expect(player.levels(2)).toBeNull();
+});
+
+test("corrupt chunk tears down the graph but keeps framesFlowed", async () => {
+  const record = { posted: 0, consumed: 0 };
+  const player = new TtsPlayer(fakeDeps(record) as never);
+  const stream: TtsStream = {
+    header: { sampleRate: 24000, channels: 1, totalSamples: 100 },
+    chunks: gen([pcmChunk([1, 2]), new Uint8Array([0x01])]),
+  };
+  await expect(player.play(stream)).rejects.toThrow(/malformed/);
+  expect(player.active).toBe(false);
+  expect(player.levels(4)).toBeNull();
+  expect(player.framesFlowed).toBe(2);
+  expect(player.progress()).toBeNull();
+});
+
+test("stale-port consumed is ignored by the new play", async () => {
+  const { deps, ports } = manualDeps("always");
+  const player = new TtsPlayer(deps as never);
+  const g1 = gatedStream(pcmChunk([1, 2]));
+  const p1 = player.play({
+    header: { sampleRate: 24000, channels: 1, totalSamples: 100 },
+    chunks: g1.chunks,
+  });
+  await waitFor(() => player.framesFlowed === 2 && ports.length >= 1);
+  const p2 = player.play({
+    header: { sampleRate: 24000, channels: 1, totalSamples: 10 },
+    chunks: gen([pcmChunk([7, 8])]),
+  });
+  await waitFor(() => ports.length >= 2);
+  emit(ports[0]!, { type: "consumed", count: 1000 });
+  emit(ports[0]!, { type: "ready" });
+  g1.release();
+  await expect(p1).rejects.toMatchObject({ name: "AbortError" });
+  await p2;
+  expect(player.framesFlowed).toBe(2);
+  expect(player.progress()).toBeCloseTo(0.2, 5);
+});
+
+test("truncated known-total stream resolves with progress below 1", async () => {
+  const record = { posted: 0, consumed: 0 };
+  const player = new TtsPlayer(fakeDeps(record) as never);
+  const stream: TtsStream = {
+    header: { sampleRate: 24000, channels: 1, totalSamples: 100 },
+    chunks: gen([pcmChunk([1, 2, 3, 4])]),
+  };
+  await player.play(stream);
+  expect(record.posted).toBe(4);
+  expect(player.framesFlowed).toBe(4);
+  expect(player.progress()).toBeCloseTo(0.04, 5);
+});
+
+test("backpressure wait survives a ready that arrived with no waiter", async () => {
+  const { deps, record } = manualDeps("once");
+  const player = new TtsPlayer(deps as never);
+  const big = Array.from({ length: 9000 }, (_, i) => i % 1000);
+  const stream: TtsStream = {
+    header: { sampleRate: 24000, channels: 1, totalSamples: null },
+    chunks: gen([pcmChunk(Array.from({ length: 100 }, () => 1)), pcmChunk(big)]),
+  };
+  await player.play(stream);
+  expect(record.posted).toBe(9100);
+  expect(record.consumed).toBe(9100);
+  expect(player.framesFlowed).toBe(9100);
+});

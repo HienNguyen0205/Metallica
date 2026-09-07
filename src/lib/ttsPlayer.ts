@@ -37,7 +37,7 @@ export class TtsPlayer {
   private node: AudioWorkletNode | null = null;
   private freq: Uint8Array<ArrayBuffer> | null = null;
   private frames = 0;
-  /** Resolves the backpressure wait; woken by `ready` or by `stop()`. */
+  /** Resolves the backpressure wait; woken by `ready`, `consumed`, or `stop()`. */
   private readyResolve: (() => void) | null = null;
   private readonly workletUrl: string;
   private readonly analyserFftSize: number;
@@ -64,9 +64,17 @@ export class TtsPlayer {
     const signal = opts?.signal;
     if (signal?.aborted) throw abortError();
     const my = ++this.generation;
-    // Drop any previous graph; a superseded in-flight play exits at its next check.
+    // A new play owns the player: drop any previous graph and reset the
+    // counters up front, so even an early failure (unsupported context,
+    // pre-first-chunk abort) leaves frames reflecting THIS attempt (0 fed).
+    // A superseded in-flight play exits at its next check without touching
+    // counters (generation guard in the handler + aborted-first ordering).
     this.teardown();
     this.wakeReady();
+    const total: number | null = stream.header.totalSamples;
+    this.total = total;
+    this.played = 0;
+    this.frames = 0;
     const aborted = (): boolean => my !== this.generation || signal?.aborted === true;
 
     const create = this.createContext ?? getSharedAudioContext;
@@ -85,26 +93,23 @@ export class TtsPlayer {
     this.node = node;
     this.analyser = analyser;
     this.freq = new Uint8Array(analyser.frequencyBinCount);
-    this.total = stream.header.totalSamples;
-    this.played = 0;
-    this.frames = 0;
     const port = node.port as unknown as WorkletPort;
     this.port = port;
     // addEventListener (unlike onmessage) needs an explicit start on a MessagePort.
     if (typeof port.start === "function") port.start();
     let pending = 0;
     port.addEventListener("message", (e) => {
-      const data = e.data;
-      if (data.type === "consumed") {
-        const count = data.count;
-        this.played += count;
-        pending = Math.max(0, pending - count);
+      // A superseded port must not pollute the new play's counters.
+      if (this.generation !== my) return;
+      if (e.data.type === "consumed") {
+        this.played += e.data.count;
+        pending = Math.max(0, pending - e.data.count);
       }
-      if (data.type === "ready") {
-        const wake = this.readyResolve;
-        this.readyResolve = null;
-        wake?.();
-      }
+      // Wake the backpressure wait on either message; the waiter re-checks
+      // pending, so a dropped, duplicate, or spurious wakeup is always safe.
+      const wake = this.readyResolve;
+      this.readyResolve = null;
+      wake?.();
     });
     const onAbort = (): void => {
       this.stop();
@@ -122,20 +127,37 @@ export class TtsPlayer {
         pending += n;
         this.frames += n;
         port.postMessage({ type: "feed", samples: float }, [float.buffer as ArrayBuffer]);
-        if (pending > MAX_PENDING) {
+        // Backpressure: park while over budget. The waiter is woken by every
+        // current-generation worklet message and re-checks pending, so a
+        // ready that arrived with no waiter parked can never stall the pump.
+        // No clearing of readyResolve after the wait: a superseding play owns
+        // it now, and invoking a settled resolve is a harmless no-op.
+        while (pending > MAX_PENDING) {
+          if (aborted()) throw abortError();
           await new Promise<void>((resolve) => {
             this.readyResolve = resolve;
           });
-          this.readyResolve = null;
-          if (aborted()) throw abortError();
         }
       }
-      // Drain: known total → wait for it; unknown total → wait for the queue.
+      // Drain: the utterance ends once everything fed is consumed — a
+      // truncated known-total stream (played < total) still terminates via
+      // pending === 0, with progress() reporting < 1.
       for (;;) {
         if (aborted()) throw abortError();
-        if (this.total !== null ? this.played >= this.total : pending === 0) return;
+        // Same-tick check-then-read: every mutation of played (new-play
+        // reset, current-generation handler) is preceded by or guarded with
+        // the generation check above, and total is an immutable local.
+        const played = this.played;
+        if (pending === 0) return;
+        if (total !== null && played >= total) return;
         await sleep(25);
       }
+    } catch (err) {
+      // A failed play must not leave a live graph behind (levels() would keep
+      // serving data after a rejection) — but a superseded play must not tear
+      // down its successor's graph. Counters survive for the phase rule.
+      if (this.generation === my) this.teardown();
+      throw err;
     } finally {
       signal?.removeEventListener("abort", onAbort);
     }
@@ -156,9 +178,11 @@ export class TtsPlayer {
     this.generation++;
     this.teardown();
     this.wakeReady();
-    this.played = 0;
+    // Preserve frames/played across abort: Task 3 reads framesFlowed after a
+    // rejection to tell partial playback (phase 2, quiet) from zero frames
+    // (phase 1, synthesis fallback). They reset on the next play() start.
+    // The graph is gone, so levels()/progress() already report null via active.
     this.total = null;
-    this.frames = 0;
   }
 
   /** Wake a play parked in the backpressure wait so it can observe abort. */
