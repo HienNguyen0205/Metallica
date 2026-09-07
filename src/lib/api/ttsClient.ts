@@ -74,7 +74,11 @@ async function readExactly(
       if (isAbort(err, signal)) return null;
       throw err;
     }
-    if (read.done) return null;
+    if (read.done) {
+      if (signal?.aborted) return null;
+      if (got > 0) throw new TtsError("malformed", "truncated frame");
+      return null;
+    }
     const value = read.value;
     if (!value || value.length === 0) continue;
     const need = n - got;
@@ -126,7 +130,7 @@ export async function streamTts(
         throw err;
       }
       if (!prefix) return;
-      const len = prefix[0]! | (prefix[1]! << 8) | (prefix[2]! << 16) | (prefix[3]! << 24);
+      const len = (prefix[0]! | (prefix[1]! << 8) | (prefix[2]! << 16) | (prefix[3]! << 24)) >>> 0;
       if (len === 0 || len > MAX_FRAME) throw new TtsError("malformed", `bad frame length ${len}`);
       let body: Uint8Array | null;
       try {
@@ -151,13 +155,17 @@ export async function streamTts(
     if (isAbort(err, signal)) throw new DOMException("aborted", "AbortError");
     throw err;
   }
-  if (first.done) throw new TtsError("malformed", "empty tts stream");
+  if (first.done) {
+    if (signal?.aborted) throw new DOMException("aborted", "AbortError");
+    throw new TtsError("malformed", "empty tts stream");
+  }
   let header: TtsHeader;
   try {
     const raw = JSON.parse(new TextDecoder().decode(first.value)) as Record<string, unknown>;
     const sampleRate = Number(raw["sampleRate"]);
-    const totalRaw = raw["totalSamples"];
-    const total = totalRaw === undefined ? null : Number(totalRaw);
+    const totalRaw: unknown = raw["totalSamples"];
+    const total =
+      typeof totalRaw === "number" && Number.isFinite(totalRaw) && totalRaw >= 0 ? totalRaw : null;
     if (!Number.isFinite(sampleRate) || sampleRate < 8000 || sampleRate > 48000) {
       throw new Error("rate");
     }
@@ -165,10 +173,7 @@ export async function streamTts(
     header = {
       sampleRate,
       channels: 1,
-      totalSamples:
-        total !== null && Number.isFinite(total) && (total as number) >= 0
-          ? (total as number)
-          : null,
+      totalSamples: total,
     };
   } catch (err) {
     if (err instanceof TtsError) throw err;

@@ -45,3 +45,50 @@ test("bad header is malformed, 429 is refused, network down is unreachable", asy
   put(async () => { throw new TypeError("fetch failed"); });
   await expect(streamTts("x", "en-US")).rejects.toMatchObject({ name: "TtsError", kind: "unreachable" });
 });
+
+test("truncated second prefix is malformed", async () => {
+  const header = new TextEncoder().encode(JSON.stringify({ sampleRate: 24000, channels: 1 }));
+  const full = frames([header]);
+  const truncated = new Uint8Array([...full, 0x04, 0x00]);
+  (globalThis as unknown as { fetch: unknown }).fetch = async () =>
+    new Response(streamOf(truncated), { status: 200 });
+  const s = await streamTts("x", "en-US");
+  await expect((async () => { for await (const c of s.chunks) void c; })()).rejects.toMatchObject({
+    name: "TtsError",
+    kind: "malformed",
+  });
+});
+
+test("high-bit frame length is malformed, not a RangeError", async () => {
+  const header = new TextEncoder().encode(JSON.stringify({ sampleRate: 24000, channels: 1 }));
+  const full = frames([header]);
+  const bad = new Uint8Array([...full, 0xff, 0xff, 0xff, 0xff]);
+  (globalThis as unknown as { fetch: unknown }).fetch = async () =>
+    new Response(streamOf(bad), { status: 200 });
+  const s = await streamTts("x", "en-US");
+  await expect((async () => { for await (const c of s.chunks) void c; })()).rejects.toMatchObject({
+    name: "TtsError",
+    kind: "malformed",
+  });
+});
+
+test("aborted header read rejects with AbortError", async () => {
+  const header = new TextEncoder().encode(JSON.stringify({ sampleRate: 24000, channels: 1 }));
+  (globalThis as unknown as { fetch: unknown }).fetch = async () =>
+    new Response(streamOf(frames([header])), { status: 200 });
+  const controller = new AbortController();
+  controller.abort();
+  await expect(streamTts("x", "en-US", { signal: controller.signal })).rejects.toMatchObject({
+    name: "AbortError",
+  });
+});
+
+test("explicit null totalSamples becomes null", async () => {
+  const header = new TextEncoder().encode(
+    JSON.stringify({ sampleRate: 24000, channels: 1, totalSamples: null }),
+  );
+  (globalThis as unknown as { fetch: unknown }).fetch = async () =>
+    new Response(streamOf(frames([header])), { status: 200 });
+  const s = await streamTts("x", "en-US");
+  expect(s.header.totalSamples).toBeNull();
+});
