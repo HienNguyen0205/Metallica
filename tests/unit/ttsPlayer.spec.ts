@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { streamTts, TtsError } from "@/lib/api/ttsClient";
+import { streamTts, TtsError, type TtsStream } from "@/lib/api/ttsClient";
 import { OrchestratorRefused } from "@/lib/api/fridayClient";
 
 function frames(payloads: Uint8Array[]): Uint8Array {
@@ -91,4 +91,108 @@ test("explicit null totalSamples becomes null", async () => {
     new Response(streamOf(frames([header])), { status: 200 });
   const s = await streamTts("x", "en-US");
   expect(s.header.totalSamples).toBeNull();
+});
+
+import { TtsPlayer } from "@/lib/ttsPlayer";
+
+function pcmChunk(samples: number[]): Uint8Array {
+  const out = new Uint8Array(samples.length * 2);
+  const view = new DataView(out.buffer);
+  samples.forEach((s, i) => view.setInt16(i * 2, s, true));
+  return out;
+}
+
+async function* gen(chunks: Uint8Array[]): AsyncGenerator<Uint8Array, void, void> {
+  for (const c of chunks) yield c;
+}
+
+function fakeDeps(record: { posted: number; consumed: number }) {
+  const listeners = new Map<string, Array<(e: { data: unknown }) => void>>();
+  const port = {
+    postMessage: (msg: unknown) => {
+      const m = msg as { type: string; samples?: Float32Array };
+      if (m.type === "feed") {
+        record.posted += m.samples?.length ?? 0;
+        queueMicrotask(() => {
+          record.consumed += m.samples?.length ?? 0;
+          for (const fn of listeners.get("message") ?? []) fn({ data: { type: "consumed", count: m.samples?.length ?? 0 } });
+          for (const fn of listeners.get("message") ?? []) fn({ data: { type: "ready" } });
+        });
+      }
+    },
+    addEventListener: (t: string, fn: (e: { data: unknown }) => void) => {
+      listeners.set(t, [...(listeners.get(t) ?? []), fn]);
+    },
+    close: () => {},
+  };
+  const analyser = {
+    fftSize: 0,
+    frequencyBinCount: 4,
+    getByteFrequencyData: (arr: Uint8Array) => { arr.fill(200); },
+    connect: () => {},
+    disconnect: () => {},
+  };
+  const node = { port, connect: () => {}, disconnect: () => {} };
+  const context = {
+    state: "running",
+    resume: async () => {},
+    sampleRate: 24000,
+    audioWorklet: { addModule: async () => {} },
+    createAnalyser: () => analyser,
+    destination: {},
+  };
+  return {
+    createContext: () => context,
+    createNode: () => node,
+    workletUrl: "/fake.js",
+  };
+}
+
+test("plays chunks to completion and reports progress", async () => {
+  const record = { posted: 0, consumed: 0 };
+  const player = new TtsPlayer(fakeDeps(record) as never);
+  const stream: TtsStream = {
+    header: { sampleRate: 24000, channels: 1, totalSamples: 4 },
+    chunks: gen([pcmChunk([1000, 2000]), pcmChunk([3000, 4000])]),
+  };
+  expect(player.levels(8)).toBeNull();
+  await player.play(stream);
+  expect(record.posted).toBe(4);
+  expect(player.progress()).toBe(1);
+  const lv = player.levels(8);
+  expect(lv).toHaveLength(8);
+  expect(lv!.every((v) => v > 0.5)).toBe(true);
+});
+
+test("stop() aborts play and clears levels", async () => {
+  const record = { posted: 0, consumed: 0 };
+  const player = new TtsPlayer({
+    ...(fakeDeps(record) as object),
+    createContext: () => null,
+  } as never);
+  const stream: TtsStream = {
+    header: { sampleRate: 24000, channels: 1, totalSamples: null },
+    chunks: gen([pcmChunk([1])]),
+  };
+  await expect(player.play(stream)).rejects.toThrow(/unsupported/i);
+  expect(player.levels(4)).toBeNull();
+  expect(player.progress()).toBeNull();
+});
+
+test("resolves on unknown total once the queue drains", async () => {
+  const record = { posted: 0, consumed: 0 };
+  const player = new TtsPlayer(fakeDeps(record) as never);
+  const stream: TtsStream = {
+    header: { sampleRate: 24000, channels: 1, totalSamples: null },
+    chunks: gen([pcmChunk([10, 20, 30]), pcmChunk([40])]),
+  };
+  await player.play(stream);
+  expect(record.posted).toBe(4);
+  expect(record.consumed).toBe(4);
+  expect(player.framesFlowed).toBe(4);
+  expect(player.progress()).toBeNull();
+  expect(player.active).toBe(true);
+  player.stop();
+  expect(player.active).toBe(false);
+  expect(player.levels(4)).toBeNull();
 });
