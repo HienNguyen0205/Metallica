@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { streamTts, TtsError, type TtsStream } from "@/lib/api/ttsClient";
+import { streamTts, type TtsStream } from "@/lib/api/ttsClient";
 import { OrchestratorRefused } from "@/lib/api/fridayClient";
 
 function frames(payloads: Uint8Array[]): Uint8Array {

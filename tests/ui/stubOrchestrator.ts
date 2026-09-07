@@ -145,11 +145,33 @@ export interface StubHandle {
   decisions: { id: string; approved: boolean }[];
   /** Query strings received on POST /query, in order. */
   queries: string[];
+  /** Texts received on POST /tts, in order. */
+  ttsRequests: string[];
   /** Rows `GET /memory` serves; `DELETE /memory/{id}` removes from this. */
   memories: { id: number; fact: string; provenance: "user" | "tool" }[];
   /** Ids received on DELETE /memory/{id}, in order. */
   forgotten: number[];
   close: () => Promise<void>;
+}
+
+/** 0.5 s of 440 Hz sine, int16-LE mono 24 kHz — deterministic TTS audio. */
+const TTS_RATE = 24000;
+function ttsSineFrames(): Buffer[] {
+  const total = Math.floor(TTS_RATE * 0.5);
+  const pcm = Buffer.alloc(total * 2);
+  for (let i = 0; i < total; i++) {
+    pcm.writeInt16LE(Math.floor(Math.sin((i / TTS_RATE) * Math.PI * 2 * 440) * 12000), i * 2);
+  }
+  const header = Buffer.from(JSON.stringify({ sampleRate: TTS_RATE, channels: 1, totalSamples: total }));
+  const out: Buffer[] = [frame(header)];
+  for (let at = 0; at < pcm.length; at += 6000) out.push(frame(pcm.subarray(at, at + 6000)));
+  return out;
+}
+
+function frame(payload: Buffer): Buffer {
+  const prefix = Buffer.alloc(4);
+  prefix.writeUInt32LE(payload.length, 0);
+  return Buffer.concat([prefix, payload]);
 }
 
 /** Must match NEXT_PUBLIC_FRIDAY_API in playwright.config.ts. */
@@ -168,6 +190,7 @@ export async function startStubOrchestrator(
 ): Promise<StubHandle> {
   const decisions: { id: string; approved: boolean }[] = [];
   const queries: string[] = [];
+  const ttsRequests: string[] = [];
   const memories = seedMemories.map((m) => ({ ...m }));
   const forgotten: number[] = [];
   // Tests may end while an SSE response is still open (an approval prompt that
@@ -225,6 +248,22 @@ export async function startStubOrchestrator(
       return;
     }
 
+    if (req.url === "/tts" && req.method === "POST") {
+      const ttsBody = await readBody(req);
+      try {
+        ttsRequests.push(String(JSON.parse(ttsBody).text ?? ""));
+      } catch {
+        // unparsable TTS body is still answered — the bytes are what matter
+      }
+      res.writeHead(200, { ...cors, "content-type": "application/octet-stream" });
+      for (const chunk of ttsSineFrames()) {
+        res.write(chunk);
+        await sleep(10);
+      }
+      res.end();
+      return;
+    }
+
     if (req.url !== "/query") {
       res.writeHead(404, cors).end();
       return;
@@ -273,6 +312,7 @@ export async function startStubOrchestrator(
     server,
     decisions,
     queries,
+    ttsRequests,
     memories,
     forgotten,
     close: () =>
