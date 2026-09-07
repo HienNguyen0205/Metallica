@@ -10,7 +10,23 @@ import {
 import type { FridayEvent } from "@/lib/agent/events";
 import { normalizeVisualization } from "@/lib/visualization/normalization";
 
+/** All flow timing in one place — tuning the demo/UX never hunts magic numbers. */
+export const FLOW_TIMING = {
+  streamInterrupted: 1200,
+  refused: 1600,
+  answerHold: 3600,
+  localThinking: 800,
+  localSearching: 700,
+  localTool: 700,
+  localProcessing: 500,
+  localVisualizing: 1500,
+} as const;
+
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+function log(...args: unknown[]) {
+  console.warn("[friday]", ...args);
+}
 
 type FlowStore = Pick<
   FridayStore,
@@ -59,7 +75,7 @@ function dispatch(store: FlowStore, event: FridayEvent): void {
       break;
     case "error":
       store.setSessionError(event.message);
-      console.warn("[friday]", event.message);
+      log(event.message);
       break;
     case "memory":
       store.addMemory(event);
@@ -110,7 +126,7 @@ export async function runQuery(
         dispatch(store, ev);
       },
       onError: (msg) => {
-        console.warn("[friday]", msg);
+        log(msg);
       },
     });
     // If stream never yielded anything, treat as unreachable to trigger fallback?
@@ -120,10 +136,10 @@ export async function runQuery(
     if ((err as Error).name === "AbortError" || signal?.aborted) return;
     // If we already streamed something, don't fallback — just surface error
     if (hadLiveStream) {
-      console.warn("[friday] stream interrupted:", err);
+      log("stream interrupted:", err);
       store.setSessionError(err instanceof Error ? err.message : String(err));
       store.transition("error");
-      await wait(1200);
+      await wait(FLOW_TIMING.streamInterrupted);
       store.transition("idle");
       return;
     }
@@ -134,12 +150,12 @@ export async function runQuery(
       store.setSessionError(`${err.message}${wait_s}`);
       store.setLiveMode("idle");
       store.transition("error");
-      await wait(1600);
+      await wait(FLOW_TIMING.refused);
       store.transition("idle");
       return;
     }
 
-    console.warn("[friday] orchestrator unreachable, using local rules planner:", err);
+    log("orchestrator unreachable, using local rules planner:", err);
     store.setLiveMode("offline");
     await runLocal(store, query, voice);
     return;
@@ -148,7 +164,7 @@ export async function runQuery(
   // The answer is held until it has been read out, rather than for a fixed
   // beat — a two-sentence reply outlasts 3.6s and would otherwise be cleared,
   // and the HUD returned to IDLE, while FRIDAY was still talking.
-  if (spoken) await (voice ? speak(spoken) : wait(3600));
+  if (spoken) await (voice ? speak(spoken) : wait(FLOW_TIMING.answerHold));
   store.transition("idle");
   // Answer stays on screen until the next query (turn-start setAnswer(null) is
   // the only place that clears it), same as the viz scene above.
@@ -163,34 +179,39 @@ export async function decide(id: string, approved: boolean) {
   try {
     await confirmDecision(id, approved);
   } catch (err) {
-    console.warn("[friday] could not deliver decision:", err);
+    log("could not deliver decision:", err);
+    throw err instanceof Error ? err : new Error(String(err));
   }
 }
 
-/** The pre-backend scripted flow, kept as the offline demo path. */
+/**
+ * The pre-backend scripted flow, kept as the offline demo path.
+ * Production-reachable only when the orchestrator is unreachable (never on
+ * refusal) — see the catch branch above. Canned numbers inside are demo data.
+ */
 async function runLocal(store: FlowStore, query: string, voice = false) {
   const { transition, setAnswer } = store;
 
   transition("thinking");
-  await wait(800);
+  await wait(FLOW_TIMING.localThinking);
   transition("searching");
-  await wait(700);
+  await wait(FLOW_TIMING.localSearching);
   transition("tool_execution");
   store.setToolActivity({ tool: "get_system_metrics", risk: "low" });
-  await wait(700);
+  await wait(FLOW_TIMING.localTool);
   transition("processing");
   store.setToolActivity(null);
-  await wait(500);
+  await wait(FLOW_TIMING.localProcessing);
 
   const spec = planVisualization(query);
   transition("visualizing");
   store.addVisualization(spec);
-  await wait(1500);
+  await wait(FLOW_TIMING.localVisualizing);
 
   const answer = summarize(spec);
   transition("speaking");
   setAnswer(answer);
-  await (voice ? speak(answer) : wait(3600));
+  await (voice ? speak(answer) : wait(FLOW_TIMING.answerHold));
 
   transition("idle");
   store.setLiveMode("idle");

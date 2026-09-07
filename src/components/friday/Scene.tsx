@@ -7,6 +7,7 @@ import { type Mesh } from "three";
 import { useFridayStore } from "@/lib/store";
 import { STATE_CAMERA, STATE_LOOK } from "@/lib/stateLook";
 import { createRenderer } from "@/lib/rendererBackend";
+import { isSoftwareRenderer, resolveHeavy, resolveReduced } from "@/lib/gpu";
 import FridayCore from "./core/FridayCore";
 import SpatialHud from "./hud/SpatialHud";
 import FridayVisualization from "./visualization/FridayVisualization";
@@ -31,12 +32,22 @@ function CameraRig({ reduced }: { reduced: boolean }) {
   useEffect(() => {
     if (reduced) return;
     const el = gl.domElement;
+    const downPos = { x: 0, y: 0 };
+    const DRAG_THRESHOLD = 4;
     const down = (e: PointerEvent) => {
-      dragging.current = true;
+      dragging.current = false;
+      downPos.x = e.clientX;
+      downPos.y = e.clientY;
       last.current = [e.clientX, e.clientY];
+      (el as HTMLElement & { dataset: DOMStringMap }).dataset.dragArmed = "1";
     };
     const move = (e: PointerEvent) => {
-      if (!dragging.current) return;
+      // Arm on pointerdown, engage only past the threshold so a plain click
+      // never becomes a 1-frame orbit jump (and pairs with DrillDown's own gate).
+      if ((el as HTMLElement & { dataset: DOMStringMap }).dataset.dragArmed !== "1") return;
+      const dist = Math.hypot(e.clientX - downPos.x, e.clientY - downPos.y);
+      if (!dragging.current && dist < DRAG_THRESHOLD) return;
+      dragging.current = true;
       const dx = e.clientX - last.current[0];
       const dy = e.clientY - last.current[1];
       last.current = [e.clientX, e.clientY];
@@ -45,6 +56,7 @@ function CameraRig({ reduced }: { reduced: boolean }) {
     };
     const up = () => {
       dragging.current = false;
+      delete (el as HTMLElement & { dataset: DOMStringMap }).dataset.dragArmed;
     };
     const reset = () => {
       yaw.current = 0;
@@ -96,19 +108,6 @@ function StateLights() {
       <pointLight position={[-4, -2, -3]} intensity={0.45} color={look.accent} />
     </>
   );
-}
-
-/** SwiftShader / llvmpipe rasterise on the CPU — skip the expensive passes. */
-function isSoftwareRenderer(gl: { getContext?: () => WebGLRenderingContext }): boolean {
-  try {
-    const ctx = gl.getContext?.();
-    const ext = ctx?.getExtension("WEBGL_debug_renderer_info");
-    if (!ctx || !ext) return false;
-    const name = String(ctx.getParameter(ext.UNMASKED_RENDERER_WEBGL));
-    return /swiftshader|llvmpipe|software|basic render/i.test(name);
-  } catch {
-    return false;
-  }
 }
 
 /**
@@ -189,9 +188,8 @@ export default function Scene() {
   }, []);
 
 
-  const effectiveReduced = quality === "low" ? true : quality === "high" ? false : reduced;
-  const heavy =
-    quality === "low" ? false : quality === "high" ? gpuClass !== "software" : !effectiveReduced && gpuClass === "hardware";
+  const effectiveReduced = resolveReduced({ quality, systemReduced: reduced });
+  const heavy = resolveHeavy({ quality, gpuClass, reduced: effectiveReduced });
 
   return (
     <Canvas

@@ -56,11 +56,15 @@ export default function PostFX({
   const scene = useThree((s) => s.scene);
   const camera = useThree((s) => s.camera);
 
-  const { post, sunScreen } = useMemo(() => {
+  // Stable chain: `sun` resolves null → Mesh once per load. It must not be a
+  // memo dep — rebuilding RenderPipeline mid-stream recompiles every TSL pass.
+  // Shafts are always built when `heavy` and gated by a uniform instead.
+  const { post, sunScreen, shaftStrength } = useMemo(() => {
     const scenePass = pass(scene, camera);
     const color = scenePass.getTextureNode("output");
 
     const sunScreen = uniform(new Vector2(0.5, 0.5));
+    const shaftStrength = uniform(0);
 
     // Bloom is additive on the node pipeline — it returns the glow, not the
     // composite. Half resolution on dense displays: at dpr 2 that still lands
@@ -86,7 +90,7 @@ export default function PostFX({
     type FxNode = typeof bloomed;
     let output: FxNode = bloomed;
 
-    if (heavy && sun) {
+    if (heavy) {
       const samples = sunSamples(denseDisplay);
       /* §13 volumetric shafts radiating out of the core.
        *
@@ -118,7 +122,7 @@ export default function PostFX({
         return acc.mul(0.28 / samples).min(vec3(0.85));
       })();
 
-      output = output.add(shafts);
+      output = output.add(shafts.mul(shaftStrength));
     }
 
     /* No depth of field. Measured before removing it: `bokehScale` sets the
@@ -139,14 +143,17 @@ export default function PostFX({
     const post = new RenderPipeline(renderer as never);
     post.outputNode = output;
 
-    return { post, sunScreen };
-  }, [renderer, scene, camera, heavy, reduced, sun, denseDisplay]);
+    return { post, sunScreen, shaftStrength };
+  }, [renderer, scene, camera, heavy, reduced, denseDisplay]);
 
   useEffect(() => () => post.dispose(), [post]);
 
   const world = useMemo(() => new Vector3(), []);
 
   useFrame(() => {
+    // Per-frame TSL uniform update — idiomatic, not a React mutation.
+    // eslint-disable-next-line react-hooks/immutability
+    shaftStrength.value = sun ? 1 : 0;
     if (sun) {
       // the shafts have to know where the core landed on screen this frame
       sun.getWorldPosition(world).project(camera);

@@ -1,6 +1,7 @@
 import type { VisualizationSpec, VisualizationType } from "@/lib/store";
 
 interface Rule {
+  type: VisualizationType;
   match: RegExp;
   build: () => VisualizationSpec;
 }
@@ -15,6 +16,7 @@ interface Rule {
 // the graph rule instead of being swallowed by the traffic rule.
 const RULES: Rule[] = [
   {
+    type: "network",
     // deliberately not a bare /service/ — "requests per service" is a
     // distribution question, not a topology one
     match: /topology|depend|microservice|cluster|service map|service graph|call graph/i,
@@ -35,6 +37,7 @@ const RULES: Rule[] = [
     }),
   },
   {
+    type: "particle_flow",
     match: /traffic|throughput|bandwidth|packet|network flow|data flow|\bflow\b|\bnetwork\b/i,
     build: () => ({
       type: "particle_flow",
@@ -44,6 +47,7 @@ const RULES: Rule[] = [
     }),
   },
   {
+    type: "heatmap_3d",
     // before globe: "heatmap" contains the substring "map"
     match: /heatmap|hotspot|density|correlation/i,
     build: () => ({
@@ -60,12 +64,14 @@ const RULES: Rule[] = [
     }),
   },
   {
+    type: "globe",
     // "map" is word-boundaried: without it "heatmap" matches the globe rule.
     // The heatmap rule above still wins on order; this is the second lock.
     match: /where|region|location|global|\bmap\b|globe|country|latency by/i,
     build: () => ({ type: "globe", title: "GLOBAL EDGE MAP", animation: "materialize" }),
   },
   {
+    type: "line_3d",
     match: /trend|history|over time|last hour|graph of|timeseries|time series/i,
     build: () => ({
       type: "line_3d",
@@ -80,6 +86,7 @@ const RULES: Rule[] = [
     }),
   },
   {
+    type: "bar_3d",
     match: /compare|breakdown|per |by service|distribution/i,
     build: () => ({
       type: "bar_3d",
@@ -89,10 +96,12 @@ const RULES: Rule[] = [
     }),
   },
   {
+    type: "timeline",
     match: /event|log|timeline|incident|history of/i,
     build: () => ({ type: "timeline", title: "EVENT SEQUENCE", animation: "materialize" }),
   },
   {
+    type: "radar",
     match: /scan|search|find|look for|detect|threat/i,
     build: () => ({
       type: "radar",
@@ -102,6 +111,7 @@ const RULES: Rule[] = [
     }),
   },
   {
+    type: "health_core",
     match: /health|status|overall|integrity/i,
     build: () => ({
       type: "health_core",
@@ -111,6 +121,7 @@ const RULES: Rule[] = [
     }),
   },
   {
+    type: "waveform",
     match: /voice|audio|sound|listen|speak/i,
     build: () => ({ type: "waveform", title: "AUDIO STREAM", animation: "materialize" }),
   },
@@ -136,18 +147,21 @@ export function planVisualization(query: string): VisualizationSpec {
 }
 
 /** One canonical sample spec per type — used by the dev viz rail. */
+const RULE_BY_TYPE: Record<Exclude<VisualizationType, "radial_gauge">, Rule> = Object.fromEntries(
+  RULES.map((r) => [r.type, r]),
+) as Record<Exclude<VisualizationType, "radial_gauge">, Rule>;
 const SAMPLES: Record<VisualizationType, () => VisualizationSpec> = {
   radial_gauge: () => DEFAULT_SPEC,
-  health_core: () => RULES[8].build(),
-  radar: () => RULES[7].build(),
-  waveform: () => RULES[9].build(),
-  line_3d: () => RULES[4].build(),
-  bar_3d: () => RULES[5].build(),
-  timeline: () => RULES[6].build(),
-  network: () => RULES[0].build(),
-  globe: () => RULES[3].build(),
-  particle_flow: () => RULES[1].build(),
-  heatmap_3d: () => RULES[2].build(),
+  health_core: () => RULE_BY_TYPE.health_core.build(),
+  radar: () => RULE_BY_TYPE.radar.build(),
+  waveform: () => RULE_BY_TYPE.waveform.build(),
+  line_3d: () => RULE_BY_TYPE.line_3d.build(),
+  bar_3d: () => RULE_BY_TYPE.bar_3d.build(),
+  timeline: () => RULE_BY_TYPE.timeline.build(),
+  network: () => RULE_BY_TYPE.network.build(),
+  globe: () => RULE_BY_TYPE.globe.build(),
+  particle_flow: () => RULE_BY_TYPE.particle_flow.build(),
+  heatmap_3d: () => RULE_BY_TYPE.heatmap_3d.build(),
 };
 
 export function sampleSpec(type: VisualizationType): VisualizationSpec {

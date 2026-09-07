@@ -24,17 +24,21 @@ per-state presentation parameters.
 ```text
 idle            → listening, thinking, warning, error
 listening       → thinking, idle, warning, error
-thinking        → searching, speaking, idle, warning, error
-searching       → tool_execution, processing, idle, warning, error
-tool_execution  → processing, searching, idle, warning, error
-processing      → visualizing, speaking, idle, warning, error
+thinking        → searching, tool_execution, processing, visualizing, speaking, warning, error
+searching       → processing, tool_execution, visualizing, speaking, warning, error
+tool_execution  → processing, visualizing, speaking, warning, error
+processing      → visualizing, tool_execution, speaking, warning, error
 visualizing     → speaking, processing, idle, warning, error
-speaking        → idle, visualizing, warning, error
-warning         → idle, thinking, error
+speaking        → idle, listening, warning, error
+warning         → idle, speaking, error
 error           → idle                       // recovery only via idle
 ```
 
-Happy path (driven by `demoQuery.ts`):
+Source of truth is `src/lib/agent/stateMachine.ts:TRANSITIONS` — this table is
+generated from it, do not edit by hand without updating the code.
+
+Happy path (driven by `runLocal()` in `src/lib/agentStream.ts`, or SSE events
+in live mode):
 
 ```text
 thinking → searching → tool_execution → processing → visualizing → speaking → idle
@@ -78,11 +82,17 @@ Camera behavior lives in a parallel `STATE_CAMERA` table:
 | State | Distance | Orbit amplitude |
 |---|---|---|
 | idle | 6.8 | 0.06 |
-| listening | 6.4 | 0.10 |
-| thinking / searching / tool_execution / processing | 6.2–7.2 | 0.08–0.16 |
-| visualizing | 7.7 | 0.05 |
-| speaking | 6.6 | 0.04 |
-| warning / error | 7.0–7.4 | **0** — camera locks down |
+| listening | 6.55 | 0.10 |
+| thinking | 6.15 | 0.20 |
+| searching | 6.35 | 0.55 |
+| processing | 6.4 | 0.30 |
+| tool_execution | 6.3 | 0.35 |
+| visualizing | 7.7 | 0.50 |
+| speaking | 6.7 | 0.12 |
+| warning | 6.5 | **0** — camera locks down |
+| error | 6.45 | **0** — camera locks down |
+
+Source of truth is `src/lib/stateLook.ts:STATE_CAMERA`.
 
 Because both tables are keyed by state, one store write re-tints lights, speeds
 up rings, excites particles and waveform, jitters the core and re-frames the

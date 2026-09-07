@@ -6,7 +6,7 @@ compatibility decision.
 
 ```
                     ┌──────────────────────────────────────────────┐
-   user query       │  InputBar ──▶ runQuery (demoQuery.ts)        │
+   user query       │  InputBar ──▶ runQuery (agentStream.ts)      │
   ─────────────────▶│      │                                        │
                     │      ▼        guarded transition()            │
                     │  zustand store  ◀── setState (dev rails)      │
@@ -26,8 +26,8 @@ The application has four cooperating layers:
 
 | Layer | Location | Responsibility |
 |---|---|---|
-| **State** | `src/lib/store.ts` | Single source of truth: agent state machine, current answer, current `VisualizationSpec`, drill-down focus, render backend, audio flag. |
-| **Logic** | `src/lib/vizPlanner.ts`, `demoQuery.ts`, `stateLook.ts` | Pure functions mapping queries → specs, states → looks, and simulating the agent pipeline. |
+| **State** | `src/lib/store.ts` | Single source of truth: agent state machine, current answer, `visualizations: VisualizationEntry[]` (max 3, stable id), drill-down focus, render backend, audio flag. |
+| **Logic** | `src/lib/vizPlanner.ts`, `src/lib/agentStream.ts`, `stateLook.ts` | Pure planner (query → spec), SSE orchestrator + offline `runLocal` fallback, state → look tables. |
 | **3D scene** | `src/components/friday/**` | The R3F canvas: core hologram, particles, rings, waveform, spatial HUD, visualization registry, shaders, post-processing. |
 | **DOM HUD** | `src/components/friday/hud/Hud.tsx` | Everything above the canvas: top bar, edge telemetry, dev rails, answer line, input bar. |
 
@@ -43,7 +43,7 @@ A single Zustand store holds everything the UI needs:
 interface FridayStore {
   state: FridayState;
   answer: string | null;
-  visualization: VisualizationSpec | null;
+  visualizations: VisualizationEntry[]; // { id, spec, lifecycle }, max 3
   focus: VizFocus | null;
   renderBackend: RenderBackend;
   audioEnabled: boolean;
@@ -51,11 +51,12 @@ interface FridayStore {
   transition(next: FridayState): void; // guarded — see below
   setState(state: FridayState): void;  // unguarded — dev rails only
   setAnswer(v: string | null): void;
-  setVisualization(spec: VisualizationSpec | null): void;
+  addVisualization(spec: VisualizationSpec): void; // stable id, slice(-3)
+  settleVisualization(id: number): void; // by id, never by index
   setFocus(focus: VizFocus | null): void;
   setRenderBackend(b: RenderBackend): void;
   toggleAudio(): void;
-  reset(): void;
+  reset(): void; // preserves renderBackend/quality/lang/audioEnabled
 }
 ```
 
@@ -78,17 +79,18 @@ See [STATE_MACHINE.md](STATE_MACHINE.md) for the full table and rationale.
 
 ## 3. The query pipeline
 
-`runQuery(store, query)` in `demoQuery.ts` simulates an agent:
+`runQuery(store, query)` in `src/lib/agentStream.ts` drives the machine from SSE:
 
-1. clears `answer` / `visualization`,
-2. walks `thinking → searching → tool_execution → processing` with timed waits,
-3. at `visualizing`: sets the spec from `planVisualization(query)`,
-4. at `speaking`: sets the spoken answer from `summarize(spec)` — the hologram
-   materializes **before** the text appears,
-5. after ~3.6 s returns to `idle` and clears everything.
+1. clears `answer` / visualizations / confirm / errors, `setLiveMode("connecting")`,
+2. `streamQuery` → typed `FridayEvent` → `dispatch()` → store (`transition`,
+   `addVisualization`, `setAnswer`, …),
+3. live answer is held until `speak()` finishes (voice) or 3.6 s (typed),
+   then `transition("idle")`; answer/viz persist until the next turn.
 
-The design contract: this module owns all timing. Replace its `wait()` calls
-with stream events from a real agent backend and nothing else changes.
+Offline fallback `runLocal()` (same file) simulates the pipeline with timed
+waits (`thinking → searching → tool_execution → processing → visualizing →
+speaking → idle`) via `planVisualization`/`summarize`. `OrchestratorRefused`
+(403/429) never falls back — a refusal is not an outage.
 
 ## 4. Spec-driven visualizations
 
@@ -114,6 +116,7 @@ const REGISTRY: Record<VisualizationType, ComponentType<VizProps>> = {
   particle_flow: ParticleFlow,
   globe: Globe3D,
   timeline: Timeline3D,
+  heatmap_3d: Heatmap3D, // 11 types total
 };
 ```
 
@@ -145,9 +148,9 @@ the interaction layer generic — adding a new visualization never touches
     │                          reticles, coord/sync readouts, level columns
     ├── FridayCore             8-layer hologram (below)
     ├── FridayVisualization    active spec via REGISTRY
-    ├── AdaptiveDpr pixelated / AdaptiveEvents
-    └── EffectComposer (WebGL only)
-        Bloom · DepthOfField? · ChromaticAberration · Noise · Vignette
+    ├── AdaptiveDpr / AdaptiveEvents (never pixelated)
+    └── PostFX (RenderPipeline, TSL — both backends)
+        Bloom · God-ray shafts · ChromaticAberration · Film · Vignette (no DoF)
 ```
 
 ### Camera rig
@@ -167,11 +170,11 @@ display a live VECTOR readout without React re-rendering the scene.
 
 Eight stacked layers, all driven by `STATE_LOOK[state]`:
 
-1. **Energy core** — sphere r=0.5, `MeshDistortMaterial` (distort/speed/emissive
-   from the look); standard emissive material under WebGPU compat mode.
+1. **Energy core** — sphere r=0.5, TSL `createCoreMaterial()` (noise
+   displacement; color/glow/distort/speed driven as uniforms, no recompile).
 2. **Inner lattice** — wireframe icosahedron r=0.66.
-3. **Fresnel shell** — icosahedron r=0.86 with the `hologramMaterial` shader,
-   `uTime` advanced manually per frame.
+3. **Fresnel shell** — icosahedron r=0.86 with TSL `createHologramMaterial()`
+   (fresnel + scanlines + flicker, compiles to WGSL or GLSL).
 4. **CoreRings** — inner tick dial (r≈1.02), three tilted spinning torus rings
    (1.28/1.55/1.82), dashed arcs (1.42/2.35), broken outer frame arcs (2.75).
 5. **CoreParticles** — see below.
@@ -184,16 +187,17 @@ Eight stacked layers, all driven by `STATE_LOOK[state]`:
 
 ## 7. Custom shaders (`effects/materials.ts`)
 
-Three drei `shaderMaterial`s registered via `extend()` with TS JSX typings:
+Three TSL node factories (`createHologramMaterial`, `createParticleMaterial`,
+`createCoreMaterial`), each returning `{ material, apply/update }`. One node
+graph compiles to WGSL or GLSL depending on the loaded backend — no `compat`
+flag, no GLSL string splicing (which is why `@react-three/postprocessing`,
+drei `<Text>`/`<Line>` and `MeshDistortMaterial` were dropped).
 
-| Material | Uniforms | Purpose |
-|---|---|---|
-| `hologramMaterial` | `uTime uColor uOpacity uFresnelPower uScanSpeed uScanDensity uFlicker` | Fresnel edge glow + travelling scanlines + hash-noise flicker. Core shell & rings. |
-| `holoGridMaterial` | time/color/opacity | Dotted background grid plane with radial fade and outward ripple — one draw call for the whole floor. |
-| `holoParticleMaterial` | `uTime uColor uOpacity uMode uPixelRatio` | Vertex-shader particle motion from per-particle attributes (`aRadius aAngle aSpeed aTilt aY aSize`). `uMode 0` = orbit, `uMode 1` = outward flow. Point size clamped `[0.6, 7.0]` scaled by `34/depth`; depth-graded alpha. |
-
-All three are GLSL-only, so components receive a `compat` flag (true on WebGPU)
-and swap to built-in materials where needed.
+| Factory | Purpose |
+|---|---|
+| `createHologramMaterial` | Fresnel edge glow + travelling scanlines + flicker. Core shell & rings. |
+| `createParticleMaterial` | GPU particle motion from per-particle attributes; orbit vs outward flow via mode. |
+| `createCoreMaterial` | Noise-displaced energy core; color/glow/distort/speed are uniforms. |
 
 ## 8. Particles (`CoreParticles.tsx`)
 
@@ -207,28 +211,30 @@ and swap to built-in materials where needed.
 ## 9. Rendering backends (`rendererBackend.ts`)
 
 ```ts
-createRenderer(props) →
-  NEXT_PUBLIC_WEBGPU=1 && navigator.gpu ? WebGPURenderer : WebGLRenderer
+createRenderer(props) → always WebGPURenderer
+  requestAdapter() ok ? WebGPU backend : WebGL2 backend
+  NEXT_PUBLIC_FORCE_WEBGL=1 pins the WebGL2 backend for debugging
 ```
 
-- Backend reported to the store on creation (`gl.isWebGPURenderer`) and shown in
-  EdgeTelemetry.
-- Software renderer detection (SwiftShader / llvmpipe) disables DepthOfField —
-  the pass that tanks CPU-rasterized frames hardest.
+- Backend reported to the store by reading `backend.isWebGPUBackend` (not
+  `isWebGPURenderer`, which is true on both) and shown in EdgeTelemetry.
+- Software renderer detection (SwiftShader / llvmpipe) disables god-ray shafts —
+  the full-resolution march that tanks CPU-rasterized frames hardest.
 - `webglcontextlost` bumps a `ctxKey` used as the Canvas `key`, remounting and
   rebuilding the whole context automatically.
 
-## 10. Post-processing
-
-WebGL path only (the composer stack is skipped entirely on WebGPU):
+## 10. Post-processing (`effects/PostFX.tsx` — TSL `RenderPipeline`, both backends)
 
 | Effect | Settings | Gating |
 |---|---|---|
-| Bloom | intensity 0.75, luminanceThreshold 0.18, mipmap blur | always (WebGL) |
-| DepthOfField | focalLength 0.42, bokehScale 1.1 | off when reduced motion or software GL |
-| ChromaticAberration | offset 0.0012, radial modulation out to 40% radius | always |
-| Noise | opacity 0.022 (0.012 reduced) | always |
-| Vignette | offset 0.22, darkness 0.92 | always |
+| Bloom | strength 0.55, radius 0.3, threshold 0.62 (UnrealBloom, half-res on dense) | always |
+| God-ray shafts | radial-decay march, 30 taps (16 on dense), threshold 0.6 matched to bloom | only when `heavy && sun` |
+| ChromaticAberration | offset 0.0012, radial | always |
+| Film | opacity 0.022 (0.012 reduced) | always |
+| Vignette | smoothstep(0.22, 1.0, r) * 0.92 | always |
+
+No depth of field: measured `bokehScale 1.1` ≈ 1 px — invisible, for a
+full-resolution pass. `PostFX` owns the frame via `useFrame(..., 1)`.
 
 DOM-level equivalents (`globals.css`) layer on top: CRT scanlines
 (`mix-blend-mode: overlay`), a 7 s vertical scan-bar sweep, `.answer-rise`
@@ -259,9 +265,9 @@ cards (enforced by a test asserting no nav/aside/card/table chrome exists).
 
 Triggered by `(max-width: 768px)` or `(prefers-reduced-motion: reduce)`:
 
-- DPR capped at `[1, 1.25]` (vs `[1, 1.75]`),
+- DPR capped at `[1, 1.5]` (vs `[1, 2]`),
 - particles 260 (vs 950),
-- DepthOfField disabled,
+- god-ray shafts disabled,
 - outer frame, reticles and level columns hidden.
 
 Mobile tests assert the simplified layout renders without overflow while

@@ -9,6 +9,7 @@ import {
   type VisualizationType,
   type VizData,
   type VizFocus,
+  type VizLifecycle,
 } from "@/lib/store";
 import { STATE_LOOK } from "@/lib/stateLook";
 import { resolveVisualizationLayout } from "@/lib/visualization/layoutResolver";
@@ -88,6 +89,7 @@ function findVizTag(obj: Object3D): VizTag | null {
 function DrillDown({ enabled, children }: { enabled: boolean; children: ReactNode }) {
   const focus = useFridayStore((s) => s.focus);
   const setFocus = useFridayStore((s) => s.setFocus);
+  const downAt = useRef<[number, number] | null>(null);
   const [hover, setHover] = useState<{ tag: VizTag; position: [number, number, number] } | null>(
     null,
   );
@@ -114,6 +116,14 @@ function DrillDown({ enabled, children }: { enabled: boolean; children: ReactNod
 
   const onClick = (e: ThreeEvent<MouseEvent>) => {
     if (!enabled) return;
+    // A drag-end lands as a click on the same object — ignore it so orbiting
+    // the camera never steals focus. Pairs with CameraRig's drag threshold.
+    if (downAt.current) {
+      const dx = e.nativeEvent.clientX - downAt.current[0];
+      const dy = e.nativeEvent.clientY - downAt.current[1];
+      downAt.current = null;
+      if (Math.hypot(dx, dy) > 6) return;
+    }
     const hit = resolveTag(e);
     if (!hit) return;
     setHover(null);
@@ -136,6 +146,9 @@ function DrillDown({ enabled, children }: { enabled: boolean; children: ReactNod
   return (
     <group
       onClick={onClick}
+      onPointerDown={(e: ThreeEvent<PointerEvent>) => {
+        downAt.current = [e.nativeEvent.clientX, e.nativeEvent.clientY];
+      }}
       onPointerOver={onPointerOver}
       onPointerOut={onPointerOut}
       onPointerMissed={() => enabled && setFocus(null)}
@@ -197,6 +210,7 @@ function FocusMarker() {
 }
 
 function VizNode({
+  id,
   spec,
   lifecycle,
   count,
@@ -205,8 +219,9 @@ function VizNode({
   color,
   accent,
 }: {
+  id: number;
   spec: VisualizationSpec;
-  lifecycle: "materializing" | "active" | "updating" | "settling";
+  lifecycle: VizLifecycle;
   count: number;
   index: number;
   viewportWidth: number;
@@ -223,7 +238,7 @@ function VizNode({
   return (
     <group position={layout.position} scale={layout.scale}>
       <DrillDown enabled={spec.interaction !== "none"}>
-        <Entrance lifecycle={lifecycle} index={index}>
+        <Entrance lifecycle={lifecycle} id={id}>
           <Pulse enabled={spec.animation === "pulse"}>
             <Renderer data={spec.data ?? {}} color={color} accent={accent} />
           </Pulse>
@@ -241,11 +256,11 @@ function VizNode({
 /** Entrance wired to the store lifecycle: scale + rise, then settle to active. */
 function Entrance({
   lifecycle,
-  index,
+  id,
   children,
 }: {
-  lifecycle: string;
-  index: number;
+  lifecycle: VizLifecycle;
+  id: number;
   children: ReactNode;
 }) {
   const ref = useRef<Group>(null);
@@ -269,7 +284,7 @@ function Entrance({
       settled.current = true;
       g.scale.setScalar(1);
       g.position.y = 0;
-      useFridayStore.getState().settleVisualization(index);
+      useFridayStore.getState().settleVisualization(id);
     }
   });
 
@@ -301,7 +316,8 @@ export default function FridayVisualization() {
     <group>
       {entries.map((entry, i) => (
         <VizNode
-          key={`${entry.spec.type}-${entry.spec.title ?? i}-${i}`}
+          key={entry.id}
+          id={entry.id}
           spec={entry.spec}
           lifecycle={entry.lifecycle}
           count={entries.length}
