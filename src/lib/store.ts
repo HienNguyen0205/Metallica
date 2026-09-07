@@ -1,9 +1,22 @@
 import { create } from "zustand";
 import { canTransition, reportIllegal } from "@/lib/agent/stateMachine";
 import type { FridayState } from "@/lib/agent/stateMachine";
-import type { SupportedLang } from "@/lib/audioBus";
+import { resolveLang, type SupportedLang } from "@/lib/audioBus";
 
 export type { FridayState };
+
+/** localStorage key for the recognition language. Single source — do not duplicate. */
+export const FRIDAY_LANG_KEY = "friday.lang";
+
+function initialLang(): SupportedLang {
+  try {
+    const stored = localStorage.getItem(FRIDAY_LANG_KEY);
+    const nav = typeof navigator !== "undefined" ? navigator.language : undefined;
+    return resolveLang(nav, stored);
+  } catch {
+    return "en-US";
+  }
+}
 
 /** §16 — visualization kinds the renderer can materialize. */
 export type VisualizationType =
@@ -75,9 +88,13 @@ export interface VizFocus {
 export type VizLifecycle = "materializing" | "active" | "updating" | "settling";
 
 export interface VisualizationEntry {
+  /** Stable identity across cap eviction — never use array index to settle. */
+  id: number;
   spec: VisualizationSpec;
   lifecycle: VizLifecycle;
 }
+
+let nextVisualizationId = 1;
 
 /** §13 — active tool instrumentation (secondary to core, not a card). */
 export interface ToolActivity {
@@ -137,8 +154,8 @@ export interface FridayStore {
   addVisualization: (viz: VisualizationSpec) => void;
   setVisualizations: (vizs: VisualizationSpec[]) => void;
   clearVisualizations: () => void;
-  /** Flip a materializing entry to active once its entrance finishes. */
-  settleVisualization: (index: number) => void;
+  /** Flip a materializing entry to active once its entrance finishes (by stable id). */
+  settleVisualization: (id: number) => void;
   focus: VizFocus | null;
   setFocus: (focus: VizFocus | null) => void;
   pendingConfirm: PendingConfirm | null;
@@ -157,7 +174,7 @@ export interface FridayStore {
   setRenderBackend: (backend: RenderBackend) => void;
   quality: RenderQuality;
   setQuality: (quality: RenderQuality) => void;
-  /** Speech-recognition language. Persisted to localStorage, survives reset. */
+  /** Speech-recognition language. Hydrated from localStorage in the initializer, survives reset. */
   lang: SupportedLang;
   setLang: (lang: SupportedLang) => void;
   audioEnabled: boolean;
@@ -185,17 +202,23 @@ export const useFridayStore = create<FridayStore>((set, get) => ({
     set((s) => ({
       visualizations: [
         ...s.visualizations.map((e) => ({ ...e, lifecycle: "active" as const })),
-        { spec, lifecycle: "materializing" as const },
+        { id: nextVisualizationId++, spec, lifecycle: "materializing" as const },
       ].slice(-3),
     })),
-  settleVisualization: (index) =>
+  settleVisualization: (id) =>
     set((s) => ({
-      visualizations: s.visualizations.map((e, i) =>
-        i === index ? { ...e, lifecycle: "active" as const } : e,
+      visualizations: s.visualizations.map((e) =>
+        e.id === id ? { ...e, lifecycle: "active" as const } : e,
       ),
     })),
   setVisualizations: (vizs) =>
-    set({ visualizations: vizs.map((spec) => ({ spec, lifecycle: "materializing" as const })) }),
+    set({
+      visualizations: vizs.map((spec) => ({
+        id: nextVisualizationId++,
+        spec,
+        lifecycle: "materializing" as const,
+      })),
+    }),
   clearVisualizations: () => set({ visualizations: [] }),
   focus: null,
   setFocus: (focus) => set({ focus }),
@@ -213,10 +236,10 @@ export const useFridayStore = create<FridayStore>((set, get) => ({
   setRenderBackend: (renderBackend) => set({ renderBackend }),
   quality: "auto",
   setQuality: (quality) => set({ quality }),
-  lang: "en-US",
+  lang: initialLang(),
   setLang: (lang) => {
     try {
-      localStorage.setItem("friday.lang", lang);
+      localStorage.setItem(FRIDAY_LANG_KEY, lang);
     } catch {
       /* private mode — preference just doesn't survive */
     }
@@ -226,13 +249,17 @@ export const useFridayStore = create<FridayStore>((set, get) => ({
   toggleAudio: () => set({ audioEnabled: !get().audioEnabled }),
   memories: [],
   addMemory: (note) =>
-    // HUD hiện một dòng, không phải nhật ký — giữ ba cái gần nhất là đủ để
-    // thấy FRIDAY vừa học gì mà không đẩy mọi thứ khác ra khỏi màn hình.
+    // HUD shows one line, not a log — keep the 3 most recent so the operator
+    // sees what FRIDAY just learned without pushing everything else off screen.
     set((s) => ({ memories: [note, ...s.memories].slice(0, 3) })),
-  // Dọn ở đầu mỗi lượt, cùng chỗ với deniedTool. Không có nó, một sự thật học
-  // được một lần hiện mãi mãi - qua mọi lượt sau và cả lúc rảnh - và một cảnh
-  // báo luôn bật thì không còn là cảnh báo.
+  // Cleared at the start of each turn, alongside deniedTool. Without this, a
+  // fact learned once would display forever — across later turns and idle —
+  // and an always-on alert stops being an alert.
   clearMemories: () => set({ memories: [] }),
+  /**
+   * Back to idle, scene cleared. Deliberately preserves user/hardware prefs:
+   * renderBackend, quality, lang, audioEnabled survive — everything else resets.
+   */
   reset: () =>
     set({
       state: "idle",

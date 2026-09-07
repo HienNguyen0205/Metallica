@@ -1,12 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
-import { useFridayStore } from "@/lib/store";
+import { FRIDAY_LANG_KEY, useFridayStore } from "@/lib/store";
 import { runQuery } from "@/lib/agentStream";
 import { canListen, startListening, stopSpeaking } from "@/lib/voice";
 import { attachMic, detachMic, resolveLang } from "@/lib/audioBus";
-
-const LANG_KEY = "friday.lang";
 
 export default function InputBar() {
   const [value, setValue] = useState("");
@@ -62,13 +60,15 @@ export default function InputBar() {
       // The input is disabled mid-turn, so its own onKeyDown never fires here.
       if (e.key === "Escape") cancel();
     };
-    // Smart default, not detection: stored choice wins, then the browser
-    // locale (navigator.language), so most operators never touch the toggle.
-    // True auto-detect needs hosted STT — the browser engine takes one lang.
+    // Lang is hydrated in the store initializer (localStorage → navigator →
+    // en-US). Re-resolve here only if the store still holds the fallback while
+    // a stored choice exists (e.g. SSR first render) — single source stays the store.
     try {
-      const stored = localStorage.getItem(LANG_KEY);
-      const next = resolveLang(navigator.language, stored);
-      if (next !== useFridayStore.getState().lang) useFridayStore.getState().setLang(next);
+      const stored = localStorage.getItem(FRIDAY_LANG_KEY);
+      if (stored) {
+        const next = resolveLang(navigator.language, stored);
+        if (next !== useFridayStore.getState().lang) useFridayStore.getState().setLang(next);
+      }
     } catch {
       /* private mode — en-US default stands */
     }
@@ -141,8 +141,9 @@ export default function InputBar() {
         />
         <button
           onClick={() => setLang(lang === "vi-VN" ? "en-US" : "vi-VN")}
-          disabled={busy}
+          disabled={busy || listening}
           aria-label="Toggle recognition language"
+          title={listening ? "Available after the current phrase" : undefined}
           className="shrink-0 font-mono text-[9px] tracking-[0.2em] text-cyan-300/50 transition-colors hover:text-cyan-200 disabled:opacity-30"
         >
           {lang === "vi-VN" ? "VI" : "EN"}

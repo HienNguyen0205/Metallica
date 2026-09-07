@@ -1,7 +1,36 @@
-import type { VisualizationSpec } from "@/lib/store";
+import type { VisualizationSpec, VisualizationType } from "@/lib/store";
 import type { FridayState } from "@/lib/agent/stateMachine";
 
 export type { FridayState };
+
+const KNOWN_STATES: ReadonlySet<string> = new Set([
+  "idle",
+  "listening",
+  "thinking",
+  "searching",
+  "processing",
+  "tool_execution",
+  "visualizing",
+  "speaking",
+  "warning",
+  "error",
+]);
+
+const KNOWN_RISKS: ReadonlySet<string> = new Set(["low", "medium", "high"]);
+
+const KNOWN_VIZ: ReadonlySet<string> = new Set([
+  "radial_gauge",
+  "health_core",
+  "radar",
+  "waveform",
+  "network",
+  "line_3d",
+  "bar_3d",
+  "particle_flow",
+  "globe",
+  "timeline",
+  "heatmap_3d",
+]);
 
 /**
  * Canonical discriminated union — single source of truth for BE→FE events.
@@ -40,22 +69,25 @@ export function parseFridayEvent(raw: RawFrame): FridayEvent | null {
 
   switch (event) {
     case "state": {
-      const s = payload.state as string | undefined;
-      if (!s) return null;
+      const s = payload.state;
+      if (typeof s !== "string" || !KNOWN_STATES.has(s)) return null;
       return { type: "state", state: s as FridayState };
     }
     case "tool": {
       const tool = String(payload.tool ?? "");
-      const risk = (payload.risk as string) ?? "low";
-      if (!tool) return null;
+      const risk = String(payload.risk ?? "low");
+      if (!tool || !KNOWN_RISKS.has(risk)) return null;
       return { type: "tool", tool, risk: risk as "low" | "medium" | "high" };
     }
     case "confirm": {
       const id = String(payload.id ?? "");
       const tool = String(payload.tool ?? "");
-      const risk = (payload.risk as string) ?? "high";
-      const input = (payload.input as Record<string, unknown>) ?? {};
-      if (!id || !tool) return null;
+      const risk = String(payload.risk ?? "high");
+      const input =
+        payload.input && typeof payload.input === "object"
+          ? (payload.input as Record<string, unknown>)
+          : {};
+      if (!id || !tool || !KNOWN_RISKS.has(risk)) return null;
       return { type: "confirm", id, tool, risk: risk as "low" | "medium" | "high", input };
     }
     case "denied": {
@@ -66,8 +98,8 @@ export function parseFridayEvent(raw: RawFrame): FridayEvent | null {
     case "viz": {
       // payload IS the VisualizationSpec already (BE sends it flat)
       const spec = payload as unknown as VisualizationSpec;
-      if (!spec.type) return null;
-      return { type: "viz", spec };
+      if (!spec.type || !KNOWN_VIZ.has(spec.type as string)) return null;
+      return { type: "viz", spec: { ...spec, type: spec.type as VisualizationType } };
     }
     case "answer": {
       const text = String(payload.text ?? "");
@@ -79,9 +111,11 @@ export function parseFridayEvent(raw: RawFrame): FridayEvent | null {
     }
     case "memory": {
       if (typeof payload.fact !== "string") return null;
+      const id = Number(payload.id);
+      if (!Number.isFinite(id)) return null;
       return {
         type: "memory",
-        id: Number(payload.id),
+        id,
         fact: payload.fact,
         provenance: payload.provenance === "tool" ? "tool" : "user",
       };

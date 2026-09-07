@@ -71,9 +71,9 @@ to the current state.
 - 🎨 **3 TSL node materials** — fresnel hologram, GPU-animated particle field,
   noise-displaced energy core; one node graph each, compiled to WGSL or GLSL by
   whichever backend loaded.
-- 📊 **10 visualization types** — gauges, health rings, radar sweep, waveform,
-  network graph, 3D line/bar charts, particle flow, globe, timeline — selected
-  by a rules-based query planner via a typed `VisualizationSpec`.
+- 📊 **11 visualization types** — gauges, health rings, radar sweep, waveform,
+  network graph, 3D line/bar charts, particle flow, globe, timeline, density
+  heatmap — selected by a rules-based query planner via a typed `VisualizationSpec`.
 - 🖱️ **Drill-down interaction** — click any metric node / chart element to lock
   a focus reticle onto it in 3D space.
 - 🎥 **Cinematic post-processing** — Bloom, volumetric god rays, radial
@@ -116,7 +116,7 @@ npm run dev
 ```
 
 Open <http://localhost:3000>. Type something into `ASK FRIDAY`, or use the
-left/right dev rails to preview any of the 10 visualization types or 10 agent
+left/right dev rails to preview any of the 11 visualization types or 10 agent
 states directly.
 
 For a production build:

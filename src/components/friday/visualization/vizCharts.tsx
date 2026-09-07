@@ -2,7 +2,7 @@
 
 import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
-import { DoubleSide, Object3D, type InstancedMesh } from "three";
+import { Color, DoubleSide, Object3D, type InstancedMesh } from "three";
 import type { SeriesDatum, TimelineEvent } from "@/lib/store";
 import { HairLine, TechLabel, useMaterialize } from "../primitives";
 
@@ -309,21 +309,30 @@ function HeatmapRow({
 }) {
   const mesh = useRef<InstancedMesh>(null);
   const y = 0.9 - rowIndex * 0.62;
+  const tmpColor = useMemo(() => new Color(), []);
 
   useLayoutEffect(() => {
     if (!mesh.current) return;
+    const cold = new Color(color);
+    const hot = new Color(accent);
     for (let c = 0; c < cols; c++) {
       const v = row.points[c] ?? 0;
-      const s = 0.12 + (v / max) * 0.4;
+      const t = max > 0 ? v / max : 0;
+      const s = 0.12 + t * 0.4;
       dummies.position.set(-2 + c * 0.58, y, 0);
       dummies.scale.set(s / 0.5, s / 0.5, 1);
       dummies.updateMatrix();
       mesh.current.setMatrixAt(c, dummies.matrix);
+      // Value → color (not size only): cold → hot so hotspots read as heat.
+      tmpColor.copy(cold).lerp(hot, t);
+      mesh.current.setColorAt(c, tmpColor);
     }
     mesh.current.instanceMatrix.needsUpdate = true;
-  }, [row, cols, max, y, dummies]);
+    if (mesh.current.instanceColor) mesh.current.instanceColor.needsUpdate = true;
+  }, [row, cols, max, y, dummies, color, accent, tmpColor]);
 
   const peak = row.points.indexOf(Math.max(...row.points));
+  void rowIndex;
   return (
     <group>
       <instancedMesh
@@ -333,9 +342,9 @@ function HeatmapRow({
       >
         <planeGeometry args={[0.5, 0.5]} />
         <meshBasicMaterial
-          color={rowIndex === 0 ? color : accent}
+          color="#ffffff"
           transparent
-          opacity={0.72}
+          opacity={0.85}
           toneMapped={false}
           depthWrite={false}
           side={DoubleSide}

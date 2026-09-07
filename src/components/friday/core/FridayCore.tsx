@@ -61,6 +61,19 @@ export default function FridayCore({
   const coreRef = useRef<Mesh>(null);
   const shellRef = useRef<Mesh>(null);
   const innerShellRef = useRef<Mesh>(null);
+  /**
+   * Per-frame mic cache. `WaveformRing` calls `getLevel` once per bar per
+   * frame (96×), and a naive `(bin) => readMicLevels(96)` would run
+   * `getByteFrequencyData + binsToLevels` 96× per frame. Cache by the ring's
+   * own timestamp `t`, which is constant within a frame and changes next frame.
+   */
+  const micCache = useRef<{ t: number; levels: number[] | null } | null>(null);
+  const getMicLevel = (bin: number, t: number): number | null => {
+    if (!micCache.current || micCache.current.t !== t) {
+      micCache.current = { t, levels: readMicLevels(96) };
+    }
+    return micCache.current.levels?.[bin] ?? null;
+  };
 
   useFrame((_, delta) => {
     const t = performance.now() * 0.001;
@@ -141,11 +154,14 @@ export default function FridayCore({
           activity={look.waveform}
           getLevel={
             state === "listening"
-              ? (bin) => readMicLevels(96)?.[bin] ?? null
+              ? getMicLevel
               : state === "speaking"
                 ? () => {
                     const p = speakProgress();
-                    return p === null ? 0.4 : utteranceEnvelope(p);
+                    // null = nothing spoken yet (e.g. typed query on wait(3600)):
+                    // fall back to synth motion instead of a flat line.
+                    if (p === null) return null;
+                    return utteranceEnvelope(p);
                   }
                 : undefined
           }

@@ -16,14 +16,23 @@ export default function ConfirmPrompt() {
   const pending = useFridayStore((s) => s.pendingConfirm);
   const setPending = useFridayStore((s) => s.setPendingConfirm);
   const [sending, setSending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   if (!pending) return null;
 
   const answer = async (approved: boolean) => {
     setSending(true);
-    await decide(pending.id, approved);
-    setPending(null);
-    setSending(false);
+    setError(null);
+    try {
+      await decide(pending.id, approved);
+      setPending(null);
+    } catch (err) {
+      // Consent gate: a failed delivery must not silently dismiss the prompt
+      // as if denied. Keep it open and surface the failure.
+      setError(err instanceof Error ? err.message : "delivery failed — retry");
+    } finally {
+      setSending(false);
+    }
   };
 
   return (
@@ -58,6 +67,12 @@ export default function ConfirmPrompt() {
         <pre className="relative mt-3 max-h-44 overflow-auto whitespace-pre-wrap break-words border-l-2 border-amber-300/25 bg-amber-300/[0.04] py-2 pl-3 pr-2 text-[10px] leading-relaxed tracking-normal text-amber-200/70">
           {JSON.stringify(pending.input, null, 2)}
         </pre>
+
+        {error && (
+          <div role="alert" className="relative mt-3 border border-red-400/40 bg-red-500/10 px-3 py-2 text-[10px] tracking-[0.18em] text-red-200">
+            DELIVERY FAILED · {error}
+          </div>
+        )}
 
         <div className="relative mt-6 flex justify-center gap-8">
           <button

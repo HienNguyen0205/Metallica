@@ -19,6 +19,7 @@ const ALL_TYPES: VisualizationType[] = [
   "particle_flow",
   "globe",
   "timeline",
+  "heatmap_3d",
 ];
 
 const CASES: Array<[string, VisualizationType]> = [
@@ -79,6 +80,7 @@ test("data-driven types ship non-empty data", () => {
   expect(sampleSpec("network").data?.nodes?.length).toBeGreaterThan(0);
   expect(sampleSpec("line_3d").data?.series?.length).toBeGreaterThan(0);
   expect(sampleSpec("bar_3d").data?.series?.[0].points.length).toBeGreaterThan(0);
+  expect(sampleSpec("heatmap_3d").data?.series?.length).toBeGreaterThan(0);
 });
 
 test("gauge values are percentages the ring can actually fill", () => {

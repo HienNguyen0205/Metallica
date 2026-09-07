@@ -99,9 +99,9 @@ export function LiveIndicator() {
         </span>
       )}
       {memories.length > 0 && (
-        // Cùng lối amber như DENIED: cả hai là chuyện vừa xảy ra mà operator
-        // cần nhìn thấy, và một dòng ghi vào ký ức vĩnh viễn thì đáng chú ý
-        // không kém một tool bị từ chối.
+        // Same amber idiom as DENIED: both are recent events the operator
+        // must see, and a line written to permanent memory deserves no less
+        // attention than a denied tool.
         <span role="status" className="text-amber-300/80">
           LEARNED · {memories[0].fact.toUpperCase()}
           {memories[0].provenance === "tool" && " · FROM WEB"}
@@ -117,9 +117,8 @@ export function LiveIndicator() {
  * `LiveIndicator` above announces a write at the moment it happens and then
  * lets it go; the row it announced stays in Supabase for every later prompt.
  * The design's own §9 states the residual risk plainly: one poisoned sentence
- * only has to land once and it is permanent "cho tới khi người dùng tự nhìn
- * thấy và xoá" — until the operator sees it and deletes it. Without this there
- * was nowhere in the interface to do either.
+ * only has to land once and it is permanent until the operator sees it and
+ * deletes it. Without this there was nowhere in the interface to do either.
  *
  * Deliberately not the browsing page §16 rules out: a rail in the same idiom as
  * the others, fetched only when opened, holding no global state.

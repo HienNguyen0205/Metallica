@@ -75,6 +75,7 @@ test("every viz type renders something different from idle", async ({ page }) =>
     "WAVEFORM",
     "LINE 3D",
     "BAR 3D",
+    "HEATMAP 3D",
     "TIMELINE",
     "NETWORK",
     "GLOBE",
@@ -139,7 +140,7 @@ test("every viz type mounts and unmounts cleanly", async ({ page }) => {
 
   const buttons = page.locator("#viz-rail button");
   const n = await buttons.count();
-  expect(n).toBe(10);
+  expect(n).toBe(11);
 
   for (let i = 0; i < n; i++) {
     await buttons.nth(i).click();
