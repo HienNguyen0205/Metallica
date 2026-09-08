@@ -253,7 +253,8 @@
         "bar_3d",
         "particle_flow",
         "globe",
-        "timeline"
+        "timeline",
+        "heatmap_3d"
       ],
       "title": "Type",
       "type": "string"
