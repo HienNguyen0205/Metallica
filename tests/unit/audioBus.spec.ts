@@ -7,7 +7,158 @@ import {
   resolveLang,
   utteranceEnvelope,
 } from "@/lib/audioBus";
-import { speakProgress } from "@/lib/voice";
+import {
+  speak,
+  speakProgress,
+  stopSpeaking,
+  ttsLevels,
+  __setTtsPlayerForTests,
+} from "@/lib/voice";
+
+function ttsFrames(payloads: Uint8Array[]): Uint8Array {
+  const parts: number[] = [];
+  for (const p of payloads) {
+    const len = p.length;
+    parts.push(len & 0xff, (len >> 8) & 0xff, (len >> 16) & 0xff, (len >> 24) & 0xff, ...p);
+  }
+  return new Uint8Array(parts);
+}
+
+function ttsBody(bytes: Uint8Array): ReadableStream<Uint8Array> {
+  return new ReadableStream({ start(c) { c.enqueue(bytes); c.close(); } });
+}
+
+function validTtsResponse(): Response {
+  const header = new TextEncoder().encode(
+    JSON.stringify({ sampleRate: 24000, channels: 1, totalSamples: 4 }),
+  );
+  return new Response(ttsBody(ttsFrames([header, new Uint8Array([1, 0, 2, 0, 3, 0, 4, 0])])), { status: 200 });
+}
+
+function mockSpeechSynthesis(spoken: string[]): void {
+  const g = globalThis as unknown as Record<string, unknown>;
+  class FakeUtterance {
+    text: string;
+    onend: (() => void) | null = null;
+    onerror: (() => void) | null = null;
+    constructor(text: string) {
+      this.text = text;
+      queueMicrotask(() => this.onend?.());
+    }
+  }
+  g["SpeechSynthesisUtterance"] = FakeUtterance;
+  Object.defineProperty(globalThis, "window", {
+    value: {
+      speechSynthesis: {
+        cancel: () => {},
+        speak: (u: { text: string }) => { spoken.push(u.text); },
+      },
+    },
+    configurable: true,
+    writable: true,
+  });
+}
+
+function unmockWindow(prevWindowDesc: PropertyDescriptor | undefined): void {
+  if (prevWindowDesc) Object.defineProperty(globalThis, "window", prevWindowDesc);
+  else delete (globalThis as unknown as Record<string, unknown>)["window"];
+  delete (globalThis as unknown as Record<string, unknown>)["SpeechSynthesisUtterance"];
+}
+
+test("speak prefers TTS audio and reports sample progress", async () => {
+  const calls: string[] = [];
+  const fakePlayer = {
+    play: async () => { calls.push("play"); },
+    stop: () => { calls.push("stop"); },
+    levels: () => [0.9],
+    progress: () => 0.5,
+    framesFlowed: 8,
+    active: true,
+  };
+  __setTtsPlayerForTests(fakePlayer as never);
+  const g = globalThis as unknown as Record<string, unknown>;
+  const prevFetch = g["fetch"];
+  g["fetch"] = async () => validTtsResponse();
+  try {
+    await speak("hello");
+    expect(calls).toEqual(["play"]);
+    expect(speakProgress()).toBe(0.5);
+    expect(ttsLevels(4)).toEqual([0.9]);
+  } finally {
+    g["fetch"] = prevFetch;
+    __setTtsPlayerForTests(null);
+  }
+});
+
+test("phase-1 failure falls back to synthesis", async () => {
+  const spoken: string[] = [];
+  const prevWindowDesc = Object.getOwnPropertyDescriptor(globalThis, "window");
+  const failing = {
+    play: async () => { throw new Error("boom"); },
+    stop: () => {},
+    levels: () => null,
+    progress: () => null,
+    framesFlowed: 0,
+    active: false,
+  };
+  __setTtsPlayerForTests(failing as never);
+  const g = globalThis as unknown as Record<string, unknown>;
+  const prevFetch = g["fetch"];
+  g["fetch"] = async () => { throw new TypeError("down"); };
+  mockSpeechSynthesis(spoken);
+  try {
+    await speak("fallback me");
+    expect(spoken).toEqual(["fallback me"]);
+  } finally {
+    g["fetch"] = prevFetch;
+    unmockWindow(prevWindowDesc);
+    __setTtsPlayerForTests(null);
+  }
+});
+
+test("phase-2 failure stays quiet with no second voice", async () => {
+  const spoken: string[] = [];
+  const prevWindowDesc = Object.getOwnPropertyDescriptor(globalThis, "window");
+  const midFail = {
+    framesFlowed: 0,
+    play: async () => { midFail.framesFlowed = 512; throw new Error("mid"); },
+    stop: () => {},
+    levels: () => null,
+    progress: () => null,
+    active: false,
+  };
+  __setTtsPlayerForTests(midFail as never);
+  const g = globalThis as unknown as Record<string, unknown>;
+  const prevFetch = g["fetch"];
+  g["fetch"] = async () => validTtsResponse();
+  mockSpeechSynthesis(spoken);
+  try {
+    await speak("quiet me");
+    expect(spoken).toEqual([]);
+  } finally {
+    g["fetch"] = prevFetch;
+    unmockWindow(prevWindowDesc);
+    __setTtsPlayerForTests(null);
+  }
+});
+
+test("stopSpeaking stops the TTS player", () => {
+  const calls: string[] = [];
+  __setTtsPlayerForTests({
+    play: async () => {},
+    stop: () => { calls.push("stop"); },
+    levels: () => null,
+    progress: () => null,
+    framesFlowed: 0,
+    active: false,
+  } as never);
+  try {
+    stopSpeaking();
+    expect(calls).toEqual(["stop"]);
+  } finally {
+    __setTtsPlayerForTests(null);
+  }
+});
 
 test("binsToLevels maps FFT bins to bar levels in 0..1", () => {
   const freq = new Uint8Array(128);

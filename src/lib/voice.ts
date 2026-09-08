@@ -12,6 +12,11 @@
  * else; the callers only ever see a transcript string.
  */
 
+import { streamTts } from "@/lib/api/ttsClient";
+import { TtsPlayer } from "@/lib/ttsPlayer";
+import { FRIDAY_LANG_KEY } from "@/lib/store";
+import type { SupportedLang } from "@/lib/audioBus";
+
 interface RecognitionAlternative {
   transcript: string;
 }
@@ -115,6 +120,36 @@ export function startListening({
   return () => recognition.abort();
 }
 
+let ttsPlayer: TtsPlayer | null = null;
+
+/** Test-only seam: production code never calls this. */
+export function __setTtsPlayerForTests(p: TtsPlayer | null): void {
+  ttsPlayer = p;
+}
+
+function player(): TtsPlayer {
+  ttsPlayer ??= new TtsPlayer();
+  return ttsPlayer;
+}
+
+/** Current TTS analyser levels for `bars` bars, or null when inactive. */
+export function ttsLevels(bars: number): number[] | null {
+  return ttsPlayer?.levels(bars) ?? null;
+}
+
+function currentLang(): SupportedLang {
+  try {
+    const stored = localStorage.getItem(FRIDAY_LANG_KEY);
+    if (stored === "vi-VN" || stored === "en-US") return stored;
+    if (typeof navigator !== "undefined" && navigator.language?.toLowerCase().startsWith("vi")) {
+      return "vi-VN";
+    }
+  } catch {
+    /* private mode — en-US default stands */
+  }
+  return "en-US";
+}
+
 /**
  * Reads text aloud, resolving when the utterance finishes.
  *
@@ -127,12 +162,30 @@ let speakEstimate = 0;
 
 /** 0..1 progress of the current utterance, or null when not speaking. */
 export function speakProgress(): number | null {
+  const tp = ttsPlayer?.progress() ?? null;
+  if (tp !== null) return tp;
   if (!speakStart || !speakEstimate) return null;
   return Math.max(0, Math.min(1, (Date.now() - speakStart) / speakEstimate));
 }
 
 export function speak(text: string): Promise<void> {
-  if (!canSpeak() || !text.trim()) return Promise.resolve();
+  if (!text.trim()) return Promise.resolve();
+  return speakViaTts(text).catch(() => {
+    // Two-phase rule: frames already flowed means mid-playback (phase 2) —
+    // stay quiet rather than stacking a second voice. Pre-flow failures
+    // (phase 1) fall back to synthesis.
+    if (player().framesFlowed > 0) return;
+    return speakViaSynthesis(text);
+  });
+}
+
+async function speakViaTts(text: string): Promise<void> {
+  const stream = await streamTts(text, currentLang());
+  await player().play(stream);
+}
+
+function speakViaSynthesis(text: string): Promise<void> {
+  if (!canSpeak()) return Promise.resolve();
 
   return new Promise((resolve) => {
     let done = false;
@@ -160,6 +213,7 @@ export function speak(text: string): Promise<void> {
 }
 
 export function stopSpeaking(): void {
+  ttsPlayer?.stop();
   speakStart = 0;
   speakEstimate = 0;
   if (canSpeak()) window.speechSynthesis.cancel();

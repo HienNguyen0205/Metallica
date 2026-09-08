@@ -410,11 +410,23 @@ async function stubMicrophone(page: import("@playwright/test").Page) {
       }
     }
     (window as unknown as { SpeechRecognition: unknown }).SpeechRecognition = FakeRecognition;
-    // nothing here should ever actually talk during a test run
-    (window as unknown as { speechSynthesis: unknown }).speechSynthesis = {
-      speak: (u: { onend?: () => void }) => u.onend?.(),
-      cancel: () => {},
-    };
+    // NOTE: plain assignment does NOT work here — window.speechSynthesis is a
+    // getter-only accessor, so `window.speechSynthesis = stub` is a silent
+    // no-op (sloppy mode) and the real engine keeps talking. Probe-verified:
+    // assignOk=true yet speak stayed [native code]. defineProperty shadows it.
+    // The TTS test below counts synthesis speak() calls to prove the streamed
+    // path was used instead of the fallback.
+    (window as unknown as { __synthCalls?: number }).__synthCalls = 0;
+    Object.defineProperty(window, "speechSynthesis", {
+      value: {
+        speak: (u: { onend?: () => void }) => {
+          (window as unknown as { __synthCalls: number }).__synthCalls += 1;
+          u.onend?.();
+        },
+        cancel: () => {},
+      },
+      configurable: true,
+    });
   });
 }
 
@@ -460,5 +472,27 @@ test.describe("voice input", () => {
 
     await mic.click();
     await expect(page.getByTestId("hud-state")).toHaveText("IDLE");
+  });
+
+  test("a voice turn speaks through streamed TTS, not synthesis", async ({ page }) => {
+    // Genuine wiring proof: without the TTS path (no worklet, no analyser
+    // tap) speak() falls back to speechSynthesis. Hitting /tts AND leaving
+    // synthesis untouched means real streamed audio drove SPEAKING.
+    const mic = page.getByRole("button", { name: "Toggle microphone" });
+    await mic.click();
+    await expect(page.getByTestId("hud-state")).toHaveText("LISTENING");
+
+    await page.evaluate(() =>
+      (window as unknown as { __mic: { say: (t: string) => void } }).__mic.say("check the system"),
+    );
+
+    await expect.poll(() => stub.ttsRequests, { timeout: 15_000 }).not.toHaveLength(0);
+    expect(stub.ttsRequests.join(" ")).toContain("73 percent");
+    await expect(page.locator("p.answer-rise")).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId("hud-state")).toHaveText("IDLE", { timeout: 25_000 });
+    const synthCalls = await page.evaluate(
+      () => (window as unknown as { __synthCalls?: number }).__synthCalls ?? -1,
+    );
+    expect(synthCalls, "speechSynthesis was used instead of streamed TTS").toBe(0);
   });
 });

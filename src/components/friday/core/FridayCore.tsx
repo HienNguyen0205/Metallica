@@ -6,7 +6,7 @@ import { type Group, type Mesh } from "three";
 import { useFridayStore } from "@/lib/store";
 import { STATE_LOOK } from "@/lib/stateLook";
 import { readMicLevels, utteranceEnvelope } from "@/lib/audioBus";
-import { speakProgress } from "@/lib/voice";
+import { speakProgress, ttsLevels } from "@/lib/voice";
 import CoreParticles from "./CoreParticles";
 import CoreRings from "./CoreRings";
 import WaveformRing from "./WaveformRing";
@@ -73,6 +73,14 @@ export default function FridayCore({
       micCache.current = { t, levels: readMicLevels(96) };
     }
     return micCache.current.levels?.[bin] ?? null;
+  };
+  // Mirror of the mic cache for streamed TTS audio (null = inactive/fallback).
+  const ttsCache = useRef<{ t: number; levels: number[] | null } | null>(null);
+  const getTtsLevel = (bin: number, t: number): number | null => {
+    if (!ttsCache.current || ttsCache.current.t !== t) {
+      ttsCache.current = { t, levels: ttsLevels(96) };
+    }
+    return ttsCache.current.levels?.[bin] ?? null;
   };
 
   useFrame((_, delta) => {
@@ -156,10 +164,13 @@ export default function FridayCore({
             state === "listening"
               ? getMicLevel
               : state === "speaking"
-                ? () => {
+                ? (bin: number, t: number) => {
+                    // Real streamed audio first; envelope while synthesis
+                    // fallback talks; synth motion when nothing is speaking
+                    // (e.g. typed query holding on wait(3600)).
+                    const real = getTtsLevel(bin, t);
+                    if (real !== null) return real;
                     const p = speakProgress();
-                    // null = nothing spoken yet (e.g. typed query on wait(3600)):
-                    // fall back to synth motion instead of a flat line.
                     if (p === null) return null;
                     return utteranceEnvelope(p);
                   }
