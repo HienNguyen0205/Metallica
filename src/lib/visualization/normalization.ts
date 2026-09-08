@@ -5,7 +5,9 @@ import type { VisualizationSpec } from "@/lib/store";
  * deal with undefined fields. Keeps wire spec minimal.
  */
 export function normalizeVisualization(spec: VisualizationSpec): VisualizationSpec {
-  const out: VisualizationSpec = { ...spec };
+  // Deep-copy `data` — the previous `{ ...spec }` kept `out.data` aliased to
+  // the caller's object, so clamping metrics mutated the input (retry/cache).
+  const out: VisualizationSpec = { ...spec, data: spec.data ? { ...spec.data } : {} };
   if (!out.animation) out.animation = "materialize";
   if (!out.interaction) out.interaction = "drill_down";
   if (out.scale === undefined) out.scale = 1;

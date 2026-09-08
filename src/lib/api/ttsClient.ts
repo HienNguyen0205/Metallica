@@ -1,7 +1,8 @@
 import { OrchestratorRefused } from "@/lib/api/fridayClient";
+import { getApiBase, getSessionId } from "@/lib/api/session";
 import type { SupportedLang } from "@/lib/audioBus";
 
-const API = process.env.NEXT_PUBLIC_FRIDAY_API ?? "http://localhost:8000";
+const API = getApiBase();
 const MAX_FRAME = 4 * 1024 * 1024;
 
 export interface TtsHeader {
@@ -27,17 +28,7 @@ export class TtsError extends Error {
 }
 
 function tabSessionId(): string | undefined {
-  if (typeof window === "undefined") return undefined;
-  try {
-    let id = window.sessionStorage.getItem("friday.session");
-    if (!id) {
-      id = crypto.randomUUID();
-      window.sessionStorage.setItem("friday.session", id);
-    }
-    return id;
-  } catch {
-    return undefined;
-  }
+  return getSessionId();
 }
 
 interface FrameReaderState {

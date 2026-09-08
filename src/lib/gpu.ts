@@ -47,6 +47,8 @@ export function resolveReduced({
   systemReduced: boolean;
 }): boolean {
   if (quality === "low") return true;
-  if (quality === "high") return false;
+  // `high` must not override the OS reduced-motion signal — it only forces
+  // DPR / heavy passes (see resolveHeavy), never motion itself.
+  if (quality === "high") return systemReduced;
   return systemReduced;
 }

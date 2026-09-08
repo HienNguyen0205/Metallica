@@ -37,7 +37,10 @@ test("heavy truth table: low never, high only on confirmed hardware", () => {
 
 test("reduced follows quality override, else system", () => {
   expect(resolveReduced({ quality: "low", systemReduced: false })).toBe(true);
-  expect(resolveReduced({ quality: "high", systemReduced: true })).toBe(false);
+  // `high` must not override the OS reduced-motion signal — it only forces
+  // DPR / heavy passes, never motion itself.
+  expect(resolveReduced({ quality: "high", systemReduced: true })).toBe(true);
+  expect(resolveReduced({ quality: "high", systemReduced: false })).toBe(false);
   expect(resolveReduced({ quality: "auto", systemReduced: true })).toBe(true);
   expect(resolveReduced({ quality: "auto", systemReduced: false })).toBe(false);
 });

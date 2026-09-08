@@ -15,6 +15,9 @@ env:
   NODE_VERSION: "22"
   NEXT_TELEMETRY_DISABLED: "1"
 
+permissions:
+  contents: read
+
 jobs:
   # Fast feedback: lint, types and pure-logic tests need no browser or build.
   static:

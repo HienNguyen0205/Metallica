@@ -16,7 +16,7 @@ npm run verify       # lint + typecheck + all tests (local CI gate)
 | Project | Files | Notes |
 |---|---|---|
 | `unit` | `tests/unit/**` | No browser or `webServer` — the config parses `--project=` itself so a unit-only run never boots the production server. |
-| `ui` | `tests/ui/**` | Desktop Chrome, 1440×900, trace on failure, webServer runs `npm run build && npm run start`. |
+| `ui` | `tests/ui/**` | Desktop Chrome, 1440×900, trace on failure, webServer runs `npm run build && npx next start -p 3100`. |
 
 Global settings: 120 s test timeout, 10 s expect timeout, retries 2 in CI,
 workers 1, GitHub+HTML+list reporters.
@@ -99,8 +99,10 @@ it can click exact metric nodes in 3D space:
 
 - clicking CPU/RAM/DISK/NET nodes locks focus (visible as `FOCUS · …` in edge
   telemetry),
-- clicking again releases focus,
 - switching visualizations clears stale focus.
+- release-on-second-click is intentionally untested (flaky via dynamic 3D
+  coordinates — see `drilldown.spec.ts` comments); the wiring lives in
+  `FridayVisualization.tsx` (`onClick`/`onPointerMissed`).
 
 ## CI (`.github/workflows/ci.yml`)
 
@@ -110,7 +112,7 @@ cancel-in-progress. Node 22, `NEXT_TELEMETRY_DISABLED=1`.
 | Job | Steps | Budget |
 |---|---|---|
 | **static** ("Lint · Types · Unit") | npm ci → lint → typecheck → `test:unit` | 10 min |
-| **ui** ("UI (WebGL)") | npm ci → cache Playwright browsers keyed on version → install chromium deps → cache `.next/cache` → `test:ui` (suite builds itself) | 40 min |
+| **ui** ("UI (WebGL)") | npm ci → cache Playwright browsers keyed on version → install chromium deps → cache `.next/cache` → `test:ui` (suite builds itself) | 25 min |
 
 The `ui` job uploads `playwright-report/` (14 days) always and `test-results/`
 traces on failure.

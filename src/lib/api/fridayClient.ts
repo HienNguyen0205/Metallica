@@ -1,34 +1,17 @@
 import { parseSseStream } from "@/lib/api/sse";
 import { parseFridayEvent, type FridayEvent } from "@/lib/agent/events";
+import { getApiBase, getSessionId } from "@/lib/api/session";
 
-const API = process.env.NEXT_PUBLIC_FRIDAY_API ?? "http://localhost:8000";
+const API = getApiBase();
 
-export function getApiBase(): string {
-  return API;
-}
+export { getApiBase };
 
 /**
  * §15 — identifies this tab to the orchestrator so it can replay the last few
- * exchanges into the next prompt.
- *
- * `sessionStorage`, not `localStorage`: the memory it keys into lives in the
- * orchestrator's process and does not survive a restart, so a browser-side id
- * that outlived the tab would point at nothing while implying continuity. Per
- * tab also means two tabs are two conversations, which is what they look like.
+ * exchanges into the next prompt. See `./session` for why sessionStorage.
  */
 function sessionId(): string | undefined {
-  if (typeof window === "undefined") return undefined;
-  try {
-    let id = window.sessionStorage.getItem("friday.session");
-    if (!id) {
-      id = crypto.randomUUID();
-      window.sessionStorage.setItem("friday.session", id);
-    }
-    return id;
-  } catch {
-    // storage can be blocked outright; a turn without continuity beats no turn
-    return undefined;
-  }
+  return getSessionId();
 }
 
 /**

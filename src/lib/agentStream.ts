@@ -57,7 +57,8 @@ function dispatch(store: FlowStore, event: FridayEvent): void {
       // clear previous denied marker when a new tool starts
       store.setDeniedTool(null);
       break;
-    case "viz": {
+    case "viz":
+    case "preview": {
       const spec = normalizeVisualization(event.spec);
       // §8 — multiple viz: materialize immediately, don't remount previous
       store.addVisualization(spec);
