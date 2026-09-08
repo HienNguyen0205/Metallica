@@ -31,6 +31,7 @@ function log(...args: unknown[]) {
 type FlowStore = Pick<
   FridayStore,
   | "transition"
+  | "endTurn"
   | "setAnswer"
   | "setPendingConfirm"
   | "addVisualization"
@@ -47,7 +48,7 @@ type FlowStore = Pick<
  * Central event dispatcher — single place where BE events become store mutations.
  * This is the `typed FridayEvent → Zustand` bridge from §4/§5.
  */
-function dispatch(store: FlowStore, event: FridayEvent): void {
+function dispatch(store: FlowStore, event: FridayEvent, flags: { doneSeen: boolean }): void {
   switch (event.type) {
     case "state":
       store.transition(event.state);
@@ -83,6 +84,7 @@ function dispatch(store: FlowStore, event: FridayEvent): void {
       break;
     case "done":
       store.setToolActivity(null);
+      flags.doneSeen = true;
       break;
   }
 }
@@ -115,6 +117,7 @@ export async function runQuery(
 
   let spoken: string | null = null;
   let hadLiveStream = false;
+  const flags = { doneSeen: false };
 
   try {
     await streamQuery(query, {
@@ -124,24 +127,30 @@ export async function runQuery(
         // first successful event confirms liveness
         store.setLiveMode("live");
         if (ev.type === "answer") spoken = ev.text;
-        dispatch(store, ev);
+        dispatch(store, ev, flags);
       },
       onError: (msg) => {
         log(msg);
       },
     });
-    // If stream never yielded anything, treat as unreachable to trigger fallback?
-    // But stub tests rely on empty-data path not happening; so only fallback on throw.
+    // A stream that yielded events but never `done` died mid-pipeline: the
+    // machine sits in thinking/… with no legal edge out, which used to freeze
+    // the input bar until reload. Treat it as an interrupted turn.
     if (!hadLiveStream) throw new Error("empty stream");
+    if (!flags.doneSeen) {
+      log("stream ended without done");
+      store.setSessionError("the orchestrator ended the turn early");
+      store.endTurn();
+      return;
+    }
   } catch (err) {
     if ((err as Error).name === "AbortError" || signal?.aborted) return;
     // If we already streamed something, don't fallback — just surface error
     if (hadLiveStream) {
       log("stream interrupted:", err);
       store.setSessionError(err instanceof Error ? err.message : String(err));
-      store.transition("error");
+      store.endTurn();
       await wait(FLOW_TIMING.streamInterrupted);
-      store.transition("idle");
       return;
     }
     // A refusal is not an outage. The orchestrator is up and said no, so the
@@ -150,9 +159,7 @@ export async function runQuery(
       const wait_s = err.retryAfter ? ` — retry in ${Math.ceil(err.retryAfter / 60)} min` : "";
       store.setSessionError(`${err.message}${wait_s}`);
       store.setLiveMode("idle");
-      store.transition("error");
-      await wait(FLOW_TIMING.refused);
-      store.transition("idle");
+      store.endTurn();
       return;
     }
 
@@ -166,7 +173,7 @@ export async function runQuery(
   // beat — a two-sentence reply outlasts 3.6s and would otherwise be cleared,
   // and the HUD returned to IDLE, while FRIDAY was still talking.
   if (spoken) await (voice ? speak(spoken) : wait(FLOW_TIMING.answerHold));
-  store.transition("idle");
+  store.endTurn();
   // Answer stays on screen until the next query (turn-start setAnswer(null) is
   // the only place that clears it), same as the viz scene above.
   setPendingConfirm(null);
@@ -214,6 +221,6 @@ async function runLocal(store: FlowStore, query: string, voice = false) {
   setAnswer(answer);
   await (voice ? speak(answer) : wait(FLOW_TIMING.answerHold));
 
-  transition("idle");
+  store.endTurn();
   store.setLiveMode("idle");
 }

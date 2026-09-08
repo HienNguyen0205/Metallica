@@ -4,7 +4,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useFrame } from "@react-three/fiber";
 import { Billboard } from "@react-three/drei";
 import { DoubleSide, Object3D, type Group, type InstancedMesh } from "three";
-import { createLabelTexture } from "./effects/textTexture";
+import { createLabelTexture, resolveLabelCapacity } from "./effects/textTexture";
 import { Line2NodeMaterial } from "three/webgpu";
 import { Line2 } from "three/addons/lines/webgpu/Line2.js";
 import { LineGeometry } from "three/addons/lines/LineGeometry.js";
@@ -232,6 +232,7 @@ export function TechLabel({
   opacity = 1,
   anchorX = "center",
   decode = false,
+  capacity,
 }: {
   children: string;
   position: [number, number, number];
@@ -241,12 +242,16 @@ export function TechLabel({
   anchorX?: "center" | "left" | "right";
   /** resolve the text out of scrambled glyphs on first appearance */
   decode?: boolean;
+  /** Pin the canvas to this many characters — for 4 Hz readouts whose length never really changes. */
+  capacity?: number;
 }) {
   const text = useDecoded(children.toUpperCase(), decode);
-  // Keyed on the character count, not the text: the font is monospace, so a
+  // Keyed on the resolved capacity, not the text: the font is monospace, so a
   // readout whose digits change but whose width does not keeps the same canvas
-  // — which is the whole point, since these tick at 4 Hz.
-  const label = useMemo(() => createLabelTexture(text.length), [text.length]);
+  // — which is the whole point, since these tick at 4 Hz. Without `capacity`
+  // this degrades to the old exact-length behaviour.
+  const chars = resolveLabelCapacity(text.length, capacity);
+  const label = useMemo(() => createLabelTexture(chars), [chars]);
 
   useEffect(() => label.draw(text, color, opacity), [label, text, color, opacity]);
   useEffect(() => label.dispose, [label]);

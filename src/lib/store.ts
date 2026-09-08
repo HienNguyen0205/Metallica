@@ -140,6 +140,15 @@ export interface FridayStore {
   transition: (next: FridayState) => void;
   /** Unguarded — used by the state rail for previewing looks. */
   setState: (state: FridayState) => void;
+  /**
+   * End-of-turn landing. A turn must reach idle from wherever the stream left
+   * off — the orchestrator can die mid-pipeline, or end after `done` without
+   * ever announcing `speaking`, and most pipeline states have no `idle` edge.
+   * Unlike `transition` this cannot be ignored (a stuck machine freezes the
+   * input bar until reload), and unlike `reset` it keeps the turn's output —
+   * the answer and scene the user is reading — on screen.
+   */
+  endTurn: () => void;
   answer: string | null;
   setAnswer: (answer: string | null) => void;
   /**
@@ -195,6 +204,15 @@ export const useFridayStore = create<FridayStore>((set, get) => ({
     else reportIllegal(from, next, "transition");
   },
   setState: (state) => set({ state }),
+  endTurn: () => {
+    const from = get().state;
+    if (from === "idle") return;
+    // Deliberately unguarded — see the doc above. A legal edge is used when
+    // one exists so the machine stays the primary record; the direct set is
+    // the safety net for streams that died mid-pipeline.
+    if (!canTransition(from, "idle")) reportIllegal(from, "idle", "endTurn");
+    set({ state: "idle" });
+  },
   answer: null,
   setAnswer: (answer) => set({ answer }),
   visualizations: [],

@@ -70,10 +70,10 @@ function LevelColumn({
         <planeGeometry args={[0.035, 1]} />
         <meshBasicMaterial color={color} transparent opacity={0.7} side={DoubleSide} toneMapped={false} depthWrite={false} />
       </mesh>
-      <TechLabel position={[0, 0.62, 0]} color="#e5f6ff" size={0.05} opacity={0.7}>
+      <TechLabel position={[0, 0.62, 0]} color="#e5f6ff" size={0.05} opacity={0.7} capacity={3}>
         {String(value)}
       </TechLabel>
-      <TechLabel position={[0, -0.62, 0]} color={color} size={0.05} opacity={0.6}>
+      <TechLabel position={[0, -0.62, 0]} color={color} size={0.05} opacity={0.6} capacity={3}>
         {label}
       </TechLabel>
     </group>
@@ -136,7 +136,7 @@ function LevelColumns({ color, accent }: { color: string; accent: string }) {
 function SyncReadout({ color }: { color: string }) {
   const t = useTelemetry();
   return (
-    <TechLabel position={[2.55, -1.86, 0.2]} color={color} size={0.05} opacity={0.35} anchorX="right">
+    <TechLabel position={[2.55, -1.86, 0.2]} color={color} size={0.05} opacity={0.35} anchorX="right" capacity={18}>
       {`FRAME SYNC · ${t.fps > 0 ? t.fps.toFixed(0) : "--"}HZ`}
     </TechLabel>
   );
@@ -146,7 +146,7 @@ function SyncReadout({ color }: { color: string }) {
 function CoordReadout({ color }: { color: string }) {
   const t = useTelemetry();
   return (
-    <TechLabel position={[-2.55, 1.86, 0.2]} color={color} size={0.05} opacity={0.35} anchorX="left">
+    <TechLabel position={[-2.55, 1.86, 0.2]} color={color} size={0.05} opacity={0.35} anchorX="left" capacity={35}>
       {`X ${t.camera[0].toFixed(3)} · Y ${t.camera[1].toFixed(3)} · Z ${t.camera[2].toFixed(3)}`}
     </TechLabel>
   );

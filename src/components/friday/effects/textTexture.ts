@@ -47,6 +47,17 @@ export interface LabelTexture {
 }
 
 /**
+ * Canvas capacity for a label: `fixed` when given (4 Hz readouts whose length
+ * never really changes — fps, coords, level values — then never realloc their
+ * canvas as digits tick), otherwise exactly the text length. A text longer
+ * than the capacity still grows, so nothing is ever clipped.
+ */
+export function resolveLabelCapacity(textLength: number, fixed?: number): number {
+  if (fixed !== undefined && textLength <= fixed) return fixed;
+  return textLength;
+}
+
+/**
  * The material is built here rather than in the component because the React
  * Compiler forbids assigning to a property of anything a hook returned, and
  * both `material.map` and the redraw need to happen outside render.

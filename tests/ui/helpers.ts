@@ -1,5 +1,6 @@
 import { expect, type Page } from "@playwright/test";
 import { PNG } from "pngjs";
+import { isSoftwareRendererName } from "../../src/lib/gpu";
 
 /** Scene background — #02050a, matches --background in globals.css. */
 export const BG = { r: 2, g: 5, b: 10 };
@@ -214,5 +215,6 @@ export async function glRenderer(page: Page): Promise<string> {
 }
 
 export function isSoftwareGL(renderer: string) {
-  return /swiftshader|software|llvmpipe|angle \(google, vulkan/i.test(renderer);
+  // shared with src/lib/gpu.ts — one classifier, or the two lists drift
+  return isSoftwareRendererName(renderer);
 }
