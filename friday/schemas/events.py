@@ -4,7 +4,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
-SSEEventKind = Literal["state", "tool", "confirm", "denied", "preview", "viz", "answer", "done", "error"]
+SSEEventKind = Literal["state", "tool", "confirm", "denied", "memory", "preview", "viz", "answer", "done", "error"]
 
 
 class StateEvent(BaseModel):

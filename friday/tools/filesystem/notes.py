@@ -11,6 +11,10 @@ _SAFE_NAME = re.compile(r"[^A-Za-z0-9_-]")
 #: than letting one long file crowd out the conversation it was read for.
 MAX_NOTE_CHARS = 4000
 
+#: Write path bound: read truncates, but an unbounded write fills disk and
+#: poisons future context replays. Reject before touching the filesystem.
+MAX_WRITE_BYTES = 20_000
+
 
 def _stem(raw: Any) -> str:
     """A bare filename stem, rebuilt from scratch rather than trusted.
@@ -25,6 +29,8 @@ def _stem(raw: Any) -> str:
 
 async def run_write_note(payload: dict[str, Any]) -> dict[str, Any]:
     body = str(payload.get("body", ""))
+    if len(body.encode("utf-8")) > MAX_WRITE_BYTES:
+        return {"error": f"note body exceeds {MAX_WRITE_BYTES} bytes"}
 
     stem = _stem(payload.get("name", ""))
     if not stem:

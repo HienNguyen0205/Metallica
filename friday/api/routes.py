@@ -262,7 +262,7 @@ async def query_endpoint(body: Query) -> StreamingResponse:
     )
 
 
-@router.post("/confirm", dependencies=[Depends(require_known_origin)])
+@router.post("/confirm", dependencies=[Depends(guard)])
 async def confirm_endpoint(body: Decision) -> dict[str, Any]:
     decided = PENDING.get(body.id)
     if decided is None or decided.done():
@@ -271,7 +271,7 @@ async def confirm_endpoint(body: Decision) -> dict[str, Any]:
     return {"ok": True, "approved": body.approved}
 
 
-@router.get("/memory", dependencies=[Depends(require_known_origin)])
+@router.get("/memory", dependencies=[Depends(guard)])
 async def list_memory() -> dict[str, Any]:
     """Mọi thứ FRIDAY nhớ. Không tính vào rate limit — không có model call nào.
 
@@ -310,7 +310,7 @@ async def list_memory() -> dict[str, Any]:
     }
 
 
-@router.delete("/memory/{memory_id}", dependencies=[Depends(require_known_origin)])
+@router.delete("/memory/{memory_id}", dependencies=[Depends(guard)])
 async def forget_memory(memory_id: int) -> dict[str, Any]:
     return {"ok": await long_term.forget(memory_id)}
 
