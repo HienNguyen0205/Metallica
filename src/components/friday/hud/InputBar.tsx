@@ -91,7 +91,9 @@ export default function InputBar() {
     // barge-in: talking over FRIDAY should stop it, not queue behind it
     stopSpeaking();
 
-    useFridayStore.getState().setState("listening");
+    // Guarded: `idle → listening` is legal, anything else is ignored + reported.
+    // The button is disabled while busy, so this only fires from idle in practice.
+    useFridayStore.getState().transition("listening");
     let started = false;
 
     // Mic into the shared bus for the waveform ring. Fire-and-forget: a
@@ -118,7 +120,9 @@ export default function InputBar() {
         // `onresult` within a few ms, well before the orchestrator's first
         // event moves the machine off `listening`, so a state check here would
         // still see LISTENING and blink the rig through IDLE on every phrase.
-        if (!started) useFridayStore.getState().setState("idle");
+        // Guarded: `listening → idle` is legal; a turn that already started
+        // (thinking/…) is left alone instead of forced back.
+        if (!started) useFridayStore.getState().transition("idle");
       },
     });
   };

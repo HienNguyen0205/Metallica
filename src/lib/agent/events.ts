@@ -42,6 +42,7 @@ export type FridayEvent =
   | { type: "confirm"; id: string; tool: string; risk: "low" | "medium" | "high"; input: Record<string, unknown> }
   | { type: "denied"; tool: string }
   | { type: "viz"; spec: VisualizationSpec }
+  | { type: "preview"; spec: VisualizationSpec }
   | { type: "answer"; text: string }
   | { type: "error"; message: string }
   | { type: "memory"; id: number; fact: string; provenance: "user" | "tool" }
@@ -95,11 +96,22 @@ export function parseFridayEvent(raw: RawFrame): FridayEvent | null {
       if (!tool) return null;
       return { type: "denied", tool };
     }
-    case "viz": {
-      // payload IS the VisualizationSpec already (BE sends it flat)
+    case "viz":
+    case "preview": {
+      // payload IS the VisualizationSpec already (BE sends it flat).
+      // `preview` is the early materialize (§18): same shape, rendered
+      // non-interactive. Normalize the kind here so a raw `preview` frame
+      // never drops silently when the backend streams it unwrapped.
       const spec = payload as unknown as VisualizationSpec;
       if (!spec.type || !KNOWN_VIZ.has(spec.type as string)) return null;
-      return { type: "viz", spec: { ...spec, type: spec.type as VisualizationType } };
+      const normalized = { ...spec, type: spec.type as VisualizationType };
+      if (event === "preview") {
+        return {
+          type: "preview",
+          spec: { ...normalized, interaction: "none" as const, animation: normalized.animation ?? "materialize" as const },
+        };
+      }
+      return { type: "viz", spec: normalized };
     }
     case "answer": {
       const text = String(payload.text ?? "");

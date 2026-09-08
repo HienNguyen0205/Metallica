@@ -38,3 +38,14 @@ test("rejects unknown viz types and bad confirm payloads", () => {
     parseFridayEvent({ event: "confirm", data: JSON.stringify({ id: "1", tool: "x", risk: "nope" }) }),
   ).toBeNull();
 });
+
+test("preview parses as non-interactive viz instead of dropping", () => {
+  const ev = parseFridayEvent({
+    event: "preview",
+    data: JSON.stringify({ type: "bar_3d", title: "EARLY" }),
+  });
+  expect(ev).toMatchObject({ type: "preview", spec: { type: "bar_3d", interaction: "none" } });
+  expect(
+    parseFridayEvent({ event: "preview", data: JSON.stringify({ type: "death_star" }) }),
+  ).toBeNull();
+});

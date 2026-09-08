@@ -197,8 +197,11 @@ export default function Scene() {
       /* Was capped at 1.75, so a devicePixelRatio-2 display rendered at 87.5%
          of native and was upscaled — measurably soft, and the most common
          "looks blurry on a big screen" cause. AdaptiveDpr still walks this
-         down when the GPU cannot keep up. */
-      dpr={effectiveReduced ? [1, 1.5] : [1, 2]}
+         down when the GPU cannot keep up. Dense (Retina/4K) panels cap at 1.5:
+         a 5120×2880 backing at dpr 2 is ~118M px (~470MB + post targets) and
+         the 30-tap god-ray pass scales with framebuffer area — 1.5 is still
+         above 1x density for the blur passes while keeping fill-rate alive. */
+      dpr={effectiveReduced || denseDisplay ? [1, 1.5] : [1, 2]}
       camera={{ position: [0, 0.15, 6.8], fov: 45 }}
       className="!absolute inset-0"
       gl={(props) => createRenderer(props as never).then(({ renderer }) => renderer)}
@@ -213,13 +216,14 @@ export default function Scene() {
             : "webgl2",
         );
         setGpuClass(isSoftwareRenderer(gl) ? "software" : "hardware");
-        gl.domElement.addEventListener("webglcontextlost", (e) => {
+        const onLost = (e: Event) => {
           e.preventDefault();
           // Ignore the intentional context loss from unmounting
           // (React StrictMode disposes the first mount in dev).
           if (!gl.domElement.isConnected) return;
           setTimeout(() => setCtxKey((k) => k + 1), 50);
-        });
+        };
+        gl.domElement.addEventListener("webglcontextlost", onLost);
       }}
     >
       <SceneBody
