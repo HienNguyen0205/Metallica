@@ -26,7 +26,7 @@ The application has four cooperating layers:
 
 | Layer | Location | Responsibility |
 |---|---|---|
-| **State** | `src/lib/store.ts` | Single source of truth: agent state machine, current answer, `visualizations: VisualizationEntry[]` (max 3, stable id), drill-down focus, render backend, audio flag. |
+| **State** | `src/lib/store.ts` | Single source of truth: agent state machine (+ `endTurn` landing), current answer, `visualizations: VisualizationEntry[]` (max 3, stable id, transient `preview` flag), drill-down focus, `pendingConfirm` gate, `toolActivity`/`deniedTool`, `liveMode`/`sessionError`, `memories`, render backend/quality/lang, audio flag. |
 | **Logic** | `src/lib/vizPlanner.ts`, `src/lib/agentStream.ts`, `stateLook.ts` | Pure planner (query → spec), SSE orchestrator + offline `runLocal` fallback, state → look tables. |
 | **3D scene** | `src/components/friday/**` | The R3F canvas: core hologram, particles, rings, waveform, spatial HUD, visualization registry, shaders, post-processing. |
 | **DOM HUD** | `src/components/friday/hud/Hud.tsx` | Everything above the canvas: top bar, edge telemetry, dev rails, answer line, input bar. |
@@ -40,22 +40,43 @@ context.
 A single Zustand store holds everything the UI needs:
 
 ```ts
+// Mirrors src/lib/store.ts:FridayStore — the shape, not a copy.
 interface FridayStore {
   state: FridayState;
   answer: string | null;
-  visualizations: VisualizationEntry[]; // { id, spec, lifecycle }, max 3
+  visualizations: VisualizationEntry[]; // { id, spec, lifecycle, preview? }, max 3
   focus: VizFocus | null;
+  pendingConfirm: PendingConfirm | null; // §11 approval gate (not a state)
+  toolActivity: ToolActivity | null;
+  deniedTool: string | null;
+  liveMode: LiveMode;                    // connecting | live | offline | idle
+  sessionError: string | null;
   renderBackend: RenderBackend;
+  quality: RenderQuality;
+  lang: SupportedLang;
   audioEnabled: boolean;
+  memories: MemoryNote[];                // newest first, max 3 on screen
 
   transition(next: FridayState): void; // guarded — see below
   setState(state: FridayState): void;  // unguarded — dev rails only
+  endTurn(): void;                     // silent idle landing, keeps output
   setAnswer(v: string | null): void;
-  addVisualization(spec: VisualizationSpec): void; // stable id, slice(-3)
+  addVisualization(spec: VisualizationSpec, opts?: { preview?: boolean }): void; // stable id, slice(-3)
+  setVisualizations(vizs: VisualizationSpec[]): void; // bulk, capped like add
+  clearVisualizations(): void;
   settleVisualization(id: number): void; // by id, never by index
   setFocus(focus: VizFocus | null): void;
+  setPendingConfirm(p: PendingConfirm | null): void;
+  setToolActivity(a: ToolActivity | null): void;
+  setDeniedTool(t: string | null): void;
+  setLiveMode(m: LiveMode): void;
+  setSessionError(m: string | null): void;
   setRenderBackend(b: RenderBackend): void;
+  setQuality(q: RenderQuality): void;
+  setLang(l: SupportedLang): void;
   toggleAudio(): void;
+  addMemory(note: MemoryNote): void;
+  clearMemories(): void;
   reset(): void; // preserves renderBackend/quality/lang/audioEnabled
 }
 ```
@@ -85,7 +106,7 @@ See [STATE_MACHINE.md](STATE_MACHINE.md) for the full table and rationale.
 2. `streamQuery` → typed `FridayEvent` → `dispatch()` → store (`transition`,
    `addVisualization`, `setAnswer`, …),
 3. live answer is held until `speak()` finishes (voice) or 3.6 s (typed),
-   then `transition("idle")`; answer/viz persist until the next turn.
+   then `endTurn()` (silent idle landing); answer/viz persist until the next turn.
 
 Offline fallback `runLocal()` (same file) simulates the pipeline with timed
 waits (`thinking → searching → tool_execution → processing → visualizing →

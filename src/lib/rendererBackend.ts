@@ -1,5 +1,6 @@
 import type { WebGLRenderer, WebGLRendererParameters } from "three";
 import type { RenderBackend } from "@/lib/store";
+import { isSoftwareRendererName, setFallbackAdapterCached } from "@/lib/gpu";
 
 type GLProps = Omit<WebGLRendererParameters, "canvas"> & {
   canvas?: HTMLCanvasElement | OffscreenCanvas;
@@ -23,6 +24,18 @@ export function forceWebGLRequested(): boolean {
 
 type NavigatorGPU = Navigator & { gpu?: { requestAdapter: () => Promise<unknown | null> } };
 
+interface AdapterInfo {
+  isFallbackAdapter?: boolean;
+  device?: string;
+  description?: string;
+  vendor?: string;
+}
+
+interface ProbedAdapter {
+  info?: AdapterInfo;
+  requestAdapterInfo?: () => Promise<AdapterInfo>;
+}
+
 let adapterCache: boolean | null = null;
 
 export async function detectWebGPU(): Promise<boolean> {
@@ -31,13 +44,26 @@ export async function detectWebGPU(): Promise<boolean> {
   const gpu = (navigator as NavigatorGPU).gpu;
   if (!gpu) {
     adapterCache = false;
+    setFallbackAdapterCached(false);
     return false;
   }
   try {
-    adapterCache = !!(await gpu.requestAdapter());
+    const adapter = (await gpu.requestAdapter()) as unknown as ProbedAdapter | null;
+    adapterCache = !!adapter;
+    // r185 discards the adapter after device creation, so record the fallback
+    // flag now: onCreated (sync) cannot await requestAdapterInfo later.
+    let info: AdapterInfo | null = null;
+    try {
+      info = adapter?.info ?? (await adapter?.requestAdapterInfo?.()) ?? null;
+    } catch {
+      info = null;
+    }
+    const text = `${info?.device ?? ""} ${info?.description ?? ""} ${info?.vendor ?? ""}`;
+    setFallbackAdapterCached(!!info?.isFallbackAdapter || (text.trim() ? isSoftwareRendererName(text) : false));
     return adapterCache;
   } catch {
     adapterCache = false;
+    setFallbackAdapterCached(false);
     return false;
   }
 }

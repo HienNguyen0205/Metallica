@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { diffRatio, glRenderer, gotoLitScene, isSoftwareGL, regionStats, shot } from "./helpers";
+import { diffRatio, glHealth, glRenderer, gotoLitScene, isSoftwareGL, regionStats, shot } from "./helpers";
 
 /**
  * The hologram itself: does WebGL actually paint a lit, cyan, animated core,
@@ -117,11 +117,9 @@ test("no console errors and no WebGL context loss across all states", async ({ p
     await page.waitForTimeout(250);
   }
 
-  const gl = await page.evaluate(() => {
-    const canvas = document.querySelector("canvas");
-    const ctx = canvas?.getContext("webgl2") ?? canvas?.getContext("webgl");
-    return { present: !!ctx, lost: ctx ? ctx.isContextLost() : true, error: ctx ? ctx.getError() : -1 };
-  });
+  // Probe-free health check: a second getContext() of another type returns
+  // null on the WebGPU backend, so read the app-reported hooks instead.
+  const gl = await glHealth(page);
 
   expect(gl.present, "WebGL context missing").toBe(true);
   expect(gl.lost, "WebGL context was lost").toBe(false);
@@ -150,11 +148,7 @@ test("every viz type mounts and unmounts cleanly", async ({ page }) => {
   await page.click(`#state-rail button:has-text("IDLE")`);
   await page.waitForTimeout(400);
 
-  const lost = await page.evaluate(() => {
-    const canvas = document.querySelector("canvas");
-    const ctx = canvas?.getContext("webgl2") ?? canvas?.getContext("webgl");
-    return ctx ? ctx.isContextLost() : true;
-  });
+  const { lost } = await glHealth(page);
   expect(lost).toBe(false);
   expect(errors, `page errors: ${errors.join(" | ")}`).toHaveLength(0);
 });

@@ -32,7 +32,7 @@ export default function CoreParticles({
   // Colour and intensity are deliberately not dependencies — both change on
   // every state transition, and rebuilding the field would recompile a shader
   // and re-randomise every particle. They are pushed in as uniforms below.
-  const { sprite, apply } = useMemo(
+  const { sprite, apply, disposeAttributes } = useMemo(
     () => createParticleField({ count, mode, innerRadius, span }),
     [count, mode, innerRadius, span],
   );
@@ -47,8 +47,11 @@ export default function CoreParticles({
       // was: opening the particle-flow visualization mounts a second field, and
       // unmounting either one took the core's field down with it.
       sprite.material.dispose();
+      // The per-field instanced attributes ARE ours — without this their GL
+      // buffers leak on every mount/unmount (e.g. opening ParticleFlow).
+      disposeAttributes();
     };
-  }, [sprite]);
+  }, [sprite, disposeAttributes]);
 
   useFrame((_, delta) => {
     // ease intensity so state changes feel like the field spinning up, not a jump

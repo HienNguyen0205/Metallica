@@ -211,12 +211,22 @@ export default function Scene() {
         // WebGL2 backend, so it reports the class, not what is actually
         // drawing. The HUD said WEBGPU on a machine running WebGL2 because of
         // exactly that. Read the loaded backend instead.
-        setRenderBackend(
-          (gl as unknown as { backend?: { isWebGPUBackend?: boolean } }).backend?.isWebGPUBackend
-            ? "webgpu"
-            : "webgl2",
-        );
-        setGpuClass(isSoftwareRenderer(gl) ? "software" : "hardware");
+        const backend: "webgpu" | "webgl2" = (
+          gl as unknown as { backend?: { isWebGPUBackend?: boolean } }
+        ).backend?.isWebGPUBackend
+          ? "webgpu"
+          : "webgl2";
+        setRenderBackend(backend);
+        // Test hooks for tests/ui/helpers.ts glRenderer()/glHealth(): the canvas
+        // is owned by WebGPURenderer, so a second getContext("webgl2") in-page
+        // returns null on the WebGPU backend — read the reported values instead.
+        const software = isSoftwareRenderer(gl);
+        if (typeof window !== "undefined") {
+          const w = window as unknown as { __fridayBackend?: string; __fridaySoftware?: boolean };
+          w.__fridayBackend = backend;
+          w.__fridaySoftware = software;
+        }
+        setGpuClass(software ? "software" : "hardware");
         let remountQueued = false;
         let timer: ReturnType<typeof setTimeout> | null = null;
         const onLost = (e: Event) => {

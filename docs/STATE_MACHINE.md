@@ -8,16 +8,19 @@ per-state presentation parameters.
 
 | State | Meaning | Color | Accent |
 |---|---|---|---|
-| `idle` | Waiting for a query | Cyan | Cyan |
-| `listening` | Capturing input | Cyan | Violet |
-| `thinking` | Reasoning about the query | Violet | Violet |
-| `searching` | Retrieving information | Violet | Blue |
-| `tool_execution` | Running tools | Violet | Amber |
-| `processing` | Fusing results | Violet | Blue |
-| `visualizing` | Materializing the spec | Cyan | Green |
-| `speaking` | Answering | Cyan | White |
-| `warning` | Degraded | Amber | Red |
-| `error` | Failed | Red | Red |
+| `idle` | Waiting for a query | `#38e8ff` | `#0e7490` |
+| `listening` | Capturing input | `#22d3ee` | `#38e8ff` |
+| `thinking` | Reasoning about the query | `#7dd3fc` | `#a78bfa` |
+| `searching` | Retrieving information | `#38e8ff` | `#67e8f9` |
+| `tool_execution` | Running tools | `#a78bfa` | `#c4b5fd` |
+| `processing` | Fusing results | `#a78bfa` | `#38e8ff` |
+| `visualizing` | Materializing the spec | `#5eead4` | `#38e8ff` |
+| `speaking` | Answering | `#5eead4` | `#38e8ff` |
+| `warning` | Degraded | `#fbbf24` | `#f59e0b` |
+| `error` | Failed | `#f87171` | `#fb7185` |
+
+Source of truth is `src/lib/stateLook.ts:STATE_LOOK` — this table mirrors it,
+do not edit by hand without updating the code.
 
 ## Transition table
 
@@ -46,8 +49,10 @@ thinking → searching → tool_execution → processing → visualizing → spe
 
 ### Guarantees
 
-- Illegal edges are **silently ignored** by `transition()` — never thrown,
-  because async producers racing each other must not crash the UI.
+- Illegal edges are **ignored** by `transition()` — never thrown, because
+  async producers racing each other must not crash the UI. In dev they are
+  reported via `console.warn` (`reportIllegal`); `endTurn()` is deliberately
+  silent since landing idle mid-pipeline is the normal interrupted-turn path.
 - Every working state may escalate to `warning`/`error`; `error` recovers only
   through `idle`, so a failure can't be papered over mid-pipeline.
 - `setState()` bypasses the table and exists **only** for the developer state
@@ -63,12 +68,13 @@ A single `STATE_LOOK: Record<FridayState, StateLook>` table drives everything
 coherent at once:
 
 ```ts
+// Mirrors src/lib/stateLook.ts:StateLook — the struct, not a copy.
 interface StateLook {
   color: string;             // core + light tint
   accent: string;            // secondary tint (rings, HUD)
-  coreDistort: number;       // MeshDistortMaterial distortion
+  coreDistort: number;       // TSL createCoreMaterial displacement (not drei)
   coreSpeed: number;         // distortion speed
-  glow: string;              // emissive intensity
+  glow: number;              // emissive intensity
   ringSpeed: number;         // ring system multiplier
   particleIntensity: number; // eased target for CoreParticles
   waveform: number;          // waveform activity multiplier

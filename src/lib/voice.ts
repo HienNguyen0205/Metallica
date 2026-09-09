@@ -169,23 +169,45 @@ export function speakProgress(): number | null {
   return Math.max(0, Math.min(1, (Date.now() - speakStart) / speakEstimate));
 }
 
-export function speak(text: string): Promise<void> {
+/**
+ * Aborts the in-flight utterance, if any. Without this, barge-in and cancel
+ * stop only the audible graph while the /tts fetch keeps running — and a
+ * stream that resolves after stop() starts fresh audio post-stop.
+ */
+let speakController: AbortController | null = null;
+
+export function speak(text: string, opts?: { signal?: AbortSignal }): Promise<void> {
   if (!text.trim()) return Promise.resolve();
-  return speakViaTts(text).catch((err) => {
-    // A refusal (403/429) is not an outage — speaking the answer anyway via
-    // synthesis would hide a real rate-limit/origin denial behind audio.
-    if (err instanceof OrchestratorRefused) throw err;
-    // Two-phase rule: frames already flowed means mid-playback (phase 2) —
-    // stay quiet rather than stacking a second voice. Pre-flow failures
-    // (phase 1) fall back to synthesis.
-    if (player().framesFlowed > 0) return;
-    return speakViaSynthesis(text);
-  });
+  speakController?.abort();
+  const ctrl = new AbortController();
+  speakController = ctrl;
+  const external = opts?.signal;
+  const onExternalAbort = () => ctrl.abort();
+  external?.addEventListener("abort", onExternalAbort, { once: true });
+  const signal = ctrl.signal;
+  return speakViaTts(text, signal)
+    .catch((err) => {
+      // An aborted utterance is intentional silence — never synth-fallback it
+      // into a second voice, and never report it as a failure.
+      if ((err as Error)?.name === "AbortError" || signal.aborted) throw err;
+      // A refusal (403/429) is not an outage — speaking the answer anyway via
+      // synthesis would hide a real rate-limit/origin denial behind audio.
+      if (err instanceof OrchestratorRefused) throw err;
+      // Two-phase rule: frames already flowed means mid-playback (phase 2) —
+      // stay quiet rather than stacking a second voice. Pre-flow failures
+      // (phase 1) fall back to synthesis.
+      if (player().framesFlowed > 0) return;
+      return speakViaSynthesis(text);
+    })
+    .finally(() => {
+      external?.removeEventListener("abort", onExternalAbort);
+      if (speakController === ctrl) speakController = null;
+    });
 }
 
-async function speakViaTts(text: string): Promise<void> {
-  const stream = await streamTts(text, currentLang());
-  await player().play(stream);
+async function speakViaTts(text: string, signal: AbortSignal): Promise<void> {
+  const stream = await streamTts(text, currentLang(), { signal });
+  await player().play(stream, { signal });
 }
 
 function speakViaSynthesis(text: string): Promise<void> {
@@ -217,6 +239,8 @@ function speakViaSynthesis(text: string): Promise<void> {
 }
 
 export function stopSpeaking(): void {
+  speakController?.abort();
+  speakController = null;
   ttsPlayer?.stop();
   speakStart = 0;
   speakEstimate = 0;

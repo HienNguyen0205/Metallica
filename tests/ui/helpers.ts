@@ -166,6 +166,10 @@ export interface FlowEntry {
 declare global {
   interface Window {
     __flow?: FlowEntry[];
+    /** Renderer-reported backend, set by Scene.tsx onCreated (webgpu|webgl2). */
+    __fridayBackend?: string;
+    /** Software-rasterizer verdict for that backend (SwiftShader/llvmpipe). */
+    __fridaySoftware?: boolean;
   }
 }
 
@@ -203,14 +207,48 @@ export async function readFlow(page: Page): Promise<FlowEntry[]> {
   return page.evaluate(() => window.__flow ?? []);
 }
 
-/** Reports the WebGL renderer string so tests can tell GPU from software GL. */
+/**
+ * Reports the renderer string so tests can tell GPU from software GL.
+ *
+ * Never requests a second context type on the app canvas: it is owned by
+ * three's WebGPURenderer, and per spec a different-type getContext() on the
+ * same canvas returns null — so on the WebGPU backend the old probe answered
+ * "none" on a healthy page. Read the backend the app reported at creation
+ * (Scene.tsx onCreated → window.__fridayBackend) instead.
+ */
 export async function glRenderer(page: Page): Promise<string> {
   return page.evaluate(() => {
+    if (window.__fridayBackend === "webgpu") {
+      return window.__fridaySoftware ? "reported:webgpu software-fallback" : "reported:webgpu canvas-present";
+    }
     const canvas = document.querySelector("canvas");
-    const gl = canvas?.getContext("webgl2") ?? canvas?.getContext("webgl");
+    // Same-type request returns the existing context; never ask for a second
+    // type after this (see above).
+    const gl = canvas?.getContext("webgl2") as WebGLRenderingContext | null | undefined;
     if (!gl) return "none";
     const ext = gl.getExtension("WEBGL_debug_renderer_info");
     return ext ? String(gl.getParameter(ext.UNMASKED_RENDERER_WEBGL)) : "unknown";
+  });
+}
+
+export interface GlHealth {
+  present: boolean;
+  lost: boolean;
+  error: number;
+}
+
+/** Context health without ever requesting a second context type (see above). */
+export async function glHealth(page: Page): Promise<GlHealth> {
+  return page.evaluate(() => {
+    const canvas = document.querySelector("canvas");
+    if (!canvas) return { present: false, lost: true, error: -1 };
+    if (window.__fridayBackend === "webgpu") {
+      // No GL context to probe on the WebGPU backend — canvas presence is the
+      // health signal; a lost device surfaces as pageerror instead.
+      return { present: true, lost: false, error: 0 };
+    }
+    const ctx = canvas.getContext("webgl2") ?? canvas.getContext("webgl");
+    return { present: !!ctx, lost: ctx ? ctx.isContextLost() : true, error: ctx ? ctx.getError() : -1 };
   });
 }
 

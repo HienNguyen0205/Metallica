@@ -106,7 +106,10 @@ jobs:
         uses: actions/cache@v4
         with:
           path: .next/cache
-          key: next-${{ runner.os }}-${{ hashFiles('package-lock.json') }}-${{ hashFiles('src/**') }}
+          # src/** alone is not enough: a CSP edit (next.config.ts), a TS
+          # strictness flip (tsconfig.json), PostCSS or public/ changes
+          # (incl. the TTS worklet) must not reuse a stale build cache.
+          key: next-${{ runner.os }}-${{ hashFiles('package-lock.json') }}-${{ hashFiles('src/**', 'next.config.ts', 'tsconfig.json', 'postcss.config.mjs', 'public/**') }}
           restore-keys: |
             next-${{ runner.os }}-${{ hashFiles('package-lock.json') }}-
             next-${{ runner.os }}-

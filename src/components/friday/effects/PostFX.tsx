@@ -58,13 +58,15 @@ export default function PostFX({
 
   // Stable chain: `sun` resolves null → Mesh once per load. It must not be a
   // memo dep — rebuilding RenderPipeline mid-stream recompiles every TSL pass.
-  // Shafts are always built when `heavy` and gated by a uniform instead.
-  const { post, sunScreen, shaftStrength } = useMemo(() => {
+  // Shafts are built when `heavy` and gated by a uniform instead; grain is
+  // always built and driven by a uniform so `reduced` never rebuilds either.
+  const { post, sunScreen, shaftStrength, filmAmount } = useMemo(() => {
     const scenePass = pass(scene, camera);
     const color = scenePass.getTextureNode("output");
 
     const sunScreen = uniform(new Vector2(0.5, 0.5));
     const shaftStrength = uniform(0);
+    const filmAmount = uniform(reduced ? 0.012 : 0.022);
 
     // Bloom is additive on the node pipeline — it returns the glow, not the
     // composite. Half resolution on dense displays: at dpr 2 that still lands
@@ -134,7 +136,7 @@ export default function PostFX({
     // Radial, not uniform: a flat offset splits the tiny centre labels into
     // red/cyan ghosts. Fringing grows toward the edges only.
     output = chromaticAberration(output, float(0.0012), vec2(0.5, 0.5), float(1.1)) as unknown as FxNode;
-    output = film(output, float(reduced ? 0.012 : 0.022)) as unknown as FxNode;
+    output = film(output, filmAmount) as unknown as FxNode;
 
     // No stock vignette node ships with three; this is the whole effect.
     const r = screenUV.sub(vec2(0.5, 0.5)).length();
@@ -143,21 +145,32 @@ export default function PostFX({
     const post = new RenderPipeline(renderer as never);
     post.outputNode = output;
 
-    return { post, sunScreen, shaftStrength };
-  }, [renderer, scene, camera, heavy, reduced, denseDisplay]);
+    return { post, sunScreen, shaftStrength, filmAmount };
+    // `reduced` is intentionally NOT a dep: grain rides the filmAmount uniform,
+    // and a rebuild here recompiles every TSL pass. `heavy`/`denseDisplay`
+    // stay deps — shafts are compiled in/out and the march length is baked —
+    // which costs exactly one rebuild when gpuClass resolves unknown→hardware.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [renderer, scene, camera, heavy, denseDisplay]);
 
   useEffect(() => () => post.dispose(), [post]);
 
   const world = useMemo(() => new Vector3(), []);
 
   useFrame(() => {
-    // Per-frame TSL uniform update — idiomatic, not a React mutation.
+    // Per-frame TSL uniform updates — idiomatic, not React mutations.
     // eslint-disable-next-line react-hooks/immutability
-    shaftStrength.value = sun ? 1 : 0;
+    filmAmount.value = reduced ? 0.012 : 0.022;
     if (sun) {
       // the shafts have to know where the core landed on screen this frame
       sun.getWorldPosition(world).project(camera);
       sunScreen.value.set(world.x * 0.5 + 0.5, world.y * 0.5 + 0.5);
+      // Behind the camera project() mirrors the point — streaking shafts from
+      // a false position. world.z > 1 means behind in NDC.
+      // eslint-disable-next-line react-hooks/immutability
+      shaftStrength.value = world.z < 1 ? 1 : 0;
+    } else {
+      shaftStrength.value = 0;
     }
     post.render();
   }, 1);

@@ -86,10 +86,16 @@ export function createHologramMaterial({
   material.colorNode = uColor;
   material.opacityNode = fresnel.mul(0.85).add(scan.mul(0.15)).clamp(0, 1).mul(opacity).mul(flicker);
 
+  // apply() runs every frame but the colour only changes on state transitions —
+  // skip the CSS-string parse when nothing changed.
+  let lastColor = INITIAL_COLOR;
   return {
     material,
     apply(color: string, scan: number) {
-      uColor.value.set(color);
+      if (color !== lastColor) {
+        lastColor = color;
+        uColor.value.set(color);
+      }
       uScanSpeed.value = scan;
     },
   };
@@ -119,10 +125,17 @@ export function createParticleField({
   span?: number;
 }) {
   const field = buildParticleField(count, innerRadius, span);
+  // Owned GPU buffers: the shared Sprite geometry is never disposed (see
+  // CoreParticles), so these attributes would leak their GL buffers on every
+  // unmount unless the caller runs disposeAttributes().
+  const owned: InstancedBufferAttribute[] = [];
   // instancedBufferAttribute is typed Node<unknown> even though it yields a
   // float node here; the cast keeps the TSL chain below properly typed.
-  const attr = (data: Float32Array) =>
-    float(instancedBufferAttribute(new InstancedBufferAttribute(data, 1)) as never);
+  const attr = (data: Float32Array) => {
+    const attribute = new InstancedBufferAttribute(data, 1);
+    owned.push(attribute);
+    return float(instancedBufferAttribute(attribute) as never);
+  };
 
   const aRadius = attr(field.aRadius);
   const aAngle = attr(field.aAngle);
@@ -181,11 +194,19 @@ export function createParticleField({
   // positions are computed on the GPU, so the CPU-side bounds are meaningless
   sprite.frustumCulled = false;
 
+  let lastColor = INITIAL_COLOR;
   return {
     sprite,
     apply(color: string, intensity: number) {
-      uColor.value.set(color);
+      if (color !== lastColor) {
+        lastColor = color;
+        uColor.value.set(color);
+      }
       uIntensity.value = intensity;
+    },
+    /** Frees the per-field attribute buffers (not the shared geometry). */
+    disposeAttributes() {
+      for (const attribute of owned) attribute.dispose();
     },
   };
 }
@@ -215,10 +236,14 @@ export function createCoreMaterial() {
   material.colorNode = uColor;
   material.emissiveNode = uColor.mul(uGlow);
 
+  let lastColor = INITIAL_COLOR;
   return {
     material,
     apply(color: string, glow: number, distort: number, speed: number) {
-      uColor.value.set(color);
+      if (color !== lastColor) {
+        lastColor = color;
+        uColor.value.set(color);
+      }
       uGlow.value = glow;
       uDistort.value = distort;
       uSpeed.value = speed;
