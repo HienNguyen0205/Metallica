@@ -140,6 +140,7 @@ export async function runQuery(
     if (!flags.doneSeen) {
       log("stream ended without done");
       store.setSessionError("the orchestrator ended the turn early");
+      store.setLiveMode("idle");
       store.endTurn();
       return;
     }
@@ -149,8 +150,8 @@ export async function runQuery(
     if (hadLiveStream) {
       log("stream interrupted:", err);
       store.setSessionError(err instanceof Error ? err.message : String(err));
+      store.setLiveMode("idle");
       store.endTurn();
-      await wait(FLOW_TIMING.streamInterrupted);
       return;
     }
     // A refusal is not an outage. The orchestrator is up and said no, so the

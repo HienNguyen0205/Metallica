@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
 import { type Group, type Mesh } from "three";
 import { useFridayStore } from "@/lib/store";
@@ -61,6 +61,15 @@ export default function FridayCore({
   const coreRef = useRef<Mesh>(null);
   const shellRef = useRef<Mesh>(null);
   const innerShellRef = useRef<Mesh>(null);
+  // Stable callback ref — a fresh inline ref identity per render fires
+  // null+mesh on every FridayCore re-render and bounces Scene's setSun.
+  const coreCallback = useCallback(
+    (m: Mesh | null) => {
+      coreRef.current = m;
+      onCoreMesh?.(m);
+    },
+    [onCoreMesh],
+  );
   /**
    * Per-frame mic cache. `WaveformRing` calls `getLevel` once per bar per
    * frame (96×), and a naive `(bin) => readMicLevels(96)` would run
@@ -123,12 +132,7 @@ export default function FridayCore({
   return (
     <group ref={groupRef}>
       {/* layer 1 — energy core */}
-      <mesh
-        ref={(m: Mesh | null) => {
-          coreRef.current = m;
-          onCoreMesh?.(m);
-        }}
-      >
+      <mesh ref={coreCallback}>
         <sphereGeometry args={[0.5, 48, 48]} />
         <primitive object={coreMat.material} attach="material" />
       </mesh>

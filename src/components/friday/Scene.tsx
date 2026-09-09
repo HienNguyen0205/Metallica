@@ -77,9 +77,10 @@ function CameraRig({ reduced }: { reduced: boolean }) {
   useFrame((state, delta) => {
     base.current += delta;
     const { camera, pointer } = state;
-    const driftX = Math.sin(base.current * 0.12) * 0.18;
-    const driftY = Math.cos(base.current * 0.09) * 0.1;
-    const swing = Math.sin(base.current * 0.28) * target.orbit;
+    // Reduced motion: freeze drift/swing/parallax, keep only the eased dolly.
+    const driftX = reduced ? 0 : Math.sin(base.current * 0.12) * 0.18;
+    const driftY = reduced ? 0 : Math.cos(base.current * 0.09) * 0.1;
+    const swing = reduced ? 0 : Math.sin(base.current * 0.28) * target.orbit;
     const px = reduced ? 0 : pointer.x * 0.55;
     const py = reduced ? 0 : pointer.y * 0.3;
 
@@ -216,14 +217,22 @@ export default function Scene() {
             : "webgl2",
         );
         setGpuClass(isSoftwareRenderer(gl) ? "software" : "hardware");
+        let remountQueued = false;
+        let timer: ReturnType<typeof setTimeout> | null = null;
         const onLost = (e: Event) => {
           e.preventDefault();
           // Ignore the intentional context loss from unmounting
           // (React StrictMode disposes the first mount in dev).
-          if (!gl.domElement.isConnected) return;
-          setTimeout(() => setCtxKey((k) => k + 1), 50);
+          if (!gl.domElement.isConnected || remountQueued) return;
+          remountQueued = true;
+          timer = setTimeout(() => setCtxKey((k) => k + 1), 50);
         };
         gl.domElement.addEventListener("webglcontextlost", onLost);
+        // Cleanup on unmount: no orphan listeners or queued remounts.
+        return () => {
+          gl.domElement.removeEventListener("webglcontextlost", onLost);
+          if (timer) clearTimeout(timer);
+        };
       }}
     >
       <SceneBody

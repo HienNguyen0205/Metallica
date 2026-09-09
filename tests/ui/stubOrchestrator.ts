@@ -344,7 +344,9 @@ async function listenWithRetry(server: Server, port: number, attempts = 20): Pro
       await sleep(150);
     }
   }
-  throw new Error(`stub orchestrator could not bind :${port} — is a real backend running?`);
+  throw new Error(
+    `stub orchestrator could not bind :${port} — is another stub already holding :${port}? (real backend lives on :8000)`,
+  );
 }
 
 function readBody(req: import("node:http").IncomingMessage): Promise<string> {

@@ -38,7 +38,7 @@ function sanitizeData(data: VisualizationSpec["data"]): VizData {
   out.metrics = Array.isArray(out.metrics)
     ? out.metrics.map((m) => ({
         ...m,
-        value: Number.isFinite(m.value) ? Math.max(0, Math.min(100, m.value)) : 0,
+        value: typeof m?.value === "number" && Number.isFinite(m.value) ? Math.max(0, Math.min(100, m.value)) : 0,
       }))
     : undefined;
 
@@ -46,26 +46,49 @@ function sanitizeData(data: VisualizationSpec["data"]): VizData {
   out.series = Array.isArray(out.series)
     ? out.series.flatMap((s) => {
         if (!s || !Array.isArray(s.points) || s.points.length === 0) return [];
-        return [{ ...s, points: s.points.map((p) => (Number.isFinite(p) ? p : 0)) }];
+        return [{ ...s, points: s.points.map((p) => (typeof p === "number" && Number.isFinite(p) ? p : 0)) }];
       })
     : undefined;
+
+  // Clone node/point/event arrays so callers never share mutable wire data.
+  if (Array.isArray(out.nodes)) out.nodes = out.nodes.map((n) => ({ ...n }));
+  else out.nodes = undefined;
+  if (Array.isArray(out.points)) out.points = out.points.map((p) => ({ ...p }));
+  else out.points = undefined;
+  if (Array.isArray(out.events)) out.events = out.events.map((e) => ({ ...e }));
+  else out.events = undefined;
 
   // Links index into `nodes`; an out-of-range pair used to draw a line to the
   // origin (silent wrong data) instead of failing.
   out.links =
     Array.isArray(out.links) && Array.isArray(out.nodes)
       ? out.links.filter(
-          ([a, b]) =>
-            Number.isInteger(a) && Number.isInteger(b) && a >= 0 && b >= 0 && a < out.nodes!.length && b < out.nodes!.length,
+          (pair) =>
+            Array.isArray(pair) &&
+            Number.isInteger(pair[0]) &&
+            Number.isInteger(pair[1]) &&
+            (pair[0] as number) >= 0 &&
+            (pair[1] as number) >= 0 &&
+            (pair[0] as number) < out.nodes!.length &&
+            (pair[1] as number) < out.nodes!.length,
         )
       : undefined;
 
-  if (!Array.isArray(out.nodes)) out.nodes = undefined;
-  if (!Array.isArray(out.points)) out.points = undefined;
-  if (!Array.isArray(out.events)) out.events = undefined;
-  if (typeof out.rate !== "number" || !Number.isFinite(out.rate)) out.rate = undefined;
+  if (typeof out.rate !== "number" || !Number.isFinite(out.rate) || out.rate < 0) out.rate = undefined;
 
   return out;
+}
+
+function sanitizePosition(value: unknown): [number, number, number] | undefined {
+  if (!Array.isArray(value) || value.length !== 3) return undefined;
+  const [x, y, z] = value;
+  if (typeof x !== "number" || typeof y !== "number" || typeof z !== "number") return undefined;
+  if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) return undefined;
+  return [x, y, z];
+}
+
+function sanitizeTitle(value: unknown): string | undefined {
+  return typeof value === "string" && value.length > 0 ? value : undefined;
 }
 
 export function normalizeVisualization(spec: VisualizationSpec): VisualizationSpec {
@@ -74,5 +97,11 @@ export function normalizeVisualization(spec: VisualizationSpec): VisualizationSp
   if (!out.interaction) out.interaction = "drill_down";
   out.scale = sanitizeScale(out.scale);
   out.theme = sanitizeTheme(out.theme);
+  const pos = sanitizePosition((spec as { position?: unknown }).position);
+  if (pos) out.position = pos;
+  else delete out.position;
+  const title = sanitizeTitle((spec as { title?: unknown }).title);
+  if (title) out.title = title;
+  else delete out.title;
   return out;
 }

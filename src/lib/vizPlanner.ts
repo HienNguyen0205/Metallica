@@ -68,7 +68,19 @@ const RULES: Rule[] = [
     // "map" is word-boundaried: without it "heatmap" matches the globe rule.
     // The heatmap rule above still wins on order; this is the second lock.
     match: /where|region|location|global|\bmap\b|globe|country|latency by/i,
-    build: () => ({ type: "globe", title: "GLOBAL EDGE MAP", animation: "materialize" }),
+    build: () => ({
+      type: "globe",
+      title: "GLOBAL EDGE MAP",
+      animation: "materialize",
+      data: {
+        points: [
+          { lat: 50.1, lon: 8.7, label: "FRA" },
+          { lat: 37.8, lon: -122.4, label: "SFO" },
+          { lat: 35.7, lon: 139.7, label: "TYO" },
+          { lat: -33.9, lon: 151.2, label: "SYD" },
+        ],
+      },
+    }),
   },
   {
     type: "line_3d",
@@ -98,7 +110,18 @@ const RULES: Rule[] = [
   {
     type: "timeline",
     match: /event|log|timeline|incident|history of/i,
-    build: () => ({ type: "timeline", title: "EVENT SEQUENCE", animation: "materialize" }),
+    build: () => ({
+      type: "timeline",
+      title: "EVENT SEQUENCE",
+      animation: "materialize",
+      data: {
+        events: [
+          { label: "DEPLOY", at: 0 },
+          { label: "ALERT", at: 1 },
+          { label: "MITIGATED", at: 2 },
+        ],
+      },
+    }),
   },
   {
     type: "radar",
@@ -142,8 +165,27 @@ const DEFAULT_SPEC: VisualizationSpec = {
   },
 };
 
+function cloneSpec(spec: VisualizationSpec): VisualizationSpec {
+  return {
+    ...spec,
+    data: spec.data
+      ? {
+          ...spec.data,
+          metrics: spec.data.metrics?.map((m) => ({ ...m })),
+          series: spec.data.series?.map((s) => ({ ...s, points: [...s.points] })),
+          nodes: spec.data.nodes?.map((n) => ({ ...n })),
+          links: spec.data.links?.map((l) => [...l] as [number, number]),
+          points: spec.data.points?.map((p) => ({ ...p })),
+          events: spec.data.events?.map((e) => ({ ...e })),
+        }
+      : undefined,
+    theme: spec.theme ? { ...spec.theme } : undefined,
+    position: spec.position ? [...spec.position] as [number, number, number] : undefined,
+  };
+}
+
 export function planVisualization(query: string): VisualizationSpec {
-  return RULES.find((r) => r.match.test(query))?.build() ?? DEFAULT_SPEC;
+  return cloneSpec(RULES.find((r) => r.match.test(query))?.build() ?? DEFAULT_SPEC);
 }
 
 /** One canonical sample spec per type — used by the dev viz rail. */
@@ -165,7 +207,7 @@ const SAMPLES: Record<VisualizationType, () => VisualizationSpec> = {
 };
 
 export function sampleSpec(type: VisualizationType): VisualizationSpec {
-  return SAMPLES[type]();
+  return cloneSpec(SAMPLES[type]());
 }
 
 /** Short spoken-style answer to accompany the hologram (§10 — secondary). */

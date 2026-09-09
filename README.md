@@ -5,7 +5,7 @@
 **A holographic AI interface, rendered in real-time on WebGPU.**
 
 A sci-fi style "FRIDAY" assistant hologram — pulsing AI core, orbital rings,
-GPU particle fields, spatial HUD and ten types of 3D data visualizations —
+GPU particle fields, spatial HUD and eleven types of 3D data visualizations —
 built with Next.js 16, React Three Fiber and a spec-driven rendering architecture.
 
 <!-- Via shields.io rather than GitHub's own badge endpoint: that one ships no
@@ -320,6 +320,7 @@ cosmetic level meter is not worth a second microphone path.
 | `line_3d` | *"trend"*, *"over time"* | Depth-layered series over a hairline floor |
 | `bar_3d` | *"compare"*, *"distribution"* | Instanced boxes growing along an arc |
 | `timeline` | *"events"*, *"incident log"* | Horizontal axis with event ticks |
+| `heatmap_3d` | *"heatmap"*, *"density"*, *"hotspot"* | Instanced density grid |
 
 All visualizations support optional drill-down focus unless
 `interaction: "none"`.
@@ -384,8 +385,22 @@ src/
     ├── voice.ts                # §12/§13 SpeechRecognition in, speechSynthesis out
     ├── stateLook.ts            # Per-state colors/motion/camera parameters
     ├── telemetry.ts            # rAF singleton: fps, frames, heap, camera
-    ├── uiSound.ts              # WebAudio state blips
-    └── rendererBackend.ts      # WebGPU detection + WebGL2 fallback
+    ├── uiSound.ts              # WebAudio state blips (respects audioEnabled)
+    ├── rendererBackend.ts      # WebGPU detection + WebGL2 fallback
+    ├── gpu.ts                  # Shared software-GL classifier + heavy truth table
+    ├── audioBus.ts             # Shared mic/TTS AudioContext + analyser levels
+    ├── ttsPlayer.ts            # Progressive TTS worklet player
+    ├── agent/
+    │   ├── stateMachine.ts     # Guarded TRANSITIONS + illegal reporting
+    │   └── events.ts           # Typed FridayEvent parser
+    ├── api/
+    │   ├── session.ts          # API base + per-tab session id
+    │   ├── fridayClient.ts     # POST /query SSE + /confirm + /memory
+    │   ├── sse.ts              # Chunk-split-safe SSE parser
+    │   └── ttsClient.ts        # Framed TTS stream client
+    └── visualization/
+        ├── normalization.ts    # Wire-spec sanitizer (colors, scale, position)
+        └── layoutResolver.ts   # Deterministic world-space layout
 tests/
 ├── unit/                       # Store & planner logic (no browser)
 └── ui/                         # Pixel-statistics & interaction suites (Chromium)

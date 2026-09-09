@@ -22,16 +22,17 @@ export function ToolHud() {
   return (
     <div className="pointer-events-none absolute left-1/2 top-[42%] flex -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-1 font-mono text-[10px] tracking-[0.24em]">
       <span className="text-[9px] tracking-[0.32em] text-cyan-300/50">SYSTEM CORE</span>
-      <span className="text-cyan-300/30">↓</span>
+      <span aria-hidden="true" className="text-cyan-300/30">↓</span>
       <span
+        role="status"
         className={
-          isDenied ? "text-amber-300/80" : "animate-pulse tracking-[0.22em] text-cyan-200"
+          isDenied ? "text-amber-300/80" : "tracking-[0.22em] text-cyan-200"
         }
         style={{ color: isDenied ? "#fbbf24" : look.color }}
       >
         {isDenied ? `DENIED · ${denied?.toUpperCase()}` : "SCANNING"}
       </span>
-      <span className="text-cyan-300/30">↓</span>
+      <span aria-hidden="true" className="text-cyan-300/30">↓</span>
       <span
         className="text-[11px] tracking-[0.18em]"
         style={{ color: isDenied ? "#fbbf24cc" : look.color }}
@@ -50,13 +51,6 @@ export function ToolHud() {
         >
           RISK · {activity.risk.toUpperCase()}
         </span>
-      )}
-      {activity?.tool === "get_system_metrics" && !isDenied && (
-        <div className="mt-3 flex gap-4 text-[8px] tracking-[0.14em] text-cyan-200/60">
-          <span>CPU</span>
-          <span>RAM</span>
-          <span>DISK</span>
-        </div>
       )}
     </div>
   );
@@ -181,7 +175,9 @@ export function MemoryRail() {
   };
 
   return (
-    <div className="pointer-events-auto absolute bottom-44 right-8 hidden max-w-[22rem] flex-col items-end gap-1 font-mono text-[9px] tracking-[0.22em] md:flex">
+    // Visible on mobile too — review-and-forget is the §9 safety control, not
+    // telemetry furniture.
+    <div className="pointer-events-auto absolute bottom-44 right-8 flex max-w-[22rem] flex-col items-end gap-1 font-mono text-[9px] tracking-[0.22em]">
       {open && (
         <div
           role="group"

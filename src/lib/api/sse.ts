@@ -46,6 +46,9 @@ export async function* parseSseStream(
     signal.addEventListener("abort", abortHandler, { once: true });
   }
 
+  // Cap buffered tail so a malicious server cannot OOM the tab by never
+  // sending the blank-line terminator.
+  const MAX_BUFFER = 1024 * 1024;
   try {
     while (true) {
       if (signal?.aborted) break;
@@ -54,6 +57,9 @@ export async function* parseSseStream(
       buffer += decoder.decode(value, { stream: true });
       // Normalize CRLF -> LF so split logic is simple
       buffer = buffer.replace(/\r\n/g, "\n");
+      if (buffer.length > MAX_BUFFER) {
+        buffer = buffer.slice(-MAX_BUFFER);
+      }
 
       let sep = buffer.indexOf("\n\n");
       while (sep !== -1) {
@@ -67,7 +73,7 @@ export async function* parseSseStream(
     }
 
     // Flush any remaining decoder bytes
-    buffer += decoder.decode(undefined as unknown as Uint8Array, { stream: false });
+    buffer += decoder.decode();
     buffer = buffer.replace(/\r\n/g, "\n");
     if (buffer.trim().length > 0) {
       const parsed = parseFrame(buffer.trim());

@@ -129,6 +129,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-traces
+          # one name per shard: uploading both artifacts under one name fails
+          name: playwright-traces-shard-${{ matrix.shard }}
           path: test-results/
           retention-days: 14

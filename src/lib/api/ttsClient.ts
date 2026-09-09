@@ -2,7 +2,6 @@ import { OrchestratorRefused } from "@/lib/api/fridayClient";
 import { getApiBase, getSessionId } from "@/lib/api/session";
 import type { SupportedLang } from "@/lib/audioBus";
 
-const API = getApiBase();
 const MAX_FRAME = 4 * 1024 * 1024;
 
 export interface TtsHeader {
@@ -91,6 +90,7 @@ export async function streamTts(
   opts?: { signal?: AbortSignal },
 ): Promise<TtsStream> {
   const { signal } = opts ?? {};
+  const API = getApiBase();
   let res: Response;
   try {
     res = await fetch(`${API}/tts`, {
@@ -112,29 +112,43 @@ export async function streamTts(
   const state: FrameReaderState = { pending: new Uint8Array(0) };
 
   async function* chunks(): AsyncGenerator<Uint8Array, void, void> {
-    for (;;) {
-      let prefix: Uint8Array | null;
+    try {
+      for (;;) {
+        let prefix: Uint8Array | null;
+        try {
+          prefix = await readExactly(reader, 4, state, signal);
+        } catch (err) {
+          if (isAbort(err, signal)) return;
+          throw err;
+        }
+        if (!prefix) return;
+        const len = (prefix[0]! | (prefix[1]! << 8) | (prefix[2]! << 16) | (prefix[3]! << 24)) >>> 0;
+        if (len === 0 || len > MAX_FRAME) throw new TtsError("malformed", `bad frame length ${len}`);
+        let body: Uint8Array | null;
+        try {
+          body = await readExactly(reader, len, state, signal);
+        } catch (err) {
+          if (isAbort(err, signal)) return;
+          throw err;
+        }
+        if (!body) {
+          if (signal?.aborted) return;
+          throw new TtsError("malformed", "truncated frame");
+        }
+        yield body;
+      }
+    } finally {
+      // Release the lock so an aborted/completed stream never leaks the reader.
       try {
-        prefix = await readExactly(reader, 4, state, signal);
-      } catch (err) {
-        if (isAbort(err, signal)) return;
-        throw err;
+        await reader.cancel();
+      } catch {
+        /* already closed / aborted */
       }
-      if (!prefix) return;
-      const len = (prefix[0]! | (prefix[1]! << 8) | (prefix[2]! << 16) | (prefix[3]! << 24)) >>> 0;
-      if (len === 0 || len > MAX_FRAME) throw new TtsError("malformed", `bad frame length ${len}`);
-      let body: Uint8Array | null;
       try {
-        body = await readExactly(reader, len, state, signal);
-      } catch (err) {
-        if (isAbort(err, signal)) return;
-        throw err;
+        reader.releaseLock();
+      } catch {
+        /* already released */
       }
-      if (!body) {
-        if (signal?.aborted) return;
-        throw new TtsError("malformed", "truncated frame");
-      }
-      yield body;
     }
   }
 

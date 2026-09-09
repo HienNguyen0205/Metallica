@@ -155,7 +155,8 @@ export function readMicLevels(bars: number): number[] | null {
 /** Shared context for secondary analysers (TTS). Null when unsupported. */
 export function getSharedAudioContext(): AudioContext | null {
   const Ctor = audioCtor();
-  if (!Ctor || !hasCapture()) return null;
+  // TTS playback must not require a microphone — mic-less desktops still speak.
+  if (!Ctor) return null;
   context ??= new Ctor();
   return context;
 }

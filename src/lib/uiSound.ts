@@ -1,4 +1,4 @@
-import type { FridayState } from "@/lib/store";
+import { useFridayStore, type FridayState } from "@/lib/store";
 
 /**
  * §18 — very subtle UI blips. Two short oscillators through a fast gain
@@ -56,5 +56,12 @@ const CUES: Partial<Record<FridayState, () => void>> = {
 };
 
 export function playStateCue(state: FridayState) {
+  // Muted UI stays muted — AudioCues also checks, but direct callers must not
+  // bypass the toggle. Store never imports uiSound so this cannot cycle.
+  try {
+    if (!useFridayStore.getState().audioEnabled) return;
+  } catch {
+    /* test env without store — play through */
+  }
   CUES[state]?.();
 }

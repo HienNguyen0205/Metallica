@@ -1,6 +1,9 @@
 import { create } from "zustand";
 import { canTransition, reportIllegal } from "@/lib/agent/stateMachine";
 import type { FridayState } from "@/lib/agent/stateMachine";
+// reportIllegal intentionally NOT used by endTurn: landing idle from a
+// mid-pipeline state (e.g. thinking → idle on missing `done`) is the normal
+// interrupted-turn path, not a bug worth warning about in dev/test.
 import { resolveLang, type SupportedLang } from "@/lib/audioBus";
 
 export type { FridayState };
@@ -205,12 +208,11 @@ export const useFridayStore = create<FridayStore>((set, get) => ({
   },
   setState: (state) => set({ state }),
   endTurn: () => {
-    const from = get().state;
-    if (from === "idle") return;
-    // Deliberately unguarded — see the doc above. A legal edge is used when
-    // one exists so the machine stays the primary record; the direct set is
-    // the safety net for streams that died mid-pipeline.
-    if (!canTransition(from, "idle")) reportIllegal(from, "idle", "endTurn");
+    if (get().state === "idle") return;
+    // Deliberately unguarded and silent — see the doc above. The direct set
+    // is the safety net for streams that died mid-pipeline; reporting it as
+    // illegal spams dev/test logs on every interrupted turn (thinking → idle
+    // has no edge by design). Use `transition` when the edge must be legal.
     set({ state: "idle" });
   },
   answer: null,
@@ -231,7 +233,9 @@ export const useFridayStore = create<FridayStore>((set, get) => ({
     })),
   setVisualizations: (vizs) =>
     set({
-      visualizations: vizs.map((spec) => ({
+      // Capped like addVisualization — one bulk set must not mount unbounded
+      // CanvasTextures/Line2/labels (load-bearing on low-end GPUs).
+      visualizations: vizs.slice(-3).map((spec) => ({
         id: nextVisualizationId++,
         spec,
         lifecycle: "materializing" as const,

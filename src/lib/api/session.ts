@@ -4,10 +4,14 @@
  * logic in both files).
  */
 
-const API = process.env.NEXT_PUBLIC_FRIDAY_API ?? "http://localhost:8000";
+const FALLBACK_API = "http://localhost:8000";
 
 export function getApiBase(): string {
-  return API;
+  const raw = process.env.NEXT_PUBLIC_FRIDAY_API;
+  // Empty string bakes to same-origin "/query" — fall back to localhost so a
+  // misconfigured env never silently changes the request target.
+  if (!raw) return FALLBACK_API;
+  return raw;
 }
 
 /**

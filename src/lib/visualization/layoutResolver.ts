@@ -25,6 +25,15 @@ export function resolveVisualizationLayout(
   // Only fall through to auto-layout for the fields the spec leaves unset.
   const { count, index } = ctx;
 
+  // Defensive: no entries (or negative) centers instead of producing NaN
+  // from index/count division.
+  if (!Number.isFinite(count) || count <= 0) {
+    return {
+      position: spec.position ?? ([0, 0, 0] as [number, number, number]),
+      scale: spec.scale ?? 1,
+    };
+  }
+
   // Single viz: centered
   if (count === 1) {
     const scaleMap: Record<string, number> = {
