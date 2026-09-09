@@ -64,6 +64,13 @@ export default defineConfig({
         trace: "retain-on-failure",
         screenshot: "only-on-failure",
         video: "off",
+        // Fail fast on a dead page: without this every action inherits the
+        // 120s test timeout, so a systemic breakage (no canvas, hung server)
+        // costs ~6 min per test (120s x 3 attempts) and the shards die at the
+        // job limit with nothing completed. 30s is generous — real actions
+        // take milliseconds; the long polls (hologram paint, flow recording)
+        // all pass explicit timeouts that override this.
+        actionTimeout: 30_000,
       },
     },
   ],

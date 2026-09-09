@@ -59,7 +59,10 @@ jobs:
   ui:
     name: UI (WebGL) ${{ matrix.shard }}/2
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    # Measured ~19 min green at workers:1; 25 proved too thin once a systemic
+    # breakage made every test burn its full timeout (CDN-less shared runners
+    # also jitter). 30 costs nothing when green and leaves room to fail loudly.
+    timeout-minutes: 30
     needs: static
     strategy:
       # one shard failing should not cancel the evidence from the others
@@ -119,6 +122,13 @@ jobs:
       - name: UI tests
         run: npm run test:ui -- --shard=${{ matrix.shard }}/2
 
+      # Artifact dirs may not exist when the run dies early (e.g. job timeout
+      # kills the step before any test fails): uploading a missing path fails
+      # the step, so guarantee the dirs first. Cheap and unconditional.
+      - name: Ensure artifact dirs exist
+        if: always()
+        run: mkdir -p playwright-report test-results
+
       - name: Upload Playwright report
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v4
@@ -129,7 +139,11 @@ jobs:
           retention-days: 14
 
       - name: Upload failure traces
-        if: failure()
+        # always(), not failure(): on a job timeout the run conclusion is
+        # `cancelled`, yet every test that died before the kill already wrote
+        # its trace.zip/screenshot — that partial evidence is exactly what a
+        # systemic breakage (dead page, hung server) is debugged from.
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           # one name per shard: uploading both artifacts under one name fails
