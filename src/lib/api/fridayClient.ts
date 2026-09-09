@@ -2,8 +2,6 @@ import { parseSseStream } from "@/lib/api/sse";
 import { parseFridayEvent, type FridayEvent } from "@/lib/agent/events";
 import { getApiBase, getSessionId } from "@/lib/api/session";
 
-const API = getApiBase();
-
 export { getApiBase };
 
 /**
@@ -43,6 +41,7 @@ export interface QueryOptions {
  */
 export async function streamQuery(query: string, opts: QueryOptions): Promise<void> {
   const { signal, onEvent, onError } = opts;
+  const API = getApiBase();
 
   let response: Response;
   try {
@@ -88,6 +87,7 @@ export async function confirmDecision(
   approved: boolean,
   signal?: AbortSignal,
 ): Promise<void> {
+  const API = getApiBase();
   const res = await fetch(`${API}/confirm`, {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -119,6 +119,7 @@ export interface StoredMemory {
  * than one that never appears.
  */
 export async function listMemories(signal?: AbortSignal): Promise<StoredMemory[]> {
+  const API = getApiBase();
   const res = await fetch(`${API}/memory`, { signal });
   if (!res.ok) throw new Error(`memory ${res.status}`);
 
@@ -140,6 +141,7 @@ export async function listMemories(signal?: AbortSignal): Promise<StoredMemory[]
 
 /** `DELETE /memory/{id}` — permanent, and clears the backend's RAM cache too. */
 export async function forgetMemory(id: number, signal?: AbortSignal): Promise<void> {
+  const API = getApiBase();
   const res = await fetch(`${API}/memory/${id}`, { method: "DELETE", signal });
   if (!res.ok) throw new Error(`forget ${res.status}`);
 }
@@ -147,6 +149,7 @@ export async function forgetMemory(id: number, signal?: AbortSignal): Promise<vo
 /** Warn when NEXT_PUBLIC_FRIDAY_API was baked pointing at localhost on a deployed page. */
 export function warnIfMisconfigured(): void {
   if (typeof window === "undefined") return;
+  const API = getApiBase();
   const pageIsLocal = /^(localhost|127\.0\.0\.1|\[::1\])$/.test(window.location.hostname);
   const apiIsLocal = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:|\/|$)/.test(API);
   if (!pageIsLocal && apiIsLocal) {

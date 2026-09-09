@@ -1,6 +1,9 @@
 import { create } from "zustand";
 import { canTransition, reportIllegal } from "@/lib/agent/stateMachine";
 import type { FridayState } from "@/lib/agent/stateMachine";
+// reportIllegal intentionally NOT used by endTurn: landing idle from a
+// mid-pipeline state (e.g. thinking → idle on missing `done`) is the normal
+// interrupted-turn path, not a bug worth warning about in dev/test.
 import { resolveLang, type SupportedLang } from "@/lib/audioBus";
 
 export type { FridayState };
@@ -140,6 +143,15 @@ export interface FridayStore {
   transition: (next: FridayState) => void;
   /** Unguarded — used by the state rail for previewing looks. */
   setState: (state: FridayState) => void;
+  /**
+   * End-of-turn landing. A turn must reach idle from wherever the stream left
+   * off — the orchestrator can die mid-pipeline, or end after `done` without
+   * ever announcing `speaking`, and most pipeline states have no `idle` edge.
+   * Unlike `transition` this cannot be ignored (a stuck machine freezes the
+   * input bar until reload), and unlike `reset` it keeps the turn's output —
+   * the answer and scene the user is reading — on screen.
+   */
+  endTurn: () => void;
   answer: string | null;
   setAnswer: (answer: string | null) => void;
   /**
@@ -195,6 +207,14 @@ export const useFridayStore = create<FridayStore>((set, get) => ({
     else reportIllegal(from, next, "transition");
   },
   setState: (state) => set({ state }),
+  endTurn: () => {
+    if (get().state === "idle") return;
+    // Deliberately unguarded and silent — see the doc above. The direct set
+    // is the safety net for streams that died mid-pipeline; reporting it as
+    // illegal spams dev/test logs on every interrupted turn (thinking → idle
+    // has no edge by design). Use `transition` when the edge must be legal.
+    set({ state: "idle" });
+  },
   answer: null,
   setAnswer: (answer) => set({ answer }),
   visualizations: [],
@@ -213,7 +233,9 @@ export const useFridayStore = create<FridayStore>((set, get) => ({
     })),
   setVisualizations: (vizs) =>
     set({
-      visualizations: vizs.map((spec) => ({
+      // Capped like addVisualization — one bulk set must not mount unbounded
+      // CanvasTextures/Line2/labels (load-bearing on low-end GPUs).
+      visualizations: vizs.slice(-3).map((spec) => ({
         id: nextVisualizationId++,
         spec,
         lifecycle: "materializing" as const,

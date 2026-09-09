@@ -13,6 +13,7 @@
  */
 
 import { streamTts } from "@/lib/api/ttsClient";
+import { OrchestratorRefused } from "@/lib/api/fridayClient";
 import { TtsPlayer } from "@/lib/ttsPlayer";
 import { FRIDAY_LANG_KEY } from "@/lib/store";
 import type { SupportedLang } from "@/lib/audioBus";
@@ -170,7 +171,10 @@ export function speakProgress(): number | null {
 
 export function speak(text: string): Promise<void> {
   if (!text.trim()) return Promise.resolve();
-  return speakViaTts(text).catch(() => {
+  return speakViaTts(text).catch((err) => {
+    // A refusal (403/429) is not an outage — speaking the answer anyway via
+    // synthesis would hide a real rate-limit/origin denial behind audio.
+    if (err instanceof OrchestratorRefused) throw err;
     // Two-phase rule: frames already flowed means mid-playback (phase 2) —
     // stay quiet rather than stacking a second voice. Pre-flow failures
     // (phase 1) fall back to synthesis.

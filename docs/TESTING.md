@@ -21,9 +21,9 @@ npm run verify       # lint + typecheck + all tests (local CI gate)
 Global settings: 120 s test timeout, 10 s expect timeout, retries 2 in CI,
 workers 1, GitHub+HTML+list reporters.
 
-## Unit project
+## Unit project (`tests/unit/` — 16 specs)
 
-### `store.spec.ts`
+### `store.spec.ts` / `agentFlow.spec.ts` / `agentStream.spec.ts`
 
 Drives the zustand store directly via `getState()/setState()`:
 
@@ -33,19 +33,38 @@ Drives the zustand store directly via `getState()/setState()`:
   `speaking→visualizing`),
 - `error` reachable from all 8 working states, recovers **only** via `idle`,
 - `setState` unguarded, `reset()` clears answer/visualization/focus,
-- audio toggle persists, render backend defaults to `"webgl2"`.
+- audio toggle persists, render backend defaults to `"webgl2"`,
+- `endTurn` lands idle silently (no illegal-transition noise),
+- live stream dispatches state/viz/answer then lands idle; 429 refusal never
+  falls back to the canned planner; unreachable orchestrator uses offline
+  planner; interrupted/early-ended streams surface errors with `liveMode`
+  reset to `idle`.
 
-### `vizPlanner.spec.ts`
+### `vizPlanner.spec.ts` / `vizNormalize.spec.ts` / `vizLifecycle.spec.ts` / `vizFocus.spec.ts` / `vizHeatmap.spec.ts`
 
-Locks planner rule ordering and invariants across a 19-case table:
+Locks planner rule ordering and invariants:
 
 - `"show me the network topology"` → `network` (beats traffic rule),
 - `"how is network traffic"` → `particle_flow`,
 - `"compare requests per service"` → `bar_3d` (not topology),
 - unmatched queries → `radial_gauge` fallback,
 - case-insensitivity; every spec has a title + valid animation;
-- `sampleSpec` exists for all 11 types with non-empty data;
-- gauge values within 0–100; `summarize` distinct non-empty per type.
+- `sampleSpec` exists for all 11 types with non-empty data (timeline/globe
+  ship minimal events/points so empty axes never pass);
+- gauge values within 0–100; `summarize` distinct non-empty per type,
+- normalization never mutates input, coerces non-finite metrics, sanitizes
+  colors/scale/position/title, drops OOB links, respects partial overrides,
+- lifecycle keeps at most 3 visualizations (bulk `setVisualizations` capped),
+  settle by stable id survives eviction,
+- `nextFocus` pure move/release semantics tested without a browser.
+
+### Other unit specs
+
+`sse` (chunk splits, CRLF, comments, abort), `events` (rejects unknown
+states/risks/viz), `ttsPlayer` (header parse, truncation, abort, backpressure),
+`audioBus` (TTS-first fallback, FFT mapping, mic lifecycle), `gpu` (shared
+software-GL classifier), `quality` (heavy truth table), `labelCapacity`
+(texture never clips), `spriteGeometry` (shared geometry never disposed).
 
 ## UI project
 
@@ -78,9 +97,17 @@ contrast math composites the element color over the known background
 - **Response-flow ordering:** submitting *"system health"* records a state
   sequence that passes THINKING → SEARCHING → TOOL EXECUTION → VISUALIZING →
   SPEAKING in order, with the answer text appearing only after VISUALIZING.
+- **STREAMING_FLOW (§18):** stub orchestrator streams preview → viz → answer →
+  done over SSE on `:8123`; answer text pinned (`73 percent`) so a stub-bind
+  failure cannot silently downgrade to the offline fallback.
+- **Confirm flow:** high-risk tool shows `alertdialog` with focus trap + ESC;
+  failed delivery keeps the gate open instead of dismissing as denied.
+- **Voice:** mic rail guarded (`listening → thinking`), TTS-first speak with
+  synthesis fallback; stub `ttsRequests` asserted per-test.
 - Responsive at 1366×768 / 1920×1080 / 2560×1440; mobile 375×812 uses the
-  simplified scene without overflow.
-- Accessibility basics: labeled mic toggle, focusable input.
+  simplified scene without overflow (mobile AUDIO toggle in TopHud).
+- Accessibility basics: labeled input (`aria-label="Ask FRIDAY"`), mic toggle
+  with 24px hit target, focusable input, atomic live regions.
 
 **`hologram.spec.ts` — render health**
 
@@ -103,6 +130,11 @@ it can click exact metric nodes in 3D space:
 - release-on-second-click is intentionally untested (flaky via dynamic 3D
   coordinates — see `drilldown.spec.ts` comments); the wiring lives in
   `FridayVisualization.tsx` (`onClick`/`onPointerMissed`).
+
+**`memoryRail.spec.ts` — long-term memory**
+
+- `/memory` rows validated (malformed rows dropped, never render `undefined`);
+- operator review + FORGET flow deletes permanently (backend RAM cache too).
 
 ## CI (`.github/workflows/ci.yml`)
 

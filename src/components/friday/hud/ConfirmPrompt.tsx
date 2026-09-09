@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useFridayStore } from "@/lib/store";
 import { decide } from "@/lib/agentStream";
 
@@ -17,6 +17,43 @@ export default function ConfirmPrompt() {
   const setPending = useFridayStore((s) => s.setPendingConfirm);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const approveRef = useRef<HTMLButtonElement>(null);
+  const denyRef = useRef<HTMLButtonElement>(null);
+  const previousFocus = useRef<Element | null>(null);
+
+  useEffect(() => {
+    if (!pending) return;
+    previousFocus.current = document.activeElement;
+    // Focus APPROVE on mount so keyboard/SR users land inside the dialog.
+    approveRef.current?.focus();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        // ESC = deny path without delivery: keep gate semantics simple —
+        // dismiss locally, orchestrator treats silence as refusal (120s).
+        setPending(null);
+      }
+      // Minimal focus trap: keep Tab cycling between DENY/APPROVE.
+      if (e.key === "Tab") {
+        const first = denyRef.current;
+        const last = approveRef.current;
+        if (!first || !last) return;
+        if (e.shiftKey && document.activeElement === first) {
+          e.preventDefault();
+          last.focus();
+        } else if (!e.shiftKey && document.activeElement === last) {
+          e.preventDefault();
+          first.focus();
+        }
+      }
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => {
+      window.removeEventListener("keydown", onKey, true);
+      // Return focus to the input that opened the dialog.
+      if (previousFocus.current instanceof HTMLElement) previousFocus.current.focus();
+    };
+  }, [pending, setPending]);
 
   if (!pending) return null;
 
@@ -76,6 +113,7 @@ export default function ConfirmPrompt() {
 
         <div className="relative mt-6 flex justify-center gap-8">
           <button
+            ref={denyRef}
             onClick={() => answer(false)}
             disabled={sending}
             data-testid="confirm-deny"
@@ -84,6 +122,7 @@ export default function ConfirmPrompt() {
             DENY
           </button>
           <button
+            ref={approveRef}
             onClick={() => answer(true)}
             disabled={sending}
             data-testid="confirm-approve"

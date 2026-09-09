@@ -87,6 +87,11 @@ jobs:
         with:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ steps.pw.outputs.version }}
+          # a version bump then installs only the new browser build on top of
+          # the cached ones instead of re-downloading ~150MB from scratch;
+          # restore-key hits set cache-hit=false, so the install step still runs
+          restore-keys: |
+            playwright-${{ runner.os }}-
 
       - name: Install Playwright browsers
         if: steps.pw-cache.outputs.cache-hit != 'true'
@@ -124,6 +129,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-traces
+          # one name per shard: uploading both artifacts under one name fails
+          name: playwright-traces-shard-${{ matrix.shard }}
           path: test-results/
           retention-days: 14

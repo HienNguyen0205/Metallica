@@ -135,20 +135,26 @@ export default function InputBar() {
           disabled={!micReady || busy}
           aria-label={micReady ? "Toggle microphone" : "Microphone unavailable in this browser"}
           aria-pressed={listening}
-          className={`h-1.5 w-1.5 shrink-0 rounded-full transition-all disabled:cursor-not-allowed ${
-            listening
-              ? "bg-cyan-300 shadow-[0_0_10px_3px_rgba(56,232,255,0.6)]"
-              : micReady
-                ? "bg-cyan-300/25 hover:bg-cyan-300/60"
-                : "bg-cyan-300/10"
-          }`}
-        />
+          className="shrink-0 -m-3 p-3 disabled:cursor-not-allowed"
+        >
+          <span
+            aria-hidden="true"
+            className={`block h-1.5 w-1.5 rounded-full transition-all ${
+              listening
+                ? "bg-cyan-300 shadow-[0_0_10px_3px_rgba(56,232,255,0.6)]"
+                : micReady
+                  ? "bg-cyan-300/25 hover:bg-cyan-300/60"
+                  : "bg-cyan-300/10"
+            }`}
+          />
+        </button>
         <button
           onClick={() => setLang(lang === "vi-VN" ? "en-US" : "vi-VN")}
           disabled={busy || listening}
-          aria-label="Toggle recognition language"
+          aria-label={`Recognition language: ${lang === "vi-VN" ? "Vietnamese" : "English"}. Activate for ${lang === "vi-VN" ? "English" : "Vietnamese"}`}
+          aria-pressed={lang === "vi-VN"}
           title={listening ? "Available after the current phrase" : undefined}
-          className="shrink-0 font-mono text-[9px] tracking-[0.2em] text-cyan-300/50 transition-colors hover:text-cyan-200 disabled:opacity-30"
+          className="shrink-0 -m-2 p-2 font-mono text-[9px] tracking-[0.2em] text-cyan-300/50 transition-colors hover:text-cyan-200 disabled:opacity-30"
         >
           {lang === "vi-VN" ? "VI" : "EN"}
         </button>
@@ -157,6 +163,7 @@ export default function InputBar() {
           onChange={(e) => setValue(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && !busy && ask(value, false)}
           disabled={busy}
+          aria-label="Ask FRIDAY"
           // Stays empty mid-turn: `disabled:opacity-30` below would render any
           // hint here at roughly a fifth of the contrast the rest of the HUD
           // holds. The cancel affordance is announced from `LiveIndicator`,
@@ -164,7 +171,7 @@ export default function InputBar() {
           placeholder={busy ? "" : listening ? "LISTENING" : "ASK FRIDAY"}
           className="flex-1 bg-transparent text-center font-mono text-[11px] uppercase tracking-[0.3em] text-cyan-100 placeholder:text-cyan-300/60 focus:outline-none disabled:opacity-30"
         />
-        <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-cyan-300/25" />
+        <span aria-hidden="true" className="h-1.5 w-1.5 shrink-0 rounded-full bg-cyan-300/25" />
       </div>
       {/* a hairline, not an input box */}
       <div className="h-px w-full max-w-md bg-gradient-to-r from-transparent via-cyan-300/30 to-transparent" />

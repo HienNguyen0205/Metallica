@@ -166,8 +166,9 @@ test("query flow walks the state machine and shows the hologram before the text"
 });
 
 test("the offline fallback still answers when the orchestrator is down", async ({ page }) => {
-  // Nothing is listening on :8000 here — the point is that a missing backend
-  // degrades to the local rules planner instead of hanging in THINKING.
+  // Nothing is listening on :8123 here (the built bundle points at the stub
+  // port, not :8000) — the point is that a missing backend degrades to the
+  // local rules planner instead of hanging in THINKING.
   await recordFlow(page);
 
   await page.locator("input").click();

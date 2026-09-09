@@ -1,6 +1,17 @@
 export type GpuClass = "unknown" | "software" | "hardware";
 export type QualityPreference = "auto" | "high" | "low";
 
+/**
+ * The one software-GL classifier — UI tests (helpers.ts) must read this same
+ * regex, not their own: two lists drifted before and a runner classified as
+ * hardware failed a >24fps assertion it should never have run.
+ */
+const SOFTWARE_GL_RE = /swiftshader|llvmpipe|software|basic render|angle \(google, vulkan/i;
+
+export function isSoftwareRendererName(name: string): boolean {
+  return SOFTWARE_GL_RE.test(name);
+}
+
 /** SwiftShader / llvmpipe rasterise on the CPU — skip the expensive passes. */
 export function isSoftwareRenderer(gl: { getContext?: () => unknown }): boolean {
   try {
@@ -12,8 +23,9 @@ export function isSoftwareRenderer(gl: { getContext?: () => unknown }): boolean 
       | null
       | undefined;
     if (!ctx || !ext || !ctx.getParameter) return false;
-    const name = String(ctx.getParameter((ext as { UNMASKED_RENDERER_WEBGL: unknown }).UNMASKED_RENDERER_WEBGL));
-    return /swiftshader|llvmpipe|software|basic render/i.test(name);
+    return isSoftwareRendererName(
+      String(ctx.getParameter((ext as { UNMASKED_RENDERER_WEBGL: unknown }).UNMASKED_RENDERER_WEBGL)),
+    );
   } catch {
     return false;
   }

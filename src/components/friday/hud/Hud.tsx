@@ -67,6 +67,11 @@ function useHudDepth(strength = 14): CSSProperties {
   const far = STATE_CAMERA.visualizing.distance;
   const depth = Math.min(1, Math.max(0, (t.camera[2] - near) / (far - near)));
 
+  // prefers-reduced-motion: static chrome, no 4Hz parallax animation.
+  if (typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) {
+    return { opacity: 1 };
+  }
+
   return {
     transform: `translate3d(${(-t.camera[0] * strength).toFixed(2)}px, ${(
       -t.camera[1] * strength
@@ -92,6 +97,8 @@ function useClock() {
 export function TopHud() {
   const depth = useHudDepth();
   const state = useFridayStore((s) => s.state);
+  const audioEnabled = useFridayStore((s) => s.audioEnabled);
+  const toggleAudio = useFridayStore((s) => s.toggleAudio);
   const time = useClock();
 
   return (
@@ -108,6 +115,15 @@ export function TopHud() {
           {state.replace("_", " ").toUpperCase()}
         </span>
         <span className="text-cyan-300/60">{time ?? "--:--:--"}</span>
+        {/* Mobile mute — the EdgeTelemetry AUDIO toggle is desktop-only. */}
+        <button
+          onClick={toggleAudio}
+          aria-pressed={audioEnabled}
+          aria-label={audioEnabled ? "Mute audio cues" : "Unmute audio cues"}
+          className="pointer-events-auto tracking-[0.22em] text-cyan-300/60 transition-colors hover:text-cyan-200 md:hidden"
+        >
+          AUDIO · {audioEnabled ? "ON" : "OFF"}
+        </button>
       </div>
     </div>
   );
@@ -189,6 +205,7 @@ export function AnswerLine() {
     <div
       role="status"
       aria-live="polite"
+      aria-atomic="true"
       className="pointer-events-none absolute inset-x-0 bottom-32 flex justify-center px-8"
     >
       {/* keyed so a new answer replays the rise-in */}
@@ -298,7 +315,10 @@ export function FocusPanel() {
 
   if (!focus) return null;
   return (
-    <div className="pointer-events-auto absolute bottom-40 left-1/2 flex max-w-[calc(100vw-2rem)] -translate-x-1/2 items-center gap-3 border border-cyan-300/25 bg-[#02050a]/80 px-4 py-2 font-mono text-[10px] tracking-[0.22em] text-cyan-100 backdrop-blur-sm">
+    <div
+      role="status"
+      className="pointer-events-auto absolute bottom-40 left-1/2 flex max-w-[calc(100vw-2rem)] -translate-x-1/2 items-center gap-3 border border-cyan-300/25 bg-[#02050a]/80 px-4 py-2 font-mono text-[10px] tracking-[0.22em] text-cyan-100 backdrop-blur-sm"
+    >
       <span className="text-cyan-200">{focus.label}</span>
       <span className="text-cyan-300/70">{focus.detail}</span>
       <button

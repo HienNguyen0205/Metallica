@@ -23,13 +23,21 @@ export function forceWebGLRequested(): boolean {
 
 type NavigatorGPU = Navigator & { gpu?: { requestAdapter: () => Promise<unknown | null> } };
 
+let adapterCache: boolean | null = null;
+
 export async function detectWebGPU(): Promise<boolean> {
+  if (adapterCache !== null) return adapterCache;
   if (typeof navigator === "undefined") return false;
   const gpu = (navigator as NavigatorGPU).gpu;
-  if (!gpu) return false;
+  if (!gpu) {
+    adapterCache = false;
+    return false;
+  }
   try {
-    return !!(await gpu.requestAdapter());
+    adapterCache = !!(await gpu.requestAdapter());
+    return adapterCache;
   } catch {
+    adapterCache = false;
     return false;
   }
 }
