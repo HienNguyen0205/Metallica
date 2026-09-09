@@ -245,7 +245,10 @@ export function TechLabel({
   /** Pin the canvas to this many characters — for 4 Hz readouts whose length never really changes. */
   capacity?: number;
 }) {
-  const text = useDecoded(children.toUpperCase(), decode);
+  // Coerced, not trusted: spec labels cross a process boundary and a
+  // non-string here used to throw `.toUpperCase()` inside the Canvas,
+  // unmounting the whole scene. Normalization coerces first; this is the net.
+  const text = useDecoded(String(children ?? "").toUpperCase(), decode);
   // Keyed on the resolved capacity, not the text: the font is monospace, so a
   // readout whose digits change but whose width does not keeps the same canvas
   // — which is the whole point, since these tick at 4 Hz. Without `capacity`

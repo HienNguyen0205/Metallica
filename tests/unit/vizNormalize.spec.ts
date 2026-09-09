@@ -47,7 +47,7 @@ test("normalize drops out-of-range network links", () => {
 });
 
 test("layout respects partial position/scale overrides", () => {
-  const base = { count: 3, index: 0, viewportWidth: 1440, hasCore: true } as const;
+  const base = { count: 3, index: 0 } as const;
   const onlyPos = resolveVisualizationLayout(
     { type: "network", position: [1, 2, 3] },
     { ...base },
@@ -58,4 +58,33 @@ test("layout respects partial position/scale overrides", () => {
   const onlyScale = resolveVisualizationLayout({ type: "network", scale: 2 }, { ...base });
   expect(onlyScale.scale).toBe(2);
   expect(onlyScale.position).not.toEqual([0, 0, 0]);
+});
+
+test("normalize coerces non-string labels so canvas labels cannot crash", () => {
+  const out = normalizeVisualization({
+    type: "radial_gauge",
+    data: {
+      metrics: [
+        { label: 123 as unknown as string, value: 50 },
+        { label: "", value: 10 },
+      ],
+    },
+  });
+  expect(out.data?.metrics?.map((m) => m.label)).toEqual(["123"]);
+});
+
+test("normalize coerces node ids and timeline labels", () => {
+  const out = normalizeVisualization({
+    type: "network",
+    data: {
+      nodes: [{ id: 7 as unknown as string }, { id: "b", label: null as unknown as string }],
+      links: [[0, 1]],
+    },
+  });
+  expect(out.data?.nodes?.map((n) => n.id)).toEqual(["7", "b"]);
+  const tl = normalizeVisualization({
+    type: "timeline",
+    data: { events: [{ label: 42 as unknown as string, at: 0.5 }] },
+  });
+  expect(tl.data?.events?.[0]?.label).toBe("42");
 });

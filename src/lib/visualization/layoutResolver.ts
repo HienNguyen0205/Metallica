@@ -1,4 +1,4 @@
-import type { VisualizationSpec } from "@/lib/store";
+import type { VisualizationSpec } from "@/lib/visualization/types";
 
 export interface LayoutPlacement {
   position: [number, number, number];
@@ -8,8 +8,6 @@ export interface LayoutPlacement {
 export interface LayoutContext {
   count: number;
   index: number;
-  viewportWidth: number;
-  hasCore: boolean;
 }
 
 /**
