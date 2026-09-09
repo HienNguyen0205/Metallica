@@ -36,6 +36,28 @@ function blip(freq: number, duration: number, gainPeak: number, type: Oscillator
   osc.connect(gain).connect(ac.destination);
   osc.start(now);
   osc.stop(now + duration + 0.02);
+  // Release nodes once the envelope ends — otherwise every blip leaks a
+  // connected oscillator + gain pair for the life of the shared context.
+  osc.onended = () => {
+    try {
+      osc.disconnect();
+    } catch {
+      /* already disconnected */
+    }
+    try {
+      gain.disconnect();
+    } catch {
+      /* already disconnected */
+    }
+  };
+}
+
+function muted(): boolean {
+  try {
+    return !useFridayStore.getState().audioEnabled;
+  } catch {
+    return false;
+  }
 }
 
 const CUES: Partial<Record<FridayState, () => void>> = {
@@ -47,21 +69,39 @@ const CUES: Partial<Record<FridayState, () => void>> = {
   speaking: () => blip(880, 0.1, 0.026),
   warning: () => {
     blip(300, 0.18, 0.045, "square");
-    setTimeout(() => blip(240, 0.2, 0.04, "square"), 130);
+    // Re-checked at fire time: muting inside the 130 ms window must silence
+    // the second half, not just the entry check in playStateCue.
+    setTimeout(() => {
+      if (!muted()) blip(240, 0.2, 0.04, "square");
+    }, 130);
   },
   error: () => {
     blip(180, 0.28, 0.05, "sawtooth");
-    setTimeout(() => blip(120, 0.32, 0.045, "sawtooth"), 90);
+    setTimeout(() => {
+      if (!muted()) blip(120, 0.32, 0.045, "sawtooth");
+    }, 90);
   },
 };
 
 export function playStateCue(state: FridayState) {
   // Muted UI stays muted — AudioCues also checks, but direct callers must not
   // bypass the toggle. Store never imports uiSound so this cannot cycle.
-  try {
-    if (!useFridayStore.getState().audioEnabled) return;
-  } catch {
-    /* test env without store — play through */
-  }
+  if (muted()) return;
   CUES[state]?.();
+}
+
+if (typeof window !== "undefined") {
+  // Cues are ticks; the context outlives its purpose on navigation.
+  window.addEventListener(
+    "pagehide",
+    () => {
+      try {
+        void ctx?.close();
+      } catch {
+        /* already closed */
+      }
+      ctx = null;
+    },
+    { once: true },
+  );
 }

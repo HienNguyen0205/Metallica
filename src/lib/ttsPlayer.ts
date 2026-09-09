@@ -1,4 +1,9 @@
-import { binsToLevels, getSharedAudioContext } from "@/lib/audioBus";
+import {
+  binsToLevels,
+  getSharedAudioContext,
+  releaseTtsPlayback,
+  retainTtsPlayback,
+} from "@/lib/audioBus";
 import type { TtsStream } from "@/lib/api/ttsClient";
 
 export interface TtsPlayerDeps {
@@ -37,6 +42,8 @@ export class TtsPlayer {
   private node: AudioWorkletNode | null = null;
   private freq: Uint8Array<ArrayBuffer> | null = null;
   private frames = 0;
+  /** Whether this play currently holds the shared-context TTS retain. */
+  private ttsHeld = false;
   /** Resolves the backpressure wait; woken by `ready`, `consumed`, or `stop()`. */
   private readyResolve: (() => void) | null = null;
   private readonly workletUrl: string;
@@ -71,6 +78,9 @@ export class TtsPlayer {
     // counters (generation guard in the handler + aborted-first ordering).
     this.teardown();
     this.wakeReady();
+    // Hold the shared context before any await: detachMic() must not suspend
+    // under this play (see audioBus retainTtsPlayback).
+    this.holdTts();
     const total: number | null = stream.header.totalSamples;
     this.total = total;
     this.played = 0;
@@ -79,11 +89,20 @@ export class TtsPlayer {
 
     const create = this.createContext ?? getSharedAudioContext;
     const ctx = create();
-    if (!ctx) throw new Error("unsupported");
+    if (!ctx) {
+      this.unholdTts();
+      throw new Error("unsupported");
+    }
     if (ctx.state === "suspended") await ctx.resume();
-    if (aborted()) throw abortError();
+    if (aborted()) {
+      this.unholdTts();
+      throw abortError();
+    }
     await ctx.audioWorklet.addModule(this.workletUrl);
-    if (aborted()) throw abortError();
+    if (aborted()) {
+      this.unholdTts();
+      throw abortError();
+    }
 
     const node = this.createNode?.(ctx) ?? new AudioWorkletNode(ctx, "tts-player");
     const analyser = ctx.createAnalyser();
@@ -155,8 +174,12 @@ export class TtsPlayer {
     } catch (err) {
       // A failed play must not leave a live graph behind (levels() would keep
       // serving data after a rejection) — but a superseded play must not tear
-      // down its successor's graph. Counters survive for the phase rule.
-      if (this.generation === my) this.teardown();
+      // down its successor's graph, nor release its successor's hold.
+      // Counters survive for the phase rule.
+      if (this.generation === my) {
+        this.teardown();
+        this.unholdTts();
+      }
       throw err;
     } finally {
       signal?.removeEventListener("abort", onAbort);
@@ -174,10 +197,27 @@ export class TtsPlayer {
     return Math.max(0, Math.min(1, this.played / Math.max(1, this.total)));
   }
 
+  /** Hold the shared context against detachMic() suspend (idempotent). */
+  private holdTts(): void {
+    if (!this.ttsHeld) {
+      this.ttsHeld = true;
+      retainTtsPlayback();
+    }
+  }
+
+  /** Release a hold taken by holdTts() (idempotent). */
+  private unholdTts(): void {
+    if (this.ttsHeld) {
+      this.ttsHeld = false;
+      releaseTtsPlayback();
+    }
+  }
+
   stop(): void {
     this.generation++;
     this.teardown();
     this.wakeReady();
+    this.unholdTts();
     // Preserve frames/played across abort: Task 3 reads framesFlowed after a
     // rejection to tell partial playback (phase 2, quiet) from zero frames
     // (phase 1, synthesis fallback). They reset on the next play() start.

@@ -442,6 +442,11 @@ test.describe("voice input", () => {
   });
 
   test.beforeEach(async ({ page }) => {
+    // The stub outlives the file (beforeAll): without a reset, queries and
+    // /tts hits accumulate and later assertions pass off earlier tests' traffic.
+    stub.queries.length = 0;
+    stub.ttsRequests.length = 0;
+    stub.decisions.length = 0;
     await stubMicrophone(page);
     await gotoScene(page);
   });

@@ -95,6 +95,11 @@ export interface VisualizationEntry {
   id: number;
   spec: VisualizationSpec;
   lifecycle: VizLifecycle;
+  /**
+   * Early non-interactive materialize (§18). Replaced — not appended to — when
+   * the turn's real spec arrives, so preview → viz never costs two slots.
+   */
+  preview?: boolean;
 }
 
 let nextVisualizationId = 1;
@@ -163,7 +168,7 @@ export interface FridayStore {
    * fields that can disagree. Consumers that want the latest read it here.
    */
   visualizations: VisualizationEntry[];
-  addVisualization: (viz: VisualizationSpec) => void;
+  addVisualization: (viz: VisualizationSpec, opts?: { preview?: boolean }) => void;
   setVisualizations: (vizs: VisualizationSpec[]) => void;
   clearVisualizations: () => void;
   /** Flip a materializing entry to active once its entrance finishes (by stable id). */
@@ -218,13 +223,24 @@ export const useFridayStore = create<FridayStore>((set, get) => ({
   answer: null,
   setAnswer: (answer) => set({ answer }),
   visualizations: [],
-  addVisualization: (spec) =>
-    set((s) => ({
-      visualizations: [
-        ...s.visualizations.map((e) => ({ ...e, lifecycle: "active" as const })),
-        { id: nextVisualizationId++, spec, lifecycle: "materializing" as const },
-      ].slice(-3),
-    })),
+  addVisualization: (spec, opts) =>
+    set((s) => {
+      // Previews are transient: a new entry — preview or real — replaces
+      // earlier previews instead of appending after them. Preview → viz used
+      // to cost two of the three slots and evict a real visualization.
+      const base = s.visualizations.filter((e) => !e.preview);
+      return {
+        visualizations: [
+          ...base.map((e) => ({ ...e, lifecycle: "active" as const })),
+          {
+            id: nextVisualizationId++,
+            spec,
+            lifecycle: "materializing" as const,
+            preview: !!opts?.preview,
+          },
+        ].slice(-3),
+      };
+    }),
   settleVisualization: (id) =>
     set((s) => ({
       visualizations: s.visualizations.map((e) =>

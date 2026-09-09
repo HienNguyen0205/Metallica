@@ -33,6 +33,25 @@ test("settleVisualization flips materializing to active", () => {
   expect(api.getState().visualizations[0].lifecycle).toBe("active");
 });
 
+test("a real viz replaces earlier previews instead of appending", () => {
+  api.getState().addVisualization({ type: "radar", title: "PREVIEW" }, { preview: true });
+  expect(api.getState().visualizations.length).toBe(1);
+  api.getState().addVisualization({ type: "radar", title: "REAL" });
+  const vizs = api.getState().visualizations;
+  expect(vizs.length).toBe(1);
+  expect(vizs[0].spec.title).toBe("REAL");
+  expect(vizs[0].preview).not.toBe(true);
+});
+
+test("a newer preview replaces the older one without evicting real entries", () => {
+  api.getState().addVisualization({ type: "radial_gauge", title: "A" });
+  api.getState().addVisualization({ type: "radar", title: "B" });
+  api.getState().addVisualization({ type: "globe", title: "P1" }, { preview: true });
+  api.getState().addVisualization({ type: "timeline", title: "P2" }, { preview: true });
+  const titles = api.getState().visualizations.map((e) => e.spec.title);
+  expect(titles).toEqual(["A", "B", "P2"]);
+});
+
 test("settle by stable id survives cap eviction (stale index must not settle the wrong entry)", () => {
   api.getState().addVisualization({ type: "radial_gauge", title: "A" });
   api.getState().addVisualization({ type: "radar", title: "B" });

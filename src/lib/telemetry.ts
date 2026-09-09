@@ -44,6 +44,8 @@ let worstFrame = 0;
 let windowStart = 0;
 let last = 0;
 let running = false;
+let rafId = 0;
+let consumers = 0;
 
 function loop(now: number) {
   if (last) worstFrame = Math.max(worstFrame, now - last);
@@ -68,14 +70,21 @@ function loop(now: number) {
     const conn = (navigator as Navigator & { connection?: { downlink?: number } }).connection;
     state.downlink = conn?.downlink ?? 0;
   }
-  requestAnimationFrame(loop);
+  rafId = requestAnimationFrame(loop);
 }
 
 function start() {
   if (running || typeof window === "undefined") return;
   running = true;
   windowStart = performance.now();
-  requestAnimationFrame(loop);
+  rafId = requestAnimationFrame(loop);
+}
+
+function stop() {
+  if (rafId) cancelAnimationFrame(rafId);
+  rafId = 0;
+  running = false;
+  last = 0;
 }
 
 /** Called from the scene's camera rig; a plain write, no React involved. */
@@ -95,11 +104,18 @@ export function useTelemetry(hz = 4): Telemetry {
 
   useEffect(() => {
     start();
+    consumers++;
     const id = setInterval(
       () => setSnapshot({ ...state, camera: [...state.camera] as [number, number, number] }),
       1000 / hz,
     );
-    return () => clearInterval(id);
+    return () => {
+      clearInterval(id);
+      if (--consumers <= 0) {
+        consumers = 0;
+        stop();
+      }
+    };
   }, [hz]);
 
   return snapshot;

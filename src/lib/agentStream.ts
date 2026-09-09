@@ -24,6 +24,20 @@ export const FLOW_TIMING = {
 
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+/**
+ * Voice turns await the utterance before landing idle. Barge-in and cancel
+ * abort it via stopSpeaking() — an AbortError there is intentional silence,
+ * not a turn failure, so it must not surface as a session error.
+ */
+async function speakUnlessAborted(text: string): Promise<void> {
+  try {
+    await speak(text);
+  } catch (err) {
+    if ((err as Error)?.name === "AbortError") return;
+    throw err;
+  }
+}
+
 function log(...args: unknown[]) {
   console.warn("[friday]", ...args);
 }
@@ -58,8 +72,13 @@ function dispatch(store: FlowStore, event: FridayEvent, flags: { doneSeen: boole
       // clear previous denied marker when a new tool starts
       store.setDeniedTool(null);
       break;
-    case "viz":
     case "preview": {
+      const spec = normalizeVisualization(event.spec);
+      // §8/§18 — early materialize; replaced when the real spec arrives.
+      store.addVisualization(spec, { preview: true });
+      break;
+    }
+    case "viz": {
       const spec = normalizeVisualization(event.spec);
       // §8 — multiple viz: materialize immediately, don't remount previous
       store.addVisualization(spec);
@@ -173,7 +192,7 @@ export async function runQuery(
   // The answer is held until it has been read out, rather than for a fixed
   // beat — a two-sentence reply outlasts 3.6s and would otherwise be cleared,
   // and the HUD returned to IDLE, while FRIDAY was still talking.
-  if (spoken) await (voice ? speak(spoken) : wait(FLOW_TIMING.answerHold));
+  if (spoken) await (voice ? speakUnlessAborted(spoken) : wait(FLOW_TIMING.answerHold));
   store.endTurn();
   // Answer stays on screen until the next query (turn-start setAnswer(null) is
   // the only place that clears it), same as the viz scene above.
@@ -220,7 +239,7 @@ async function runLocal(store: FlowStore, query: string, voice = false) {
   const answer = summarize(spec);
   transition("speaking");
   setAnswer(answer);
-  await (voice ? speak(answer) : wait(FLOW_TIMING.answerHold));
+  await (voice ? speakUnlessAborted(answer) : wait(FLOW_TIMING.answerHold));
 
   store.endTurn();
   store.setLiveMode("idle");

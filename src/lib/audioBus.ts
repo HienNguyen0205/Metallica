@@ -120,6 +120,29 @@ export async function attachMic(): Promise<void> {
   }
 }
 
+/**
+ * TTS playback holds on the shared context: `detachMic()` suspends it, and a
+ * suspend landing mid-utterance mutes the rest of the speech (play() only
+ * resumes once at start). Pure counter — never creates a context, so injected
+ * test fakes are unaffected.
+ */
+let ttsHolders = 0;
+
+export function retainTtsPlayback(): void {
+  ttsHolders++;
+}
+
+export function releaseTtsPlayback(): void {
+  ttsHolders = Math.max(0, ttsHolders - 1);
+  if (ttsHolders === 0 && !isMicAttached() && context?.state === "running") {
+    void context.suspend().catch(() => {});
+  }
+}
+
+export function isTtsActive(): boolean {
+  return ttsHolders > 0;
+}
+
 /** Stops the mic tracks and drops the analyser. Always safe to call. */
 export function detachMic(): void {
   // Invalidate any attach still awaiting getUserMedia/resume.
@@ -140,7 +163,8 @@ export function detachMic(): void {
   analyser = null;
   freqCache = null;
   // Suspend the shared context so idle tabs don't burn CPU; re-attached on demand.
-  if (context && context.state === "running") {
+  // Never while TTS holds it — that would mute an in-flight utterance.
+  if (!isTtsActive() && context && context.state === "running") {
     void context.suspend().catch(() => {});
   }
 }

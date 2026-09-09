@@ -1,4 +1,12 @@
 import { defineConfig, devices } from "@playwright/test";
+import { STUB_PORT } from "./tests/ui/stubOrchestrator";
+
+/**
+ * The `next start` port for the UI suite. Hoisted (not repeated in baseURL +
+ * webServer) so a change cannot update one and silently orphan the other.
+ * :3100, not :3000 — see the reuseExistingServer comment below.
+ */
+const E2E_PORT = 3100;
 
 /**
  * Unit specs are pure logic and need no server — skip the production build
@@ -51,7 +59,7 @@ export default defineConfig({
       testDir: "./tests/ui",
       use: {
         ...devices["Desktop Chrome"],
-        baseURL: "http://localhost:3100",
+        baseURL: `http://localhost:${E2E_PORT}`,
         viewport: { width: 1440, height: 900 },
         trace: "retain-on-failure",
         screenshot: "only-on-failure",
@@ -68,15 +76,17 @@ export default defineConfig({
         // suite silently runs against a dev build — slower, and StrictMode's
         // double-mounting exhausts WebGL contexts until unrelated render tests
         // start failing. Its own port makes that impossible.
-        command: "npm run build && npx next start -p 3100",
-        url: "http://localhost:3100",
+        command: `npm run build && npx next start -p ${E2E_PORT}`,
+        url: `http://localhost:${E2E_PORT}`,
         // The orchestrator URL is baked in at build time, so the stub in
         // tests/ui/stubOrchestrator.ts has to bind whatever this names. Point
         // it at a dedicated port: on :8000 the suite collides with a real
         // backend a developer has running, and the frontend then silently
         // takes its offline fallback instead of failing loudly.
+        // STUB_PORT is imported (not repeated) so drift fails at compile,
+        // not as silent offline-fallback passes.
         env: {
-          NEXT_PUBLIC_FRIDAY_API: "http://127.0.0.1:8123",
+          NEXT_PUBLIC_FRIDAY_API: `http://127.0.0.1:${STUB_PORT}`,
           // The suite builds for production, where the dev rails ship off — but
           // they are how these tests drive states and visualizations, so turn
           // them back on for the run.
