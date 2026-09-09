@@ -12,12 +12,12 @@ compatibility decision.
                     │  zustand store  ◀── setState (dev rails)      │
                     │  state · answer · visualization · focus       │
                     │      │                                        │
-                    │      ├──────────────┬────────────────┐        │
-                    │      ▼              ▼                ▼        │
-                    │  DOM HUD        FridayCore     FridayVis     │
-                    │  (Hud.tsx)      + SpatialHud    (REGISTRY)    │
-                    │                 + lights/camera rig           │
-                    └──────────────────────────────────────────────┘
+                     │      ├──────────────┬────────────────┐        │
+                     │      ▼              ▼                ▼        │
+                     │  DOM HUD        FridayCore     FridayVis     │
+                     │  (hud/ modules) + SpatialHud    (REGISTRY)    │
+                     │                 + lights/camera rig           │
+                     └──────────────────────────────────────────────┘
 ```
 
 ## 1. Layers
@@ -29,15 +29,21 @@ The application has four cooperating layers:
 | **State** | `src/lib/store.ts` | Single source of truth: agent state machine (+ `endTurn` landing), current answer, `visualizations: VisualizationEntry[]` (max 3, stable id, transient `preview` flag), drill-down focus, `pendingConfirm` gate, `toolActivity`/`deniedTool`, `liveMode`/`sessionError`, `memories`, render backend/quality/lang, audio flag. |
 | **Logic** | `src/lib/vizPlanner.ts`, `src/lib/agentStream.ts`, `stateLook.ts` | Pure planner (query → spec), SSE orchestrator + offline `runLocal` fallback, state → look tables. |
 | **3D scene** | `src/components/friday/**` | The R3F canvas: core hologram, particles, rings, waveform, spatial HUD, visualization registry, shaders, post-processing. |
-| **DOM HUD** | `src/components/friday/hud/Hud.tsx` | Everything above the canvas: top bar, edge telemetry, dev rails, answer line, input bar. |
+| **DOM HUD** | `src/components/friday/hud/` per-component modules (`TopHud`, `EdgeTelemetry`, `AnswerLine`, `VizRail`, `StateRail`, `FocusPanel`, `AudioCues`, plus `useHudDepth`/`devRails` helpers; `Hud.tsx` is a back-compat barrel re-exporting them) | Everything above the canvas: top bar, edge telemetry, dev rails, answer line, input bar. |
 
-`src/app/page.tsx` composes them in one client component; the `<Canvas>` is
-dynamically imported with `ssr: false` because WebGL requires a real browser
-context.
+`src/app/page.tsx` is a server shell composing client islands; the 3D scene
+lives behind `SceneIsland`, the one `dynamic(..., { ssr: false })` boundary
+(`ssr: false` is forbidden in Server Components, and WebGL needs a real
+browser context). The page is `force-dynamic` so the CSP nonce proxy can
+inject into it (see §14).
 
 ## 2. State management (`src/lib/store.ts`)
 
-A single Zustand store holds everything the UI needs:
+A single Zustand store holds everything the UI needs. The renderer-contract
+types (`VisualizationSpec`, `VizData`, `VisualizationEntry`, …) live in
+`src/lib/visualization/types.ts` — pure modules (planner, normalization,
+event parsing) import that path directly; the store re-exports them so
+existing `@/lib/store` type imports keep working.
 
 ```ts
 // Mirrors src/lib/store.ts:FridayStore — the shape, not a copy.
@@ -110,7 +116,13 @@ See [STATE_MACHINE.md](STATE_MACHINE.md) for the full table and rationale.
 
 Offline fallback `runLocal()` (same file) simulates the pipeline with timed
 waits (`thinking → searching → tool_execution → processing → visualizing →
-speaking → idle`) via `planVisualization`/`summarize`. `OrchestratorRefused`
+speaking → idle`) via `planVisualization`/`summarize`. The waits take the
+turn's `AbortSignal`, so ESC/cancel stops a demo run mid-flight instead of
+letting scheduled transitions fire after the reset. Voice answers go through
+`speakUnlessAborted` — a barge-in abort mid-utterance is intentional silence,
+not a session error. `TtsPlayer.play()` is bounded by `PLAY_TIMEOUT_MS`
+(30 s, `AbortError`): a backend that goes silent mid-stream cannot freeze the
+turn with the input disabled. `OrchestratorRefused`
 (403/429) never falls back — a refusal is not an outage.
 
 ## 4. Spec-driven visualizations
@@ -201,14 +213,16 @@ Eight stacked layers, all driven by `STATE_LOOK[state]`:
 5. **CoreParticles** — see below.
 6. **Identity labels** — "AI CORE" + current state name, decoded on change.
 7. **WaveformRing** — 96 instanced bars at r=2.08; height from layered sines
-   through an injectable `getLevel(bin, time)` seam (drop-in point for a real
-   `AnalyserNode`), smoothed at `delta*12`.
+   through an injectable `getLevel(bin, time)` seam, smoothed at `delta*12`.
+   `FridayCore` feeds it real levels: shared-bus mic FFT while listening,
+   streamed-TTS analyser levels while speaking, synthesised motion otherwise
+   (null falls back to synth, so a denied mic degrades gracefully).
 8. **Jitter** — positional shake scaled by `look.jitter`, non-zero only for
    `warning`/`error`.
 
 ## 7. Custom shaders (`effects/materials.ts`)
 
-Three TSL node factories (`createHologramMaterial`, `createParticleMaterial`,
+Three TSL node factories (`createHologramMaterial`, `createParticleField`,
 `createCoreMaterial`), each returning `{ material, apply/update }`. One node
 graph compiles to WGSL or GLSL depending on the loaded backend — no `compat`
 flag, no GLSL string splicing (which is why `@react-three/postprocessing`,
@@ -217,7 +231,7 @@ drei `<Text>`/`<Line>` and `MeshDistortMaterial` were dropped).
 | Factory | Purpose |
 |---|---|
 | `createHologramMaterial` | Fresnel edge glow + travelling scanlines + flicker. Core shell & rings. |
-| `createParticleMaterial` | GPU particle motion from per-particle attributes; orbit vs outward flow via mode. |
+| `createParticleField` | GPU particle motion from per-particle attributes; orbit vs outward flow via mode. |
 | `createCoreMaterial` | Noise-displaced energy core; color/glow/distort/speed are uniforms. |
 
 ## 8. Particles (`CoreParticles.tsx`)
@@ -272,7 +286,11 @@ A single module-level rAF loop measures counters over 500 ms windows:
 
 Consumers call `useTelemetry(hz = 4)` which samples into React state at 4 Hz —
 sampling per frame would cost more than the scene itself. `SpatialHud` also
-drives PWR/MEM/NET level columns from the same counters.
+drives PWR/MEM/NET level columns from the same counters. The loop is
+ref-counted: each mounted consumer starts it, the last unmount stops it. It
+pauses while the tab is hidden (a backgrounded rAF loop would report dead
+0 fps as data) and resumes on visible; `stopTelemetry()` force-stops it as a
+test-only seam.
 
 ## 12. Styling
 
@@ -293,3 +311,28 @@ Triggered by `(max-width: 768px)` or `(prefers-reduced-motion: reduce)`:
 
 Mobile tests assert the simplified layout renders without overflow while
 keeping the state label and input functional.
+
+## 14. Content Security Policy (nonce proxy)
+
+`next.config.ts` sets `nosniff` / `DENY` / strict referrer headers but
+deliberately no CSP: a static `script-src 'self'` blocks the inline bootstrap
+Next.js needs to hydrate any prerendered page — no hydration means no canvas,
+and every UI test burns its full timeout until CI shards die at the job
+limit (exactly what happened in Sep 2026).
+
+`src/proxy.ts` (Next 16 Proxy convention) owns the CSP instead. Per request
+it mints a nonce, puts `script-src 'self' 'nonce-…'` on the response, and
+forwards the nonce as `x-nonce` so Next stamps it onto its own inline
+scripts automatically. Everything else mirrors the old static policy
+(`connect-src` keeps the orchestrator/stub hosts, `object-src 'none'`,
+`frame-ancestors 'none'`, `style-src` keeps `'unsafe-inline'`).
+
+Two deliberate constraints:
+
+- **No `strict-dynamic`.** It would void the `'self'` allowlist, and the TTS
+  `AudioWorklet` module (same-origin `/audio/tts-worklet.js` fetched via
+  `addModule`, not `<script>`) is not provable-safe under it by the UI suite.
+  Nothing third-party loads here, so it buys no threat coverage.
+- **`force-dynamic` page.** A nonce cannot be injected into a build-time
+  prerender, so `page.tsx` opts out of static rendering (a live hologram has
+  no use for one anyway).
