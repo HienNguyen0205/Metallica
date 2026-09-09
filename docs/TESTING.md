@@ -18,8 +18,15 @@ npm run verify       # lint + typecheck + all tests (local CI gate)
 | `unit` | `tests/unit/**` | No browser or `webServer` — the config parses `--project=` itself so a unit-only run never boots the production server. |
 | `ui` | `tests/ui/**` | Desktop Chrome, 1440×900, trace on failure, webServer runs `npm run build && npx next start -p 3100`. |
 
-Global settings: 120 s test timeout, 10 s expect timeout, retries 2 in CI,
-workers 1, GitHub+HTML+list reporters.
+Global settings: 120 s test timeout, 10 s expect timeout, 30 s action timeout
+for UI actions, retries 2 in CI, workers 1, GitHub+HTML+list reporters.
+
+The action timeout is the fail-fast bound: without it every action inherits
+the 120 s test timeout, so a systemically dead page (no canvas, hung server)
+costs ~6 min per test (120 s × 3 attempts) and the shards die at the job
+limit with nothing completed. 30 s is generous — real actions take
+milliseconds, and every legitimately long poll (`waitForHologram`, flow
+recording) passes an explicit timeout that overrides it.
 
 ## Unit project (`tests/unit/` — 16 specs)
 
@@ -35,10 +42,11 @@ Drives the zustand store directly via `getState()/setState()`:
 - `setState` unguarded, `reset()` clears answer/visualization/focus,
 - audio toggle persists, render backend defaults to `"webgl2"`,
 - `endTurn` lands idle silently (no illegal-transition noise),
-- live stream dispatches state/viz/answer then lands idle; 429 refusal never
-  falls back to the canned planner; unreachable orchestrator uses offline
-  planner; interrupted/early-ended streams surface errors with `liveMode`
-  reset to `idle`.
+ - live stream dispatches state/viz/answer then lands idle; 429 refusal never
+   falls back to the canned planner; unreachable orchestrator uses offline
+   planner; interrupted/early-ended streams surface errors with `liveMode`
+   reset to `idle`; aborting mid-fallback stops the local run before it
+   paints anything.
 
 ### `vizPlanner.spec.ts` / `vizNormalize.spec.ts` / `vizLifecycle.spec.ts` / `vizFocus.spec.ts` / `vizHeatmap.spec.ts`
 
@@ -52,8 +60,10 @@ Locks planner rule ordering and invariants:
 - `sampleSpec` exists for all 11 types with non-empty data (timeline/globe
   ship minimal events/points so empty axes never pass);
 - gauge values within 0–100; `summarize` distinct non-empty per type,
-- normalization never mutates input, coerces non-finite metrics, sanitizes
-  colors/scale/position/title, drops OOB links, respects partial overrides,
+ - normalization never mutates input, coerces non-finite metrics, coerces
+   wire labels/ids/units to non-empty strings (metrics/events without one are
+   dropped; node ids fall back to `node-N` so `links` indices never shift),
+   sanitizes colors/scale/position/title, drops OOB links, respects partial overrides,
 - lifecycle keeps at most 3 visualizations (bulk `setVisualizations` capped),
   settle by stable id survives eviction,
 - `nextFocus` pure move/release semantics tested without a browser.
@@ -61,10 +71,11 @@ Locks planner rule ordering and invariants:
 ### Other unit specs
 
 `sse` (chunk splits, CRLF, comments, abort), `events` (rejects unknown
-states/risks/viz), `ttsPlayer` (header parse, truncation, abort, backpressure),
-`audioBus` (TTS-first fallback, FFT mapping, mic lifecycle), `gpu` (shared
-software-GL classifier), `quality` (heavy truth table), `labelCapacity`
-(texture never clips), `spriteGeometry` (shared geometry never disposed).
+states/risks/viz), `ttsPlayer` (header parse, truncation, abort, backpressure,
+30 s anti-hang timeout), `audioBus` (TTS-first fallback, FFT mapping, mic
+lifecycle), `gpu` (shared software-GL classifier), `quality` (heavy truth
+table), `labelCapacity` (texture never clips), `spriteGeometry` (shared
+geometry never disposed).
 
 ## UI project
 
@@ -101,7 +112,9 @@ contrast math composites the element color over the known background
   done over SSE on `:8123`; answer text pinned (`73 percent`) so a stub-bind
   failure cannot silently downgrade to the offline fallback.
 - **Confirm flow:** high-risk tool shows `alertdialog` with focus trap + ESC;
-  failed delivery keeps the gate open instead of dismissing as denied.
+  failed button delivery keeps the gate open instead of dismissing as denied,
+  while ESC delivers a deny fire-and-forget (unblocks the orchestrator now
+  instead of after 120 s of silence) and still dismisses locally.
 - **Voice:** mic rail guarded (`listening → thinking`), TTS-first speak with
   synthesis fallback; stub `ttsRequests` asserted per-test.
 - Responsive at 1366×768 / 1920×1080 / 2560×1440; mobile 375×812 uses the
@@ -144,7 +157,10 @@ cancel-in-progress. Node 22, `NEXT_TELEMETRY_DISABLED=1`.
 | Job | Steps | Budget |
 |---|---|---|
 | **static** ("Lint · Types · Unit") | npm ci → lint → typecheck → `test:unit` | 10 min |
-| **ui** ("UI (WebGL)") | npm ci → cache Playwright browsers keyed on version → install chromium deps → cache `.next/cache` → `test:ui` (suite builds itself) | 25 min |
+| **ui** ("UI (WebGL)") | npm ci → cache Playwright browsers keyed on version → install chromium deps → cache `.next/cache` → `test:ui` (suite builds itself) | 30 min |
 
-The `ui` job uploads `playwright-report/` (14 days) always and `test-results/`
-traces on failure.
+The `ui` job uploads `playwright-report/` (14 days) on every non-cancelled
+run and `test-results/` traces on `always()` — a timed-out job concludes
+`cancelled`, yet each test that died before the kill already wrote its
+trace, so the partial evidence is kept instead of skipped. (Artifact dirs
+are `mkdir -p`'d first so the upload never fails on a missing path.)
