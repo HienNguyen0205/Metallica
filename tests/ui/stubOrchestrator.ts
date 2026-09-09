@@ -137,6 +137,35 @@ export const CONFIRM_FLOW: StubEvent[] = [
   },
 ];
 
+/**
+ * Two series for one bar_3d spec — the grouped-bars layout. Short values so
+ * the tallest bar (P95 = 44) is the obvious click target, and drill_down so
+ * the test can prove the second series is pickable, not just painted.
+ */
+export const GROUPED_BAR_FLOW: StubEvent[] = [
+  { event: "state", data: { state: "thinking" }, after: 60 },
+  { event: "state", data: { state: "visualizing" }, after: 180 },
+  {
+    event: "viz",
+    data: {
+      type: "bar_3d",
+      title: "REQUESTS VS P95",
+      animation: "materialize",
+      interaction: "drill_down",
+      data: {
+        series: [
+          { label: "REQ", points: [34, 58, 22] },
+          { label: "P95", points: [12, 44, 39] },
+        ],
+      },
+    },
+    after: 20,
+  },
+  { event: "state", data: { state: "speaking" }, after: 200 },
+  { event: "answer", data: { text: "Traffic concentrated on two services." }, after: 20 },
+  { event: "done", data: {}, after: 20 },
+];
+
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export interface StubHandle {
