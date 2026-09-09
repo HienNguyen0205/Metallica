@@ -29,8 +29,12 @@ export default function ConfirmPrompt() {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         e.stopPropagation();
-        // ESC = deny path without delivery: keep gate semantics simple —
-        // dismiss locally, orchestrator treats silence as refusal (120s).
+        // ESC denies without blocking on delivery: the orchestrator unblocks
+        // now instead of treating 120s of silence as refusal, and a failed
+        // delivery still leaves the prompt dismissed — silence remains refusal.
+        decide(pending.id, false).catch((err) =>
+          console.warn("[friday] could not deliver deny:", err),
+        );
         setPending(null);
       }
       // Minimal focus trap: keep Tab cycling between DENY/APPROVE.

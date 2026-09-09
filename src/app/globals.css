@@ -53,7 +53,9 @@ body {
     transform: translateY(-120px);
   }
   to {
-    transform: translateY(100vh);
+    /* dvh, not vh: the container is h-dvh and 100vh overshoots by the mobile
+       toolbar height while it is still shown */
+    transform: translateY(100dvh);
   }
 }
 

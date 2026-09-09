@@ -1,21 +1,21 @@
 import { useFridayStore, type FridayState } from "@/lib/store";
+import { getSharedAudioContext } from "@/lib/audioBus";
 
 /**
  * §18 — very subtle UI blips. Two short oscillators through a fast gain
  * envelope; no assets, no library, nothing louder than a soft tick.
+ *
+ * Runs on the shared audio bus context (one AudioContext per tab, not one per
+ * module) — browsers cap concurrent contexts, and the mic/TTS paths already
+ * own one.
  */
-let ctx: AudioContext | null = null;
-
 function audio(): AudioContext | null {
   if (typeof window === "undefined") return null;
-  if (!ctx) {
-    const Ctor = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-    if (!Ctor) return null;
-    ctx = new Ctor();
-  }
+  const ac = getSharedAudioContext();
+  if (!ac) return null;
   // browsers start suspended until a gesture; resume is a no-op afterwards
-  if (ctx.state === "suspended") void ctx.resume();
-  return ctx;
+  if (ac.state === "suspended") void ac.resume();
+  return ac;
 }
 
 function blip(freq: number, duration: number, gainPeak: number, type: OscillatorType = "sine") {
@@ -89,19 +89,6 @@ export function playStateCue(state: FridayState) {
   if (muted()) return;
   CUES[state]?.();
 }
-
-if (typeof window !== "undefined") {
-  // Cues are ticks; the context outlives its purpose on navigation.
-  window.addEventListener(
-    "pagehide",
-    () => {
-      try {
-        void ctx?.close();
-      } catch {
-        /* already closed */
-      }
-      ctx = null;
-    },
-    { once: true },
-  );
-}
+// No pagehide cleanup: the context is the shared audio-bus one (owned by
+// audioBus, suspended by detachMic when idle), not a module-local context
+// worth closing on navigation.

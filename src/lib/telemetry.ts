@@ -48,6 +48,8 @@ let rafId = 0;
 let consumers = 0;
 
 function loop(now: number) {
+  // Always keep the handle fresh so stop() cancels the right frame.
+  rafId = 0;
   if (last) worstFrame = Math.max(worstFrame, now - last);
   last = now;
   frames++;
@@ -77,7 +79,22 @@ function start() {
   if (running || typeof window === "undefined") return;
   running = true;
   windowStart = performance.now();
+  // A hidden tab burns CPU on a scene nobody sees: pause the loop while
+  // hidden and resume on visible. rAF already throttles in background tabs,
+  // but the 500ms sampling window would then report a dead 0 fps as data.
+  document.addEventListener("visibilitychange", onVisibility);
   rafId = requestAnimationFrame(loop);
+}
+
+function onVisibility() {
+  if (document.hidden) {
+    if (rafId) cancelAnimationFrame(rafId);
+    rafId = 0;
+    last = 0;
+  } else if (running && !rafId) {
+    windowStart = performance.now();
+    rafId = requestAnimationFrame(loop);
+  }
 }
 
 function stop() {
@@ -85,6 +102,18 @@ function stop() {
   rafId = 0;
   running = false;
   last = 0;
+  if (typeof document !== "undefined") {
+    document.removeEventListener("visibilitychange", onVisibility);
+  }
+}
+
+/**
+ * Force-stops the sampling loop and drops the consumer count.
+ * Test-only seam: production code uses the useTelemetry ref-count instead.
+ */
+export function stopTelemetry(): void {
+  consumers = 0;
+  stop();
 }
 
 /** Called from the scene's camera rig; a plain write, no React involved. */
