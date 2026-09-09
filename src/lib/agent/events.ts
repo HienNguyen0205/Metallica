@@ -1,4 +1,4 @@
-import type { VisualizationSpec, VisualizationType } from "@/lib/store";
+import type { VisualizationSpec, VisualizationType } from "@/lib/visualization/types";
 import type { FridayState } from "@/lib/agent/stateMachine";
 
 export type { FridayState };

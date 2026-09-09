@@ -356,9 +356,10 @@ suite against the production build, report artifact uploaded).
 src/
 ├── app/
 │   ├── layout.tsx              # Root layout — Geist fonts, metadata, typed LayoutProps
-│   └── page.tsx                # "/" — Canvas + DOM HUD overlays
+│   └── page.tsx                # "/" — server shell + client islands (Scene, HUD overlays)
 ├── components/friday/
 │   ├── Scene.tsx               # <Canvas>, camera rig, lights, renderer setup
+│   ├── SceneIsland.tsx         # Client island: the ssr:false dynamic boundary for Scene
 │   ├── primitives.tsx          # ArcSegments, TickDial, Reticle, TechLabel, ...
 │   ├── core/
 │   │   ├── FridayCore.tsx      # 8-layer central hologram
@@ -370,8 +371,13 @@ src/
 │   │   ├── PostFX.tsx          # Node post chain: bloom, god rays, CA, grain
 │   │   └── textTexture.ts      # Canvas-texture labels, redrawn in place
 │   ├── hud/
-│   │   ├── Hud.tsx             # TopHud, EdgeTelemetry, rails, AnswerLine, AudioCues
-│   │   ├── InputBar.tsx        # ASK FRIDAY input
+│   │   ├── Hud.tsx             # Barrel re-exports (per-component modules below)
+│   │   ├── TopHud.tsx / EdgeTelemetry.tsx / AnswerLine.tsx
+│   │   ├── StateRail.tsx / VizRail.tsx / FocusPanel.tsx / AudioCues.tsx
+│   │   ├── useHudDepth.ts      # Parallax chrome hook (subscribed reduced-motion)
+│   │   ├── devRails.ts         # Dev-rails gate shared by both rails
+│   │   ├── InputBar.tsx        # ASK FRIDAY input (typed + voice turns)
+│   │   ├── ConfirmPrompt.tsx   # High-risk tool approval dialog
 │   │   └── SpatialHud.tsx      # In-scene 3D HUD (readouts, level columns)
 │   └── visualization/
 │       ├── FridayVisualization.tsx  # Spec → REGISTRY dispatch + DrillDown
@@ -379,7 +385,11 @@ src/
 │       ├── vizCharts.tsx        # LineChart3D, BarChart3D, Timeline3D
 │       └── vizSpatial.tsx       # Network3D, Globe3D, ParticleFlow
 └── lib/
-    ├── store.ts                # Zustand store + guarded state machine + spec types
+    ├── store.ts                # Zustand store + turn lifecycle (re-exports viz types)
+    ├── visualization/
+    │   ├── types.ts            # Renderer contract (VisualizationSpec, VizData, ...)
+    │   ├── normalization.ts    # Wire-spec sanitizer (labels, colors, scale, links)
+    │   └── layoutResolver.ts   # Deterministic world-space layout
     ├── vizPlanner.ts           # Query → VisualizationSpec rules + samples + summaries
     ├── agentStream.ts          # SSE event stream → store; offline fallback
     ├── voice.ts                # §12/§13 SpeechRecognition in, speechSynthesis out
@@ -398,9 +408,6 @@ src/
     │   ├── fridayClient.ts     # POST /query SSE + /confirm + /memory
     │   ├── sse.ts              # Chunk-split-safe SSE parser
     │   └── ttsClient.ts        # Framed TTS stream client
-    └── visualization/
-        ├── normalization.ts    # Wire-spec sanitizer (colors, scale, position)
-        └── layoutResolver.ts   # Deterministic world-space layout
 tests/
 ├── unit/                       # Store & planner logic (no browser)
 └── ui/                         # Pixel-statistics & interaction suites (Chromium)

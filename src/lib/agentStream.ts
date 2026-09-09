@@ -22,7 +22,22 @@ export const FLOW_TIMING = {
   localVisualizing: 1500,
 } as const;
 
-const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+const wait = (ms: number, signal?: AbortSignal) =>
+  new Promise<void>((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new DOMException("aborted", "AbortError"));
+      return;
+    }
+    const timer = setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(new DOMException("aborted", "AbortError"));
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
 
 /**
  * Voice turns await the utterance before landing idle. Barge-in and cancel
@@ -185,7 +200,7 @@ export async function runQuery(
 
     log("orchestrator unreachable, using local rules planner:", err);
     store.setLiveMode("offline");
-    await runLocal(store, query, voice);
+    await runLocal(store, query, voice, signal);
     return;
   }
 
@@ -217,29 +232,40 @@ export async function decide(id: string, approved: boolean) {
  * Production-reachable only when the orchestrator is unreachable (never on
  * refusal) — see the catch branch above. Canned numbers inside are demo data.
  */
-async function runLocal(store: FlowStore, query: string, voice = false) {
+async function runLocal(store: FlowStore, query: string, voice = false, signal?: AbortSignal) {
   const { transition, setAnswer } = store;
 
-  transition("thinking");
-  await wait(FLOW_TIMING.localThinking);
-  transition("searching");
-  await wait(FLOW_TIMING.localSearching);
-  transition("tool_execution");
-  store.setToolActivity({ tool: "get_system_metrics", risk: "low" });
-  await wait(FLOW_TIMING.localTool);
-  transition("processing");
-  store.setToolActivity(null);
-  await wait(FLOW_TIMING.localProcessing);
+  try {
+    transition("thinking");
+    await wait(FLOW_TIMING.localThinking, signal);
+    transition("searching");
+    await wait(FLOW_TIMING.localSearching, signal);
+    transition("tool_execution");
+    store.setToolActivity({ tool: "get_system_metrics", risk: "low" });
+    await wait(FLOW_TIMING.localTool, signal);
+    transition("processing");
+    store.setToolActivity(null);
+    await wait(FLOW_TIMING.localProcessing, signal);
 
-  const spec = planVisualization(query);
-  transition("visualizing");
-  store.addVisualization(spec);
-  await wait(FLOW_TIMING.localVisualizing);
+    const spec = planVisualization(query);
+    transition("visualizing");
+    store.addVisualization(spec);
+    await wait(FLOW_TIMING.localVisualizing, signal);
 
-  const answer = summarize(spec);
-  transition("speaking");
-  setAnswer(answer);
-  await (voice ? speakUnlessAborted(answer) : wait(FLOW_TIMING.answerHold));
+    const answer = summarize(spec);
+    transition("speaking");
+    setAnswer(answer);
+    // speakUnlessAborted (remote): barge-in abort during the utterance is
+    // intentional silence, not a failure. Typed path waits on the signal so
+    // cancel stops the hold short.
+    await (voice ? speakUnlessAborted(answer) : wait(FLOW_TIMING.answerHold, signal));
+  } catch (err) {
+    // Cancelled mid-demo: behave like an aborted stream turn — leave the
+    // machine wherever it stopped for the caller's reset(), no outcome to report.
+    if ((err as Error).name === "AbortError" || signal?.aborted) return;
+    throw err;
+  }
+  if (signal?.aborted) return;
 
   store.endTurn();
   store.setLiveMode("idle");

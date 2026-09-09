@@ -215,7 +215,6 @@ function VizNode({
   lifecycle,
   count,
   index,
-  viewportWidth,
   color,
   accent,
 }: {
@@ -224,7 +223,6 @@ function VizNode({
   lifecycle: VizLifecycle;
   count: number;
   index: number;
-  viewportWidth: number;
   color: string;
   accent: string;
 }) {
@@ -233,7 +231,7 @@ function VizNode({
   const Renderer = REGISTRY[spec.type];
   if (!Renderer) return null;
 
-  const layout = resolveVisualizationLayout(spec, { count, index, viewportWidth, hasCore: true });
+  const layout = resolveVisualizationLayout(spec, { count, index });
 
   return (
     <group position={layout.position} scale={layout.scale}>
@@ -310,8 +308,6 @@ export default function FridayVisualization() {
   if (entries.length === 0) return null;
 
   // §13/§14 — multiple visualizations coexist with deterministic spatial layout
-  const viewportWidth = typeof window !== "undefined" ? window.innerWidth : 1440;
-
   return (
     <group>
       {entries.map((entry, i) => (
@@ -322,7 +318,6 @@ export default function FridayVisualization() {
           lifecycle={entry.lifecycle}
           count={entries.length}
           index={i}
-          viewportWidth={viewportWidth}
           color={entry.spec.theme?.color ?? look.color}
           accent={entry.spec.theme?.accent ?? look.accent}
         />

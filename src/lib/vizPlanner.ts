@@ -1,4 +1,4 @@
-import type { VisualizationSpec, VisualizationType } from "@/lib/store";
+import type { VisualizationSpec, VisualizationType } from "@/lib/visualization/types";
 
 interface Rule {
   type: VisualizationType;

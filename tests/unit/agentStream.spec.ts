@@ -22,6 +22,7 @@ function recorder() {
   return {
     calls,
     transition: note("transition"),
+    endTurn: note("endTurn"),
     setAnswer: note("setAnswer"),
     setPendingConfirm: note("setPendingConfirm"),
     addVisualization: note("addVisualization"),
@@ -45,4 +46,25 @@ test("a new turn clears the learned-memory line", async () => {
   // It belongs with the other turn-start resets, not somewhere after the
   // stream has already started painting the HUD.
   expect(store.calls.indexOf("clearMemories")).toBeLessThan(store.calls.indexOf("setLiveMode"));
+});
+
+test("aborting during the offline fallback stops the local run early", async () => {
+  (globalThis as unknown as { fetch: unknown }).fetch = async () => {
+    throw new TypeError("fetch failed");
+  };
+  const store = recorder();
+  const controller = new AbortController();
+  const started = Date.now();
+  const p = runQuery(store as unknown as FridayStore, "cpu load trend", {
+    signal: controller.signal,
+  });
+  setTimeout(() => controller.abort(), 50);
+  await p;
+  const elapsed = Date.now() - started;
+  // Turn-start reset calls setAnswer(null) once; the offline answer must never follow.
+  expect(store.calls.filter((c) => c === "setAnswer")).toHaveLength(1);
+  expect(store.calls).not.toContain("addVisualization");
+  // Full offline run takes FLOW_TIMING waits (~4.2s) + answerHold (3.6s);
+  // an aborted run must return well before that.
+  expect(elapsed).toBeLessThan(3000);
 });

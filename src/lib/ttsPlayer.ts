@@ -25,6 +25,14 @@ interface WorkletPort {
 /** Samples allowed in flight before the pump waits for a `ready` message. */
 const MAX_PENDING = 8 * 1024;
 
+/**
+ * Upper bound for one play() so a backend that goes silent mid-utterance
+ * cannot spin the drain loop forever and freeze the turn (input disabled
+ * until it resolves). Rejects as AbortError so the voice phase rule applies:
+ * partial playback stays quiet, zero frames fall back to synthesis.
+ */
+export const PLAY_TIMEOUT_MS = 30_000;
+
 function abortError(): DOMException {
   return new DOMException("aborted", "AbortError");
 }
@@ -67,8 +75,9 @@ export class TtsPlayer {
     return this.frames;
   }
 
-  async play(stream: TtsStream, opts?: { signal?: AbortSignal }): Promise<void> {
+  async play(stream: TtsStream, opts?: { signal?: AbortSignal; timeoutMs?: number }): Promise<void> {
     const signal = opts?.signal;
+    const timeoutMs = opts?.timeoutMs ?? PLAY_TIMEOUT_MS;
     if (signal?.aborted) throw abortError();
     const my = ++this.generation;
     // A new play owns the player: drop any previous graph and reset the
@@ -134,9 +143,14 @@ export class TtsPlayer {
       this.stop();
     };
     signal?.addEventListener("abort", onAbort, { once: true });
+    const deadline = Date.now() + timeoutMs;
+    const checkTimeout = (): void => {
+      if (Date.now() >= deadline) throw abortError();
+    };
     try {
       for await (const chunk of stream.chunks) {
         if (aborted()) throw abortError();
+        checkTimeout();
         if (chunk.byteLength % 2 !== 0) throw new Error("malformed pcm chunk");
         const n = chunk.byteLength / 2;
         if (n === 0) continue;
@@ -153,6 +167,7 @@ export class TtsPlayer {
         // it now, and invoking a settled resolve is a harmless no-op.
         while (pending > MAX_PENDING) {
           if (aborted()) throw abortError();
+          checkTimeout();
           await new Promise<void>((resolve) => {
             this.readyResolve = resolve;
           });
@@ -163,6 +178,7 @@ export class TtsPlayer {
       // pending === 0, with progress() reporting < 1.
       for (;;) {
         if (aborted()) throw abortError();
+        checkTimeout();
         // Same-tick check-then-read: every mutation of played (new-play
         // reset, current-generation handler) is preceded by or guarded with
         // the generation check above, and total is an immutable local.

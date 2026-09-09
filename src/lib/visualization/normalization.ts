@@ -1,4 +1,4 @@
-import type { VisualizationSpec, VizData } from "@/lib/store";
+import type { VisualizationSpec, VizData } from "@/lib/visualization/types";
 
 /**
  * Backend-compatible normalization — fills defaults so renderers never
@@ -31,31 +31,66 @@ function sanitizeScale(scale: VisualizationSpec["scale"]): number {
   return Math.max(0.25, Math.min(4, scale));
 }
 
+/**
+ * Wire labels must be non-empty strings: canvas labels call `.toUpperCase()`
+ * and a number/null/object there throws inside the Canvas, unmounting the
+ * whole scene. Finite numbers stringify; everything else is dropped.
+ */
+function sanitizeLabel(value: unknown): string | undefined {
+  if (typeof value === "string") return value.length > 0 ? value : undefined;
+  if (typeof value === "number" && Number.isFinite(value)) return String(value);
+  return undefined;
+}
+
+function sanitizeUnit(value: unknown): string | undefined {
+  return typeof value === "string" ? value : undefined;
+}
+
 function sanitizeData(data: VisualizationSpec["data"]): VizData {
   const out: VizData = data ? { ...data } : {};
 
   // Gauge semantics: 0..100, junk → 0. Non-arrays are dropped wholesale.
+  // Labels are coerced too: a metric with no usable label cannot be drilled
+  // into or captioned, so it is dropped rather than rendered as "undefined".
   out.metrics = Array.isArray(out.metrics)
-    ? out.metrics.map((m) => ({
-        ...m,
-        value: typeof m?.value === "number" && Number.isFinite(m.value) ? Math.max(0, Math.min(100, m.value)) : 0,
-      }))
+    ? out.metrics.flatMap((m) => {
+        const label = sanitizeLabel(m?.label);
+        if (!label) return [];
+        return [{
+          ...m,
+          label,
+          unit: sanitizeUnit(m?.unit),
+          value: typeof m?.value === "number" && Number.isFinite(m.value) ? Math.max(0, Math.min(100, m.value)) : 0,
+        }];
+      })
     : undefined;
 
   // A series with no renderable points would crash max()/min() downstream.
   out.series = Array.isArray(out.series)
-    ? out.series.flatMap((s) => {
+    ? out.series.flatMap((s, i) => {
         if (!s || !Array.isArray(s.points) || s.points.length === 0) return [];
-        return [{ ...s, points: s.points.map((p) => (typeof p === "number" && Number.isFinite(p) ? p : 0)) }];
+        return [{ ...s, label: sanitizeLabel(s.label) ?? `SERIES-${i}`, points: s.points.map((p) => (typeof p === "number" && Number.isFinite(p) ? p : 0)) }];
       })
     : undefined;
 
   // Clone node/point/event arrays so callers never share mutable wire data.
-  if (Array.isArray(out.nodes)) out.nodes = out.nodes.map((n) => ({ ...n }));
+  // Ids and labels are coerced: nodes key React + raycast tags off them.
+  // Length is preserved with fallback ids — `links` index into this array, so
+  // dropping a node would shift every later index and rewire the graph.
+  if (Array.isArray(out.nodes))
+    out.nodes = out.nodes.map((n, i) => {
+      const label = sanitizeLabel(n?.label);
+      return { ...n, id: sanitizeLabel(n?.id) ?? `node-${i}`, ...(label === undefined ? { label: undefined } : { label }) };
+    });
   else out.nodes = undefined;
-  if (Array.isArray(out.points)) out.points = out.points.map((p) => ({ ...p }));
+  if (Array.isArray(out.points)) out.points = out.points.map((p) => ({ ...p, label: sanitizeLabel(p?.label) }));
   else out.points = undefined;
-  if (Array.isArray(out.events)) out.events = out.events.map((e) => ({ ...e }));
+  if (Array.isArray(out.events))
+    out.events = out.events.flatMap((e) => {
+      const label = sanitizeLabel(e?.label);
+      if (!label) return [];
+      return [{ ...e, label }];
+    });
   else out.events = undefined;
 
   // Links index into `nodes`; an out-of-range pair used to draw a line to the

@@ -376,3 +376,42 @@ test("backpressure wait survives a ready that arrived with no waiter", async () 
   expect(record.consumed).toBe(9100);
   expect(player.framesFlowed).toBe(9100);
 });
+
+test("play rejects when the worklet never drains (hung backend)", async () => {
+  // A port that accepts feeds but never reports `consumed`: the drain loop
+  // would spin forever on a backend that went silent mid-utterance.
+  const port = {
+    postMessage: () => {},
+    addEventListener: () => {},
+    close: () => {},
+  };
+  const analyser = {
+    fftSize: 0,
+    frequencyBinCount: 4,
+    getByteFrequencyData: (arr: Uint8Array) => { arr.fill(0); },
+    connect: () => {},
+    disconnect: () => {},
+  };
+  const node = { port, connect: () => {}, disconnect: () => {} };
+  const context = {
+    state: "running",
+    resume: async () => {},
+    sampleRate: 24000,
+    audioWorklet: { addModule: async () => {} },
+    createAnalyser: () => analyser,
+    destination: {},
+  };
+  const player = new TtsPlayer({
+    createContext: () => context,
+    createNode: () => node,
+    workletUrl: "/fake.js",
+  } as never);
+  const stream: TtsStream = {
+    header: { sampleRate: 24000, channels: 1, totalSamples: null },
+    chunks: gen([pcmChunk([1, 2, 3, 4])]),
+  };
+  await expect(player.play(stream, { timeoutMs: 100 })).rejects.toMatchObject({
+    name: "AbortError",
+  });
+  expect(player.active).toBe(false);
+});
