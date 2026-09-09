@@ -1,6 +1,3 @@
-"use client";
-
-import dynamic from "next/dynamic";
 import {
   AnswerLine,
   AudioCues,
@@ -13,8 +10,7 @@ import {
 import InputBar from "@/components/friday/hud/InputBar";
 import ConfirmPrompt from "@/components/friday/hud/ConfirmPrompt";
 import { LiveIndicator, MemoryRail, ToolHud } from "@/components/friday/hud/ToolHud";
-
-const Scene = dynamic(() => import("@/components/friday/Scene"), { ssr: false });
+import SceneIsland from "@/components/friday/SceneIsland";
 
 /**
  * `h-dvh`, not `h-screen`: `100vh` on mobile is the height with the browser
@@ -25,7 +21,7 @@ const Scene = dynamic(() => import("@/components/friday/Scene"), { ssr: false })
 export default function Home() {
   return (
     <main className="scanlines relative h-dvh w-screen overflow-hidden bg-background text-foreground">
-      <Scene />
+      <SceneIsland />
       <div className="scan-bar pointer-events-none absolute inset-0" />
       <div className="vignette pointer-events-none absolute inset-0" />
 
