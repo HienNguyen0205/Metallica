@@ -38,6 +38,7 @@ class Settings(BaseSettings):
     )
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")
     confirm_timeout_s: float = Field(default=120.0, alias="FRIDAY_CONFIRM_TIMEOUT_S")
+    events_v2: bool = Field(default=False, alias="FRIDAY_EVENTS_V2")  # envelope+step events (P0.2)
 
     # ---- §22 abuse limits — see api/dependencies.py ----
     # Sized against the provider's free tier, not against demand: one query is
