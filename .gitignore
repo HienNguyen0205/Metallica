@@ -48,3 +48,6 @@ next-env.d.ts
 
 # backend (lives in its own repository)
 /backend/
+
+# isolated worktrees
+/.worktrees/
