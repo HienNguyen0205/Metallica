@@ -159,7 +159,7 @@ export async function runQuery(
     await streamQuery(query, {
       signal,
       onEvent: (ev, meta) => {
-        const verdict = guard.observe(meta ?? null);
+        const verdict = guard.observe(meta ?? null, JSON.stringify(ev));
         if (verdict === "duplicate" || verdict === "stale" || verdict === "wrong-run") {
           log(`stream ${verdict} skipped`, meta?.sequence ?? "", meta?.runId ?? "");
           return;

@@ -10,15 +10,21 @@ export type GuardVerdict = "accept" | "legacy" | "duplicate" | "stale" | "gap" |
 export class StreamGuard {
   private pinnedRunId: string | null = null;
   private lastSequence: number | null = null;
+  private lastKey: string | null = null;
   private gaps = 0;
 
-  observe(meta: EnvelopeMeta | null): GuardVerdict {
+  observe(meta: EnvelopeMeta | null, key?: string): GuardVerdict {
     if (!meta) return "legacy";
     if (meta.runId && this.pinnedRunId && meta.runId !== this.pinnedRunId) {
       return "wrong-run";
     }
     if (meta.runId && !this.pinnedRunId) this.pinnedRunId = meta.runId;
-    if (meta.sequence === null) return "accept";
+    if (meta.sequence === null) {
+      if (key !== undefined && key === this.lastKey) return "duplicate";
+      this.lastKey = key ?? null;
+      return "accept";
+    }
+    this.lastKey = null;
     if (this.lastSequence !== null) {
       if (meta.sequence === this.lastSequence) return "duplicate";
       if (meta.sequence < this.lastSequence) return "stale";

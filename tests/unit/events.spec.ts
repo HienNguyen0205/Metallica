@@ -79,6 +79,10 @@ test("envelope mismatches and bad versions rejected", () => {
   expect(unwrapEnvelope("state", JSON.stringify({ version: 1, event: "state", payload: {}, run_id: 7 })).kind).toBe("rejected");
 });
 
+test("envelope with empty-string id is rejected", () => {
+  expect(unwrapEnvelope("state", enveloped("state", { state: "thinking" }, { run_id: "" })).kind).toBe("rejected");
+});
+
 test("flat frames pass through untouched (backward compat)", () => {
   const u = unwrapEnvelope("state", JSON.stringify({ state: "idle" }));
   expect(u).toEqual({ kind: "flat", event: "state", data: JSON.stringify({ state: "idle" }) });

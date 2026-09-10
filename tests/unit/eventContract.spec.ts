@@ -1,7 +1,8 @@
 // Contract test: canonical schema <-> parser conformance, locked by fixtures.
 // No validator dep by policy: fixtures below mirror contracts/events.v1.json
 // examples; any schema change must update them (and vice versa).
-// Scope: schema pins only state/tool/answer/error payloads; viz/confirm/denied/memory stay parser-validated (see events.spec).
+// Per-event payload shapes are parser-validated (see events.spec.ts); schema
+// definitions are documentary until the BE slice wires $refs.
 import { readFileSync } from "node:fs";
 import { test, expect } from "@playwright/test";
 import { parseFridayEvent, unwrapEnvelope } from "@/lib/agent/events";

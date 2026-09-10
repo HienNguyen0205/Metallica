@@ -48,6 +48,25 @@ test("wrong run rejected without moving cursor", () => {
   expect(g.observe(meta({ sequence: 2, runId: "run_A" }))).toBe("accept");
 });
 
+test("null-sequence redelivery with same content key is duplicate", () => {
+  const g = new StreamGuard();
+  expect(g.observe(meta({ sequence: null }), "same-content")).toBe("accept");
+  expect(g.observe(meta({ sequence: null }), "same-content")).toBe("duplicate");
+});
+
+test("null-sequence with different content key is accepted", () => {
+  const g = new StreamGuard();
+  expect(g.observe(meta({ sequence: null }), "content-a")).toBe("accept");
+  expect(g.observe(meta({ sequence: null }), "content-b")).toBe("accept");
+});
+
+test("sequenced frame resets null-sequence key", () => {
+  const g = new StreamGuard();
+  expect(g.observe(meta({ sequence: null }), "same-content")).toBe("accept");
+  expect(g.observe(meta({ sequence: 1 }))).toBe("accept");
+  expect(g.observe(meta({ sequence: null }), "same-content")).toBe("accept");
+});
+
 test("null runId never pins or rejects; null sequence accepts", () => {
   const g = new StreamGuard();
   expect(g.observe(meta({ sequence: null, runId: null }))).toBe("accept");

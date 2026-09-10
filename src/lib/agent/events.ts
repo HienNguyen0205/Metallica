@@ -193,9 +193,7 @@ export function unwrapEnvelope(frameEvent: string, rawData: string): UnwrapResul
   }
   const strOrNull = (v: unknown): string | null => (typeof v === "string" ? v : null);
   for (const k of ["run_id", "session_id", "turn_id", "timestamp"] as const) {
-    if (k in obj && obj[k] !== undefined && obj[k] !== null && typeof obj[k] !== "string") {
-      return { kind: "rejected", reason: "envelope-bad-field" };
-    }
+    if (k in obj && obj[k] !== undefined && obj[k] !== null && (typeof obj[k] !== "string" || obj[k] === "")) return { kind: "rejected", reason: "envelope-bad-field" };
   }
   return {
     kind: "enveloped",
