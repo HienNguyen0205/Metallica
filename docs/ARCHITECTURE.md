@@ -62,6 +62,7 @@ interface FridayStore {
   lang: SupportedLang;
   audioEnabled: boolean;
   memories: MemoryNote[];                // newest first, max 3 on screen
+  currentStep: CurrentStep | null;       // P0.2 — live step from `step` events
 
   transition(next: FridayState): void; // guarded — see below
   setState(state: FridayState): void;  // unguarded — dev rails only
@@ -113,6 +114,8 @@ See [STATE_MACHINE.md](STATE_MACHINE.md) for the full table and rationale.
    `addVisualization`, `setAnswer`, …),
 3. live answer is held until `speak()` finishes (voice) or 3.6 s (typed),
    then `endTurn()` (silent idle landing); answer/viz persist until the next turn.
+4. `step` events (P0.2, `FRIDAY_EVENTS_V2` on the BE) set `currentStep`;
+   duplicate/stale/wrong-run frames are dropped by the P0.1 stream guard.
 
 Offline fallback `runLocal()` (same file) simulates the pipeline with timed
 waits (`thinking → searching → tool_execution → processing → visualizing →

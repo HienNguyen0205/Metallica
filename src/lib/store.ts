@@ -5,6 +5,7 @@ import type { FridayState } from "@/lib/agent/stateMachine";
 // mid-pipeline state (e.g. thinking → idle on missing `done`) is the normal
 // interrupted-turn path, not a bug worth warning about in dev/test.
 import { resolveLang, type SupportedLang } from "@/lib/audioBus";
+import type { CurrentStep } from "@/lib/agent/events";
 import type {
   GeoPoint,
   MetricDatum,
@@ -20,6 +21,7 @@ import type {
 } from "@/lib/visualization/types";
 
 export type { FridayState };
+export type { CurrentStep };
 export type {
   GeoPoint,
   MetricDatum,
@@ -143,6 +145,9 @@ export interface FridayStore {
   memories: MemoryNote[];
   addMemory: (note: MemoryNote) => void;
   clearMemories: () => void;
+  /** P0.2 — the step the agent is executing right now (from `step` events). */
+  currentStep: CurrentStep | null;
+  setCurrentStep: (step: CurrentStep | null) => void;
   reset: () => void;
 }
 
@@ -239,6 +244,8 @@ export const useFridayStore = create<FridayStore>((set, get) => ({
   // fact learned once would display forever — across later turns and idle —
   // and an always-on alert stops being an alert.
   clearMemories: () => set({ memories: [] }),
+  currentStep: null,
+  setCurrentStep: (currentStep) => set({ currentStep }),
   /**
    * Back to idle, scene cleared. Deliberately preserves user/hardware prefs:
    * renderBackend, quality, lang, audioEnabled survive — everything else resets.
@@ -255,5 +262,6 @@ export const useFridayStore = create<FridayStore>((set, get) => ({
       liveMode: "idle",
       sessionError: null,
       memories: [],
+      currentStep: null,
     }),
 }));

@@ -32,6 +32,28 @@ const KNOWN_VIZ: ReadonlySet<string> = new Set([
   "heatmap_3d",
 ]);
 
+export const STEP_KINDS = [
+  "plan", "reason", "search", "tool", "memory_read",
+  "memory_write", "visualization", "verification", "answer",
+] as const;
+export type StepKind = (typeof STEP_KINDS)[number];
+
+export const STEP_STATUSES = [
+  "queued", "planning", "waiting_approval", "running",
+  "verifying", "completed", "failed", "cancelled", "expired",
+] as const;
+export type StepStatus = (typeof STEP_STATUSES)[number];
+
+export interface CurrentStep {
+  stepId: string;
+  turnId: string;
+  kind: StepKind;
+  status: StepStatus;
+  tool?: string;
+  summary?: string;
+  retryCount?: number;
+}
+
 /**
  * Canonical discriminated union — single source of truth for BE→FE events.
  * No other parser shape may exist elsewhere.
@@ -46,6 +68,7 @@ export type FridayEvent =
   | { type: "answer"; text: string }
   | { type: "error"; message: string }
   | { type: "memory"; id: number; fact: string; provenance: "user" | "tool" }
+  | { type: "step"; step: CurrentStep }
   | { type: "done" };
 
 export interface RawFrame {
@@ -130,6 +153,25 @@ export function parseFridayEvent(raw: RawFrame): FridayEvent | null {
         id,
         fact: payload.fact,
         provenance: payload.provenance === "tool" ? "tool" : "user",
+      };
+    }
+    case "step": {
+      const stepId = typeof payload.step_id === "string" && payload.step_id ? payload.step_id : null;
+      const turnId = typeof payload.turn_id === "string" && payload.turn_id ? payload.turn_id : null;
+      const kind = payload.kind as string;
+      const status = payload.status as string;
+      if (!stepId || !turnId || !STEP_KINDS.includes(kind as StepKind) || !STEP_STATUSES.includes(status as StepStatus)) {
+        return null;
+      }
+      const tool = typeof payload.tool === "string" && payload.tool ? payload.tool : undefined;
+      const summary = typeof payload.summary === "string" && payload.summary ? payload.summary : undefined;
+      const retryCount = typeof payload.retry_count === "number" && Number.isFinite(payload.retry_count) ? payload.retry_count : undefined;
+      return {
+        type: "step",
+        step: {
+          stepId, turnId, kind: kind as StepKind, status: status as StepStatus,
+          ...(tool ? { tool } : {}), ...(summary ? { summary } : {}), ...(retryCount !== undefined ? { retryCount } : {}),
+        },
       };
     }
     default:
