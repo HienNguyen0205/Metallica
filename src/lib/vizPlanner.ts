@@ -16,6 +16,41 @@ interface Rule {
 // the graph rule instead of being swallowed by the traffic rule.
 const RULES: Rule[] = [
   {
+    type: "funnel_3d",
+    match: /funnel|conversion|pipeline stages|drop.?off|signup flow/i,
+    build: () => ({
+      type: "funnel_3d",
+      title: "CONVERSION FUNNEL",
+      animation: "materialize",
+      data: {
+        metrics: [
+          { label: "VISIT", value: 100 },
+          { label: "SIGNUP", value: 62 },
+          { label: "ACTIVATE", value: 44 },
+          { label: "PAY", value: 27 },
+        ],
+      },
+    }),
+  },
+  {
+    type: "sankey_flow",
+    match: /sankey|flow between|from .* to .* through|energy flow|budget flow/i,
+    build: () => ({
+      type: "sankey_flow",
+      title: "FLOW MAP",
+      animation: "materialize",
+      data: {
+        nodes: [
+          { id: "a", label: "ADS" },
+          { id: "b", label: "SIGNUP" },
+          { id: "c", label: "PAY" },
+          { id: "d", label: "CHURN" },
+        ],
+        links: [[0, 1], [1, 2], [1, 3]],
+      },
+    }),
+  },
+  {
     type: "network",
     // deliberately not a bare /service/ — "requests per service" is a
     // distribution question, not a topology one
@@ -204,6 +239,8 @@ const SAMPLES: Record<VisualizationType, () => VisualizationSpec> = {
   globe: () => RULE_BY_TYPE.globe.build(),
   particle_flow: () => RULE_BY_TYPE.particle_flow.build(),
   heatmap_3d: () => RULE_BY_TYPE.heatmap_3d.build(),
+  funnel_3d: () => RULE_BY_TYPE.funnel_3d.build(),
+  sankey_flow: () => RULE_BY_TYPE.sankey_flow.build(),
 };
 
 export function sampleSpec(type: VisualizationType): VisualizationSpec {
@@ -233,6 +270,10 @@ export function summarize(spec: VisualizationSpec): string {
       return "Audio channel open.";
     case "heatmap_3d":
       return "Hotspots concentrated in two zones.";
+    case "funnel_3d":
+      return "Funnel drops hardest at activate — 44 of 100 visits remain.";
+    case "sankey_flow":
+      return "Three flows live. The largest runs ads to signup.";
     default:
       return "System performance is normal. Disk usage is trending high.";
   }

@@ -61,6 +61,15 @@ export function LiveIndicator() {
   const mode = useFridayStore((s) => s.liveMode);
   const sessionError = useFridayStore((s) => s.sessionError);
   const memories = useFridayStore((s) => s.memories);
+  const [waking, setWaking] = useState(false);
+  useEffect(() => {
+    // Synchronous reset is intentional: leaving `connecting` must clear a
+    // stale WAKING… on the same commit, not after another timeout fires.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    if (mode !== "connecting") { setWaking(false); return; }
+    const id = setTimeout(() => setWaking(true), 2000);
+    return () => clearTimeout(id);
+  }, [mode]);
   if (mode === "idle" && !sessionError && memories.length === 0) return null;
   const label =
     mode === "live"
@@ -68,7 +77,7 @@ export function LiveIndicator() {
       : mode === "offline"
         ? "OFFLINE DEMO"
         : mode === "connecting"
-          ? "CONNECTING"
+          ? (waking ? "WAKING…" : "CONNECTING")
           : null;
   if (!label && !sessionError && memories.length === 0) return null;
   return (
@@ -91,6 +100,9 @@ export function LiveIndicator() {
         <span role="alert" className="max-w-[20rem] break-words text-red-300/70">
           {sessionError.toUpperCase()}
         </span>
+      )}
+      {sessionError && /refused|rate limited/i.test(sessionError) && (
+        <span role="alert" className="text-red-300/70">REFUSED · RETRY LATER</span>
       )}
       {memories.length > 0 && (
         // Same amber idiom as DENIED: both are recent events the operator

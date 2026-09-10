@@ -5,7 +5,7 @@
 **A holographic AI interface, rendered in real-time on WebGPU.**
 
 A sci-fi style "FRIDAY" assistant hologram — pulsing AI core, orbital rings,
-GPU particle fields, spatial HUD and eleven types of 3D data visualizations —
+GPU particle fields, spatial HUD and thirteen types of 3D data visualizations —
 built with Next.js 16, React Three Fiber and a spec-driven rendering architecture.
 
 <!-- Via shields.io rather than GitHub's own badge endpoint: that one ships no
@@ -71,9 +71,9 @@ to the current state.
 - 🎨 **3 TSL node materials** — fresnel hologram, GPU-animated particle field,
   noise-displaced energy core; one node graph each, compiled to WGSL or GLSL by
   whichever backend loaded.
-- 📊 **11 visualization types** — gauges, health rings, radar sweep, waveform,
+- 📊 **13 visualization types** — gauges, health rings, radar sweep, waveform,
   network graph, 3D line/bar charts, particle flow, globe, timeline, density
-  heatmap — selected by a rules-based query planner via a typed `VisualizationSpec`.
+  heatmap, conversion funnel, sankey flow — selected by a rules-based query planner via a typed `VisualizationSpec`.
 - 🖱️ **Drill-down interaction** — click any metric node / chart element to lock
   a focus reticle onto it in 3D space.
 - 🎥 **Cinematic post-processing** — Bloom, volumetric god rays, radial
@@ -116,7 +116,7 @@ npm run dev
 ```
 
 Open <http://localhost:3000>. Type something into `ASK FRIDAY`, or use the
-left/right dev rails to preview any of the 11 visualization types or 10 agent
+left/right dev rails to preview any of the 13 visualization types or 10 agent
 states directly.
 
 For a production build:
@@ -321,6 +321,8 @@ cosmetic level meter is not worth a second microphone path.
 | `bar_3d` | *"compare"*, *"distribution"* | Instanced boxes growing along an arc |
 | `timeline` | *"events"*, *"incident log"* | Horizontal axis with event ticks |
 | `heatmap_3d` | *"heatmap"*, *"density"*, *"hotspot"* | Instanced density grid |
+| `funnel_3d` | *"funnel"*, *"conversion"*, *"drop-off"* | Staged conversion bars with % of top |
+| `sankey_flow` | *"sankey"*, *"flow between"*, *"budget flow"* | Column flow map with animated dots |
 
 All visualizations support optional drill-down focus unless
 `interaction: "none"`.
