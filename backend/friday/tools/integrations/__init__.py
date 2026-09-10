@@ -1,0 +1,1 @@
+"""Future integrations: github, calendar, spotify etc. Placeholder package."""

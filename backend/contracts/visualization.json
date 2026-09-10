@@ -1,0 +1,303 @@
+{
+  "$defs": {
+    "GeoPoint": {
+      "properties": {
+        "lat": {
+          "title": "Lat",
+          "type": "number"
+        },
+        "lon": {
+          "title": "Lon",
+          "type": "number"
+        },
+        "label": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "short code, e.g. HAN",
+          "title": "Label"
+        }
+      },
+      "required": [
+        "lat",
+        "lon"
+      ],
+      "title": "GeoPoint",
+      "type": "object"
+    },
+    "MetricDatum": {
+      "properties": {
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "value": {
+          "description": "0-100; gauges read this as a percentage",
+          "title": "Value",
+          "type": "number"
+        },
+        "unit": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Unit"
+        }
+      },
+      "required": [
+        "label",
+        "value"
+      ],
+      "title": "MetricDatum",
+      "type": "object"
+    },
+    "NodeDatum": {
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "label": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Label"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "title": "NodeDatum",
+      "type": "object"
+    },
+    "SeriesDatum": {
+      "properties": {
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "points": {
+          "items": {
+            "type": "number"
+          },
+          "title": "Points",
+          "type": "array"
+        }
+      },
+      "required": [
+        "label",
+        "points"
+      ],
+      "title": "SeriesDatum",
+      "type": "object"
+    },
+    "TimelineEvent": {
+      "properties": {
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "at": {
+          "description": "position along the axis, 0.0 to 1.0",
+          "title": "At",
+          "type": "number"
+        }
+      },
+      "required": [
+        "label",
+        "at"
+      ],
+      "title": "TimelineEvent",
+      "type": "object"
+    },
+    "VizData": {
+      "description": "Every field optional: each renderer reads only the ones it needs.",
+      "properties": {
+        "metrics": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/MetricDatum"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Metrics"
+        },
+        "series": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/SeriesDatum"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Series"
+        },
+        "nodes": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/NodeDatum"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Nodes"
+        },
+        "links": {
+          "anyOf": [
+            {
+              "items": {
+                "items": {
+                  "type": "integer"
+                },
+                "type": "array"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Links"
+        },
+        "points": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/GeoPoint"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Points"
+        },
+        "events": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/TimelineEvent"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Events"
+        },
+        "rate": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rate"
+        }
+      },
+      "title": "VizData",
+      "type": "object"
+    }
+  },
+  "description": "What the model returns for one query.",
+  "properties": {
+    "type": {
+      "enum": [
+        "radial_gauge",
+        "health_core",
+        "radar",
+        "waveform",
+        "network",
+        "line_3d",
+        "bar_3d",
+        "particle_flow",
+        "globe",
+        "timeline",
+        "heatmap_3d"
+      ],
+      "title": "Type",
+      "type": "string"
+    },
+    "title": {
+      "description": "short all-caps heading, 2-4 words",
+      "title": "Title",
+      "type": "string"
+    },
+    "animation": {
+      "default": "materialize",
+      "enum": [
+        "materialize",
+        "pulse",
+        "none"
+      ],
+      "title": "Animation",
+      "type": "string"
+    },
+    "interaction": {
+      "default": "drill_down",
+      "enum": [
+        "none",
+        "drill_down"
+      ],
+      "title": "Interaction",
+      "type": "string"
+    },
+    "data": {
+      "$ref": "#/$defs/VizData"
+    },
+    "answer": {
+      "description": "one or two spoken sentences, under 30 words",
+      "title": "Answer",
+      "type": "string"
+    }
+  },
+  "required": [
+    "type",
+    "title",
+    "data",
+    "answer"
+  ],
+  "title": "VisualizationPlan",
+  "type": "object"
+}

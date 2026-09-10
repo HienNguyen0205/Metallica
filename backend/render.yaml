@@ -1,0 +1,54 @@
+# Render Blueprint. Create the service with:
+#   Render dashboard -> New -> Blueprint -> pick this repo
+#
+# Deliberately a single uvicorn process, not gunicorn with workers: §11
+# approvals live in an in-process dict (`PENDING` in friday/main.py), so a
+# second worker would answer /confirm without holding the Future the streaming
+# request is waiting on. Every high-risk tool would then time out as denied,
+# and only for some requests.
+
+services:
+  - type: web
+    name: friday-orchestrator
+    runtime: python
+    plan: free
+    healthCheckPath: /health
+
+    buildCommand: pip install -r requirements.txt
+    # --host 0.0.0.0 is required: bound to localhost the health check cannot
+    # reach it and the deploy never goes live. $PORT is assigned by Render.
+    startCommand: uvicorn friday.main:app --host 0.0.0.0 --port $PORT
+
+    envVars:
+      # The code uses `X | None` and builtin generics, so 3.10 is the floor.
+      - key: PYTHON_VERSION
+        value: "3.12.7"
+
+      # Set in the dashboard, never in this file — it is committed.
+      - key: GEMINI_API_KEY
+        sync: false
+
+      # MUST be set to the deployed frontend's origin. The default is
+      # http://localhost:3000, which the browser will refuse in production, and
+      # a CORS rejection is visible only in the browser console — the server
+      # logs a clean 200 and you will look in the wrong place for an hour.
+      # Not only CORS: /query refuses a request whose Origin is not on this
+      # list before it spends a model call, so a wrong value here reads as a
+      # 403 on every question rather than as a console warning.
+      - key: FRIDAY_ALLOWED_ORIGINS
+        sync: false
+
+      # §22 abuse caps. The defaults (30 per caller, 100 global, per hour) are
+      # sized for a free-tier key: at 2-3 model calls per query, 100/hour
+      # sustained already spends a day's quota. Set them here to raise them.
+      - key: FRIDAY_RATE_LIMIT_PER_HOUR
+        value: "30"
+      - key: FRIDAY_GLOBAL_LIMIT_PER_HOUR
+        value: "100"
+
+      # Ký ức dài hạn. Không đặt thì service vẫn chạy, chỉ không nhớ gì qua
+      # restart. Service key bỏ qua RLS — đặt trong dashboard, không phải file này.
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_KEY
+        sync: false
