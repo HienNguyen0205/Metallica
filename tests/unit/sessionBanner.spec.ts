@@ -1,10 +1,5 @@
 import { test, expect } from "@playwright/test";
-
-function needsMisconfigBanner(pageHost: string, api: string): boolean {
-  const pageIsLocal = /^(localhost|127\.0\.0\.1|\[::1\])$/.test(pageHost);
-  const apiIsLocal = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:|\/|$)/.test(api);
-  return !pageIsLocal && apiIsLocal;
-}
+import { needsMisconfigBanner } from "@/lib/api/session";
 
 test("flags localhost API on public page", () => {
   expect(needsMisconfigBanner("metallica.vercel.app", "http://localhost:8000")).toBe(true);

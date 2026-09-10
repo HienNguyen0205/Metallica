@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useFridayStore, type FridayState } from "@/lib/store";
 import { useHudDepth } from "./useHudDepth";
-import { getApiBase } from "@/lib/api/session";
+import { getApiBase, needsMisconfigBanner } from "@/lib/api/session";
 
 const STATE_TONE: Record<FridayState, string> = {
   idle: "text-cyan-200",
@@ -33,13 +33,11 @@ function useMisconfigured(): boolean {
   const [mis, setMis] = useState(false);
   useEffect(() => {
     const API = getApiBase();
-    const pageIsLocal = /^(localhost|127\.0\.0\.1|\[::1\])$/.test(window.location.hostname);
-    const apiIsLocal = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:|\/|$)/.test(API);
     // Post-mount by design: reading window.location.hostname during render
     // would mismatch the server prerender (no banner) on a misconfigured
     // deploy. The sync set below lands once on mount, never per-render.
     // eslint-disable-next-line react-hooks/set-state-in-effect
-    setMis(!pageIsLocal && apiIsLocal);
+    setMis(needsMisconfigBanner(window.location.hostname, API));
   }, []);
   return mis;
 }
