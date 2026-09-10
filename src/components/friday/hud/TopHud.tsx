@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useFridayStore, type FridayState } from "@/lib/store";
 import { useHudDepth } from "./useHudDepth";
 import { getApiBase } from "@/lib/api/session";
@@ -30,13 +30,18 @@ function useClock() {
 }
 
 function useMisconfigured(): boolean {
-  return useMemo(() => {
-    if (typeof window === "undefined") return false;
+  const [mis, setMis] = useState(false);
+  useEffect(() => {
     const API = getApiBase();
     const pageIsLocal = /^(localhost|127\.0\.0\.1|\[::1\])$/.test(window.location.hostname);
     const apiIsLocal = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:|\/|$)/.test(API);
-    return !pageIsLocal && apiIsLocal;
+    // Post-mount by design: reading window.location.hostname during render
+    // would mismatch the server prerender (no banner) on a misconfigured
+    // deploy. The sync set below lands once on mount, never per-render.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setMis(!pageIsLocal && apiIsLocal);
   }, []);
+  return mis;
 }
 
 export function TopHud() {
