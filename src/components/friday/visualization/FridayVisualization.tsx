@@ -16,6 +16,7 @@ import { resolveVisualizationLayout } from "@/lib/visualization/layoutResolver";
 import { Connector, Reticle, TechLabel } from "../primitives";
 import { HealthCore, RadialGauge, Radar, Waveform } from "./vizRadial";
 import { BarChart3D, Heatmap3D, LineChart3D, Timeline3D } from "./vizCharts";
+import { Funnel3D } from "./vizFlow";
 import { Globe3D, Network3D, ParticleFlow } from "./vizSpatial";
 
 interface RendererProps {
@@ -40,6 +41,7 @@ const REGISTRY: Record<VisualizationType, ComponentType<RendererProps>> = {
   network: ({ data, ...rest }) => <Network3D nodes={data.nodes} links={data.links} {...rest} />,
   globe: ({ data, ...rest }) => <Globe3D points={data.points} {...rest} />,
   particle_flow: ({ ...rest }) => <ParticleFlow {...rest} />,
+  funnel_3d: ({ data, ...rest }) => <Funnel3D metrics={data.metrics} {...rest} />,
 };
 
 export interface VizTag {

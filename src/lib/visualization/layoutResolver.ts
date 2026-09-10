@@ -40,6 +40,7 @@ export function resolveVisualizationLayout(
       particle_flow: 1.0,
       radial_gauge: 1.0,
       health_core: 1.0,
+      funnel_3d: 1.0,
     };
     return {
       position: spec.position ?? ([0, 0, 0] as [number, number, number]),
