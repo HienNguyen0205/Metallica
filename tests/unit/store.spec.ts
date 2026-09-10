@@ -152,3 +152,14 @@ test("only the most recent memories are kept on screen", () => {
   expect(memories.length).toBe(3);
   expect(memories[0].fact).toBe("m9");
 });
+
+test("currentStep set/clear/reset", () => {
+  const s = useFridayStore.getState();
+  s.setCurrentStep({ stepId: "s1", turnId: "turn_1", kind: "tool", status: "running", tool: "x" });
+  expect(useFridayStore.getState().currentStep?.tool).toBe("x");
+  s.setCurrentStep(null);
+  expect(useFridayStore.getState().currentStep).toBeNull();
+  s.setCurrentStep({ stepId: "s2", turnId: "turn_1", kind: "answer", status: "completed" });
+  s.reset();
+  expect(useFridayStore.getState().currentStep).toBeNull();
+});

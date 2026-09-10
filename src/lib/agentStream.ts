@@ -72,6 +72,7 @@ type FlowStore = Pick<
   | "setLiveMode"
   | "addMemory"
   | "clearMemories"
+  | "setCurrentStep"
 >;
 
 /**
@@ -117,6 +118,9 @@ function dispatch(store: FlowStore, event: FridayEvent, flags: { doneSeen: boole
     case "memory":
       store.addMemory(event);
       break;
+    case "step":
+      store.setCurrentStep(event.step);
+      break;
     case "done":
       store.setToolActivity(null);
       flags.doneSeen = true;
@@ -144,6 +148,7 @@ export async function runQuery(
   setPendingConfirm(null);
   store.setDeniedTool(null);
   store.clearMemories();
+  store.setCurrentStep(null);
   store.setSessionError(null);
   store.setToolActivity(null);
   store.setLiveMode("connecting");
