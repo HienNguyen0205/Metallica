@@ -16,6 +16,8 @@ const VIZ_OPTIONS: VisualizationType[] = [
   "network",
   "globe",
   "particle_flow",
+  "funnel_3d",
+  "sankey_flow",
 ];
 
 /** Dev rail — materializes any visualization type with sample data on click. */

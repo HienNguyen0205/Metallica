@@ -40,7 +40,7 @@ test("sankey sample has in-range links", () => {
 });
 
 test("sankey depth columns are deterministic", () => {
-  // linear chain a→b→c→d plus b→d shortcut: depths 0,1,2,2
+  // linear chain a->b->c->d plus b->d shortcut: depths 0,1,2,2
   void columnOf;
   const spec = sampleSpec("sankey_flow");
   expect(spec.data!.nodes!.map((x) => x.id)).toEqual(["a", "b", "c", "d"]);

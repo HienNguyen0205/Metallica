@@ -149,7 +149,9 @@ const REGISTRY: Record<VisualizationType, ComponentType<VizProps>> = {
   particle_flow: ParticleFlow,
   globe: Globe3D,
   timeline: Timeline3D,
-  heatmap_3d: Heatmap3D, // 11 types total
+  heatmap_3d: Heatmap3D,
+  funnel_3d: Funnel3D,
+  sankey_flow: SankeyFlow, // 13 types total
 };
 ```
 
