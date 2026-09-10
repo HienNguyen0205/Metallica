@@ -236,6 +236,33 @@ test("§18 the hologram builds up as tool results arrive", async ({ page }) => {
   }
 });
 
+// ---------- P0.2 run/step model ----------
+
+/**
+ * End-to-ends the whole P0.2 path in a real browser: the stub's "v2:"-prefixed
+ * mode wraps every frame in the v1 envelope and adds `step` frames, so this
+ * exercises unwrap → StreamGuard → step parsing → store → HUD readout.
+ */
+test("V2 step events surface the current step readout", async ({ page }) => {
+  const stub = await startStubOrchestrator(TOOL_FLOW);
+  try {
+    await page.reload();
+    await page.waitForSelector("canvas");
+
+    // pressSequentially, not fill(): fill() sets the value without the
+    // keystroke events React's controlled input needs (see the flow test).
+    await page.locator("input").click();
+    await page.locator("input").pressSequentially("v2: system health", { delay: 15 });
+    await page.keyboard.press("Enter");
+
+    const step = page.getByTestId("hud-step");
+    await expect(step).toContainText("TOOL", { timeout: 15_000 });
+    await expect(step).toContainText("GET SYSTEM METRICS");
+  } finally {
+    await stub.close();
+  }
+});
+
 // ---------- Task 12: learned memories surfaced in the HUD ----------
 
 test("a memory learned from a web page is shown in the HUD and marked FROM WEB", async ({

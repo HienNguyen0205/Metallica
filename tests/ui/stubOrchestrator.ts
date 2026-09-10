@@ -166,6 +166,60 @@ export const GROUPED_BAR_FLOW: StubEvent[] = [
   { event: "done", data: {}, after: 20 },
 ];
 
+/**
+ * P0.2 — the tool flow as the gated FRIDAY_EVENTS_V2 backend mode emits it:
+ * every frame wrapped in the v1 envelope (sequence strictly +1 from 1, run
+ * "run_stub", nothing after `done`), plus the run model's `step` frames — one
+ * `running` right after the `tool` frame, one `completed` (with summary)
+ * before `done`. Derived from TOOL_FLOW so the two cannot drift.
+ */
+function v2ToolFlow(sessionId: string | null): StubEvent[] {
+  let sequence = 0;
+  const envelope = (event: string, payload: Record<string, unknown>): Record<string, unknown> => ({
+    version: 1,
+    run_id: "run_stub",
+    session_id: sessionId,
+    turn_id: "turn_1",
+    sequence: ++sequence,
+    timestamp: "2026-09-10T02:00:00Z",
+    event,
+    payload,
+  });
+  const frames: StubEvent[] = [];
+  for (const flat of TOOL_FLOW) {
+    frames.push({ ...flat, data: envelope(flat.event, flat.data) });
+    if (flat.event === "tool") {
+      frames.push({
+        event: "step",
+        data: envelope("step", {
+          step_id: "s1",
+          turn_id: "turn_1",
+          kind: "tool",
+          status: "running",
+          tool: "get_system_metrics",
+        }),
+        after: 20,
+      });
+    }
+    if (flat.event === "answer") {
+      frames.push({
+        event: "step",
+        data: envelope("step", {
+          step_id: "s1",
+          turn_id: "turn_1",
+          kind: "tool",
+          status: "completed",
+          // the step keeps its tool across transitions, as the BE's AgentStep does
+          tool: "get_system_metrics",
+          summary: "cpu 73 percent, memory 61 percent",
+        }),
+        after: 20,
+      });
+    }
+  }
+  return frames;
+}
+
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export interface StubHandle {
@@ -299,14 +353,24 @@ export async function startStubOrchestrator(
     }
 
     const queryBody = await readBody(req);
+    let v2SessionId: string | null = null;
+    let isV2 = false;
     try {
-      queries.push(String(JSON.parse(queryBody).query ?? ""));
+      const parsed = JSON.parse(queryBody) as { query?: unknown; session_id?: unknown };
+      const query = String(parsed.query ?? "");
+      queries.push(query);
+      // P0.2 — a "v2:"-prefixed query switches this response to enveloped
+      // FRIDAY_EVENTS_V2 frames (with step events); every other query keeps
+      // the flat path byte-identical.
+      isV2 = query.startsWith("v2:");
+      v2SessionId = typeof parsed.session_id === "string" ? parsed.session_id : null;
     } catch {
       // a body we cannot parse is not worth failing the stub over
     }
     res.writeHead(200, { ...cors, "content-type": "text/event-stream", "cache-control": "no-cache" });
 
-    for (const frame of script) {
+    const flow = isV2 ? v2ToolFlow(v2SessionId) : script;
+    for (const frame of flow) {
       await sleep(frame.after ?? 50);
       res.write(`event: ${frame.event}\ndata: ${JSON.stringify(frame.data)}\n\n`);
 

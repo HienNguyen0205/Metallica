@@ -12,10 +12,11 @@ import { forgetMemory, listMemories, type StoredMemory } from "@/lib/api/fridayC
 export function ToolHud() {
   const activity = useFridayStore((s) => s.toolActivity);
   const denied = useFridayStore((s) => s.deniedTool);
+  const step = useFridayStore((s) => s.currentStep);
   const state = useFridayStore((s) => s.state);
   const look = STATE_LOOK[state];
 
-  if (!activity && !denied) return null;
+  if (!activity && !denied && !step) return null;
 
   const isDenied = !!denied && !activity;
 
@@ -50,6 +51,18 @@ export function ToolHud() {
           }`}
         >
           RISK · {activity.risk.toUpperCase()}
+        </span>
+      )}
+      {/* P0.2 — the run model's live step, in the same idiom (no boxes). It
+          rides below the tool line and shows through whenever a step is
+          current, including after `done` clears the tool activity. */}
+      {!activity && !denied && step && (
+        <span
+          role="status"
+          data-testid="hud-step"
+          className="tracking-[0.22em] text-cyan-200"
+        >
+          {`STEP · ${step.kind.replace(/_/g, " ").toUpperCase()} · ${step.status.replace(/_/g, " ").toUpperCase()}${step.tool ? ` · ${step.tool.toUpperCase().replace(/_/g, " ")}` : ""}`}
         </span>
       )}
     </div>
