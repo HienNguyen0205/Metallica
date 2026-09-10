@@ -1,4 +1,4 @@
-import type { VisualizationSpec } from "@/lib/visualization/types";
+import type { VisualizationEntry, VisualizationSpec } from "@/lib/visualization/types";
 
 export interface LayoutPlacement {
   position: [number, number, number];
@@ -61,4 +61,31 @@ export function resolveVisualizationLayout(
     position: spec.position ?? auto.position,
     scale: spec.scale ?? auto.scale,
   };
+}
+
+/**
+ * Where the core docks while a centered visualization owns the stage.
+ * Lower-left, in frame on the idle camera (half-width ≈ 4.5 at z=0):
+ * the receded core (≈ ±1.1 extent) clears the central column.
+ */
+export const CORE_DOCK_OFFSET: [number, number, number] = [-2.9, -1.1, 0];
+
+/** Half-extent of the center-stage box: a viz inside it owns the center. */
+const CENTER_STAGE_HALF = 1.5;
+
+/**
+ * Whether the core should yield the center: true when the latest
+ * visualization resolves inside the center-stage box. Multi-viz fans
+ * whose latest entry sits on the rim keep the core where it is.
+ */
+export function shouldDockCore(entries: Pick<VisualizationEntry, "spec">[]): boolean {
+  const latest = entries.at(-1);
+  if (!latest) return false;
+  const { position } = resolveVisualizationLayout(latest.spec, {
+    count: entries.length,
+    index: entries.length - 1,
+  });
+  return (
+    Math.abs(position[0]) <= CENTER_STAGE_HALF && Math.abs(position[1]) <= CENTER_STAGE_HALF
+  );
 }

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
 import { type Group, type Mesh } from "three";
 import { useFridayStore } from "@/lib/store";
+import { CORE_DOCK_OFFSET, shouldDockCore } from "@/lib/visualization/layoutResolver";
 import { STATE_LOOK } from "@/lib/stateLook";
 import { readMicLevels, utteranceEnvelope } from "@/lib/audioBus";
 import { speakProgress, ttsLevels } from "@/lib/voice";
@@ -16,6 +17,9 @@ import { createCoreMaterial, createHologramMaterial } from "../effects/materials
 
 /** How far the core withdraws behind an active visualization. */
 const VIZ_SCALE = 0.4;
+
+/** Undocked home of the core group. */
+const ORIGIN: [number, number, number] = [0, 0, 0];
 
 /**
  * §2 — the central hologram. Eight stacked layers so it reads as a complex
@@ -38,7 +42,11 @@ export default function FridayCore({
    * It now withdraws to a marker: the data is what you are looking at.
    */
   const hasViz = useFridayStore((s) => s.visualizations.length > 0);
+  // Docked while the latest viz owns the center — recede alone leaves the
+  // shrunken core glowing directly behind centered holograms (globe, network).
+  const docked = useFridayStore((s) => shouldDockCore(s.visualizations));
   const recede = useRef(1);
+  const dockPos = useRef<[number, number, number]>([0, 0, 0]);
   // scale alone is not enough: bloom on the emissive core bleeds well past its
   // silhouette, so the glow has to come down with it.
   const look = hasViz
@@ -113,18 +121,24 @@ export default function FridayCore({
 
     if (groupRef.current) {
       // eased, so handing the stage over reads as a move, not a cut
-      recede.current += ((hasViz ? VIZ_SCALE : 1) - recede.current) * Math.min(1, delta * 2.2);
+      const k = Math.min(1, delta * 2.2);
+      recede.current += ((hasViz ? VIZ_SCALE : 1) - recede.current) * k;
       groupRef.current.scale.setScalar(recede.current);
+
+      const target = docked ? CORE_DOCK_OFFSET : ORIGIN;
+      dockPos.current[0] += (target[0] - dockPos.current[0]) * k;
+      dockPos.current[1] += (target[1] - dockPos.current[1]) * k;
+      dockPos.current[2] += (target[2] - dockPos.current[2]) * k;
 
       // §7 ERROR/WARNING — controlled positional glitch, never a seizure
       if (look.jitter > 0) {
         groupRef.current.position.set(
-          (Math.random() - 0.5) * look.jitter,
-          (Math.random() - 0.5) * look.jitter,
+          dockPos.current[0] + (Math.random() - 0.5) * look.jitter,
+          dockPos.current[1] + (Math.random() - 0.5) * look.jitter,
           0,
         );
       } else {
-        groupRef.current.position.set(0, 0, 0);
+        groupRef.current.position.set(dockPos.current[0], dockPos.current[1], dockPos.current[2]);
       }
     }
   });
