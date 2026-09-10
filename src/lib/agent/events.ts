@@ -141,3 +141,73 @@ export function parseFridayEvent(raw: RawFrame): FridayEvent | null {
 export function isStateEvent(e: FridayEvent): e is Extract<FridayEvent, { type: "state" }> {
   return e.type === "state";
 }
+
+/**
+ * P0.1 event envelope — backward-compatible SSE consumer.
+ *
+ * Today's backend emits flat frames (`event: state / data: {"state": ...}`).
+ * `unwrapEnvelope` passes those through byte-identically while also accepting
+ * future `{version:1, event, payload, ...}` envelopes (see
+ * docs/CLAUDE_IMPROVEMENT_PLAN.md §3). Rejected envelopes are dropped by the
+ * caller with a warn log; they never reach `parseFridayEvent`.
+ */
+export interface EnvelopeMeta {
+  version: 1;
+  runId: string | null;
+  sessionId: string | null;
+  turnId: string | null;
+  sequence: number | null;
+  timestamp: string | null;
+}
+
+export type UnwrapResult =
+  | { kind: "flat"; event: string; data: string }
+  | { kind: "enveloped"; event: string; data: string; meta: EnvelopeMeta }
+  | { kind: "rejected"; reason: string };
+
+export function unwrapEnvelope(frameEvent: string, rawData: string): UnwrapResult {
+  let parsed: unknown;
+  try {
+    parsed = rawData ? JSON.parse(rawData) : {};
+  } catch {
+    return { kind: "flat", event: frameEvent, data: rawData };
+  }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    return { kind: "flat", event: frameEvent, data: rawData };
+  }
+  const obj = parsed as Record<string, unknown>;
+  if (!("version" in obj)) return { kind: "flat", event: frameEvent, data: rawData };
+  if (obj.version !== 1) return { kind: "rejected", reason: "unsupported-envelope-version" };
+  if (typeof obj.event !== "string" || obj.event !== frameEvent) {
+    return { kind: "rejected", reason: "envelope-event-mismatch" };
+  }
+  if (typeof obj.payload !== "object" || obj.payload === null || Array.isArray(obj.payload)) {
+    return { kind: "rejected", reason: "envelope-bad-payload" };
+  }
+  let sequence: number | null = null;
+  if ("sequence" in obj && obj.sequence !== undefined && obj.sequence !== null) {
+    if (typeof obj.sequence !== "number" || !Number.isInteger(obj.sequence) || obj.sequence < 1) {
+      return { kind: "rejected", reason: "envelope-bad-sequence" };
+    }
+    sequence = obj.sequence;
+  }
+  const strOrNull = (v: unknown): string | null => (typeof v === "string" ? v : null);
+  for (const k of ["run_id", "session_id", "turn_id", "timestamp"] as const) {
+    if (k in obj && obj[k] !== undefined && obj[k] !== null && typeof obj[k] !== "string") {
+      return { kind: "rejected", reason: "envelope-bad-field" };
+    }
+  }
+  return {
+    kind: "enveloped",
+    event: obj.event,
+    data: JSON.stringify(obj.payload),
+    meta: {
+      version: 1,
+      runId: strOrNull(obj.run_id),
+      sessionId: strOrNull(obj.session_id),
+      turnId: strOrNull(obj.turn_id),
+      sequence,
+      timestamp: strOrNull(obj.timestamp),
+    },
+  };
+}
