@@ -19,7 +19,9 @@ export type VisualizationType =
   | "particle_flow"
   | "globe"
   | "timeline"
-  | "heatmap_3d";
+  | "heatmap_3d"
+  | "funnel_3d"
+  | "sankey_flow";
 
 export interface MetricDatum {
   label: string;

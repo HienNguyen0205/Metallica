@@ -20,6 +20,8 @@ const ALL_TYPES: VisualizationType[] = [
   "globe",
   "timeline",
   "heatmap_3d",
+  "funnel_3d",
+  "sankey_flow",
 ];
 
 const CASES: Array<[string, VisualizationType]> = [
@@ -94,4 +96,33 @@ test("every type has a distinct spoken summary", () => {
   const summaries = ALL_TYPES.map((t) => summarize(sampleSpec(t)));
   for (const s of summaries) expect(s.trim().length).toBeGreaterThan(0);
   expect(new Set(summaries).size, "summaries must not be copy-paste").toBe(ALL_TYPES.length);
+});
+
+test('plans "signup flow conversion" → funnel_3d', () => {
+  expect(planVisualization("signup flow conversion").type).toBe("funnel_3d");
+});
+
+test('plans "show me the funnel drop-off" → funnel_3d', () => {
+  expect(planVisualization("show me the funnel drop-off").type).toBe("funnel_3d");
+});
+
+test('plans "flow between ads and pay" → sankey_flow', () => {
+  expect(planVisualization("flow between ads and pay").type).toBe("sankey_flow");
+});
+
+test('plans "sankey of budget flow" → sankey_flow', () => {
+  expect(planVisualization("sankey of budget flow").type).toBe("sankey_flow");
+});
+
+test("funnel sample has metrics, sankey sample has nodes+links", () => {
+  expect(sampleSpec("funnel_3d").data?.metrics?.length).toBeGreaterThan(0);
+  expect(sampleSpec("sankey_flow").data?.nodes?.length).toBeGreaterThan(0);
+});
+
+test("new summaries are distinct", () => {
+  const a = summarize(sampleSpec("funnel_3d"));
+  const b = summarize(sampleSpec("sankey_flow"));
+  expect(a.trim().length).toBeGreaterThan(0);
+  expect(b.trim().length).toBeGreaterThan(0);
+  expect(a).not.toBe(b);
 });

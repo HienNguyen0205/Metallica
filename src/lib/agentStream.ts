@@ -8,6 +8,7 @@ import {
   OrchestratorRefused,
 } from "@/lib/api/fridayClient";
 import type { FridayEvent } from "@/lib/agent/events";
+import { StreamGuard } from "@/lib/agent/streamGuard";
 import { normalizeVisualization } from "@/lib/visualization/normalization";
 
 /** All flow timing in one place — tuning the demo/UX never hunts magic numbers. */
@@ -152,13 +153,21 @@ export async function runQuery(
   let spoken: string | null = null;
   let hadLiveStream = false;
   const flags = { doneSeen: false };
+  const guard = new StreamGuard();
 
   try {
     await streamQuery(query, {
       signal,
-      onEvent: (ev) => {
+      onEvent: (ev, meta) => {
+        const verdict = guard.observe(meta ?? null, JSON.stringify(ev));
+        if (verdict === "duplicate" || verdict === "stale" || verdict === "wrong-run") {
+          log(`stream ${verdict} skipped`, meta?.sequence ?? "", meta?.runId ?? "");
+          return;
+        }
+        if (verdict === "gap") {
+          log(`stream gap: last=${guard.lastSeenSequence} (gap #${guard.gapCount})`);
+        }
         hadLiveStream = true;
-        // first successful event confirms liveness
         store.setLiveMode("live");
         if (ev.type === "answer") spoken = ev.text;
         dispatch(store, ev, flags);

@@ -80,6 +80,8 @@ test("every viz type renders something different from idle", async ({ page }) =>
     "NETWORK",
     "GLOBE",
     "PARTICLE FLOW",
+    "FUNNEL 3D",
+    "SANKEY FLOW",
   ];
   for (const label of types) {
     await page.click(`#viz-rail button:has-text("${label}")`);
@@ -138,7 +140,7 @@ test("every viz type mounts and unmounts cleanly", async ({ page }) => {
 
   const buttons = page.locator("#viz-rail button");
   const n = await buttons.count();
-  expect(n).toBe(11);
+  expect(n).toBe(13);
 
   for (let i = 0; i < n; i++) {
     await buttons.nth(i).click();

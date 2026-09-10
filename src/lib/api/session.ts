@@ -32,3 +32,9 @@ export function getSessionId(): string | undefined {
     return undefined;
   }
 }
+
+export function needsMisconfigBanner(pageHost: string, api: string): boolean {
+  const pageIsLocal = /^(localhost|127\.0\.0\.1|\[::1\])$/.test(pageHost);
+  const apiIsLocal = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:|\/|$)/.test(api);
+  return !pageIsLocal && apiIsLocal;
+}
