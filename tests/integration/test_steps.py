@@ -112,6 +112,15 @@ def test_step_sequence_for_one_tool_turn() -> None:
     assert tool["tool"] == "get_system_metrics" and "retry_count" not in tool
     # turn_id is the LLM iteration (§2): the tool turn is turn_1, the answer turn_2
     assert [p["turn_id"] for p in steps] == ["turn_1"] * 4 + ["turn_2"] * 2
+    # One id per logical step, stable across its transitions: the turn's reason
+    # pair shares one id, the tool attempt's running/completed share another,
+    # and the answer closes the run with its own fresh id.
+    reason_ids = [p["step_id"] for p in steps if p["kind"] == "reason"]
+    assert reason_ids[0] == reason_ids[1] != reason_ids[2], reason_ids
+    tool_ids = {p["step_id"] for p in steps if p["kind"] == "tool"}
+    assert len(tool_ids) == 1, tool_ids
+    answer_id = next(p["step_id"] for p in steps if p["kind"] == "answer")
+    assert answer_id not in set(reason_ids) | tool_ids
     # Operational metadata only:
     assert all("output" not in p and "input" not in p for p in steps)
 

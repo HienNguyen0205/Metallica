@@ -81,13 +81,16 @@ async def run(
     step_n = 0
     tool_attempts: dict[str, int] = {}
 
-    def step(kind: str, status: str, turn: int, *, tool: str | None = None,
-             summary: str | None = None, retry: int | None = None,
-             error: str | None = None) -> AgentEvent:
+    def _next_step_id() -> str:
         nonlocal step_n
         step_n += 1
+        return f"s{step_n}"
+
+    def step(step_id: str, kind: str, status: str, turn: int, *, tool: str | None = None,
+             summary: str | None = None, retry: int | None = None,
+             error: str | None = None) -> AgentEvent:
         payload: dict[str, Any] = {
-            "step_id": f"s{step_n}", "turn_id": f"turn_{turn}", "kind": kind, "status": status,
+            "step_id": step_id, "turn_id": f"turn_{turn}", "kind": kind, "status": status,
         }
         if tool:
             payload["tool"] = tool
@@ -101,7 +104,8 @@ async def run(
 
     for turn in range(1, MAX_TURNS + 1):
         if emit_steps:
-            yield step("reason", "running", turn)
+            reason_id = _next_step_id()
+            yield step(reason_id, "reason", "running", turn)
         response = await api.chat.completions.create(
             model=llm.model(),
             messages=messages,  # type: ignore[arg-type]
@@ -113,11 +117,11 @@ async def run(
         if not calls:
             # §2 — final text set: the answer step closes the run.
             if emit_steps:
-                yield step("answer", "completed", turn, summary="final answer")
+                yield step(_next_step_id(), "answer", "completed", turn, summary="final answer")
             result.text = (message.content or "").strip()
             return
         if emit_steps:
-            yield step("reason", "completed", turn, summary=f"{len(calls)} tool call(s)")
+            yield step(reason_id, "reason", "completed", turn, summary=f"{len(calls)} tool call(s)")
 
         messages.append(
             {
@@ -142,15 +146,16 @@ async def run(
             if emit_steps:
                 attempts = tool_attempts.get(name, 0)
                 tool_attempts[name] = attempts + 1
-                yield step("tool", "running", turn, tool=name, retry=attempts or None)
+                tool_id = _next_step_id()
+                yield step(tool_id, "tool", "running", turn, tool=name, retry=attempts or None)
 
             if tool.needs_confirmation():
                 if emit_steps:
-                    yield step("tool", "waiting_approval", turn, tool=name, retry=attempts or None)
+                    yield step(tool_id, "tool", "waiting_approval", turn, tool=name, retry=attempts or None)
                 approved = await approve(tool.name, tool.risk, payload)
                 if not approved:
                     if emit_steps:
-                        yield step("tool", "failed", turn, tool=name,
+                        yield step(tool_id, "tool", "failed", turn, tool=name,
                                    retry=attempts or None, error="denied by operator")
                     yield AgentEvent("denied", {"tool": tool.name})
                     messages.append(
@@ -159,7 +164,7 @@ async def run(
                     )
                     continue
                 if emit_steps:
-                    yield step("tool", "running", turn, tool=name, retry=attempts or None)
+                    yield step(tool_id, "tool", "running", turn, tool=name, retry=attempts or None)
 
             yield AgentEvent("state", {"state": "tool_execution"})
             yield AgentEvent("tool", {"tool": tool.name, "risk": tool.risk})
@@ -169,11 +174,11 @@ async def run(
                 log.exception("tool %s failed", tool.name)
                 output = {"error": type(err).__name__}
                 if emit_steps:
-                    yield step("tool", "failed", turn, tool=name,
+                    yield step(tool_id, "tool", "failed", turn, tool=name,
                                retry=attempts or None, error=type(err).__name__)
             else:
                 if emit_steps:
-                    yield step("tool", "completed", turn, tool=name,
+                    yield step(tool_id, "tool", "completed", turn, tool=name,
                                retry=attempts or None, summary=_tool_summary(output))
 
             result.evidence.append({"tool": tool.name, "output": output})
