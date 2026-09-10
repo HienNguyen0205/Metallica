@@ -99,3 +99,27 @@ test("envelope without sequence is accepted with null sequence", () => {
   expect(u.meta.sequence).toBeNull();
   expect(parseFridayEvent({ event: u.event, data: u.data })).toEqual({ type: "done" });
 });
+
+test("step event parses with camelCase mapping", () => {
+  const data = JSON.stringify({ step_id: "s1", turn_id: "turn_2", kind: "tool", status: "running", tool: "get_system_metrics", retry_count: 1 });
+  expect(parseFridayEvent({ event: "step", data })).toEqual({
+    type: "step",
+    step: { stepId: "s1", turnId: "turn_2", kind: "tool", status: "running", tool: "get_system_metrics", retryCount: 1 },
+  });
+});
+
+test("step event rejects junk", () => {
+  const bad = [
+    JSON.stringify({ step_id: "s1", turn_id: "turn_1", kind: "flying", status: "running" }),
+    JSON.stringify({ step_id: "s1", turn_id: "turn_1", kind: "tool", status: "vibrating" }),
+    JSON.stringify({ turn_id: "turn_1", kind: "tool", status: "running" }),
+    JSON.stringify({ step_id: "", turn_id: "turn_1", kind: "tool", status: "running" }),
+    JSON.stringify({ step_id: "s1", kind: "tool", status: "running" }),
+  ];
+  for (const data of bad) expect(parseFridayEvent({ event: "step", data })).toBeNull();
+});
+
+test("step optional fields only when present", () => {
+  const ev = parseFridayEvent({ event: "step", data: JSON.stringify({ step_id: "s9", turn_id: "turn_1", kind: "answer", status: "completed", summary: "final answer" }) });
+  expect(ev).toEqual({ type: "step", step: { stepId: "s9", turnId: "turn_1", kind: "answer", status: "completed", summary: "final answer" } });
+});

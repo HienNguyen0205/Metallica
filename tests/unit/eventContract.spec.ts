@@ -21,6 +21,7 @@ const VALID = [
   ["state", { version: 1, run_id: "r", session_id: "s", turn_id: "t", sequence: 1, timestamp: "2026-09-10T02:00:00Z", event: "state", payload: { state: "thinking" } }],
   ["tool", { version: 1, event: "tool", payload: { tool: "get_system_metrics", risk: "low" } }],
   ["answer", { version: 1, sequence: 9, event: "answer", payload: { text: "hi" } }],
+  ["step", { version: 1, run_id: "r", session_id: "s", turn_id: "turn_1", sequence: 4, timestamp: "2026-09-10T02:00:00Z", event: "step", payload: { step_id: "s1", turn_id: "turn_1", kind: "tool", status: "running", tool: "get_system_metrics" } }],
 ] as const;
 
 for (const [frameEvent, body] of VALID) {
@@ -38,6 +39,7 @@ const INVALID: Array<[string, unknown]> = [
   ["tool", { version: 1, event: "tool", payload: { tool: "", risk: "low" } }],
   ["answer", { version: 1, sequence: -1, event: "answer", payload: { text: "hi" } }],
   ["viz", { version: 1, event: "viz", payload: { type: "death_star" } }],
+  ["step", { version: 1, event: "step", payload: { step_id: "s1", turn_id: "turn_1", kind: "flying", status: "running" } }],
 ];
 
 for (const [frameEvent, body] of INVALID) {
