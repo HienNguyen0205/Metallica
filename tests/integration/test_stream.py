@@ -445,6 +445,39 @@ def test_v2_on_records_steps_into_registry() -> None:
     assert len(run.steps) == 1 and run.steps[0].status == "completed"
 
 
+def test_v2_on_provider_error_marks_run_failed() -> None:
+    """P0.2 §2 accuracy — a run whose turn ends in an error frame failed, it
+    did not complete (P0.9 final_status must be able to trust the registry)."""
+    from friday.runs import REGISTRY
+
+    async def fake_agent(query, approve, result, history=(), memories="", emit_steps=False):
+        result.text = "ok"
+        yield agent.AgentEvent("state", {"state": "processing"})
+
+    async def boom_plan(*args, **kwargs):
+        raise RuntimeError("planner down")
+
+    original_agent, agent.run = agent.run, fake_agent
+    original_plan, main.plan = main.plan, boom_plan
+    try:
+        with events_v2(True):
+            async def drain():
+                return [parse_enveloped(c) async for c in main.run_query("q")]
+            frames = asyncio.run(drain())
+    finally:
+        agent.run = original_agent
+        main.plan = original_plan
+
+    names = [n for n, _, _ in frames]
+    assert "error" in names and names[-1] == "done", names
+    # the generic Exception branch fired in the planner stage, not earlier
+    error = next(p for n, _, p in frames if n == "error")
+    assert error["message"] == "planner unavailable", error
+    run = REGISTRY.get(frames[0][1]["run_id"])
+    assert run is not None, "run registered"
+    assert run.status == "failed" and run.completed_at is not None, run.status
+
+
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
         if name.startswith("test_") and callable(fn):

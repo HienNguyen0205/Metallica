@@ -278,14 +278,23 @@ async def run_query(query: str, session_id: str | None = None) -> AsyncIterator[
     REGISTRY.begin(run.run_id)
     sequence = 0
     turn = "turn_1"
+    saw_error = False
     try:
         async for event, payload in _run_query_events(query, session_id, run=run):
             if event == "step":
                 turn = str(payload.get("turn_id") or turn)
                 REGISTRY.record_step(run.run_id, payload)
+            if event == "error":
+                # §2 accuracy — an error frame is a failed turn, not a completed
+                # one; P0.9 reads final_status from here.
+                saw_error = True
             sequence += 1
             yield sse_envelope(run.run_id, session_id, turn, sequence, event, payload)
-        REGISTRY.finish(run.run_id, "completed")
+        REGISTRY.finish(run.run_id, "failed" if saw_error else "completed")
+    except asyncio.CancelledError:
+        # Client went away mid-turn — a cancellation, not a model failure.
+        REGISTRY.finish(run.run_id, "cancelled")
+        raise
     except BaseException:
         REGISTRY.finish(run.run_id, "failed")
         raise
