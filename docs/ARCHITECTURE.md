@@ -125,6 +125,23 @@ not a session error. `TtsPlayer.play()` is bounded by `PLAY_TIMEOUT_MS`
 turn with the input disabled. `OrchestratorRefused`
 (403/429) never falls back — a refusal is not an outage.
 
+### Event envelope v1 (tolerant reader)
+
+BE may wrap a frame as `{version: 1, event, payload, sequence?, run_id?,
+session_id?, turn_id?, timestamp?}`. `unwrapEnvelope` (`events.ts`) splits it
+back to `{event, data: payload}` before `parseFridayEvent`, and `StreamGuard`
+observes the meta per turn (`runQuery` wires guard → `dispatch` → store).
+Validation: `version` must be `1`; the SSE frame name and envelope `event`
+must match; `sequence` is an int ≥ 1 when present; `run_id`/`session_id`/
+`turn_id`/`timestamp` are strings when present. Anything else is rejected and
+dropped with a warn — it never reaches the parser.
+Guard verdicts: duplicate/stale sequences are skipped without moving the
+cursor, a gap is accepted and counted (`gapCount`), a wrong `run_id` is
+skipped without moving the cursor, and legacy flat frames bypass the guard.
+Backward compat: old BE flat frames (`event: state`, `data: {"state": …}`)
+parse identically to enveloped ones; no store shape changes. Canonical
+schema: `contracts/events.v1.json`.
+
 ## 4. Spec-driven visualizations
 
 `vizPlanner.ts` is pure and deterministic:

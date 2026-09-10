@@ -1,5 +1,5 @@
 import { parseSseStream } from "@/lib/api/sse";
-import { parseFridayEvent, type FridayEvent } from "@/lib/agent/events";
+import { parseFridayEvent, unwrapEnvelope, type EnvelopeMeta, type FridayEvent } from "@/lib/agent/events";
 import { getApiBase, getSessionId } from "@/lib/api/session";
 
 export { getApiBase };
@@ -31,7 +31,7 @@ export class OrchestratorRefused extends Error {
 
 export interface QueryOptions {
   signal?: AbortSignal;
-  onEvent: (event: FridayEvent) => void;
+  onEvent: (event: FridayEvent, meta: EnvelopeMeta | null) => void;
   onError?: (message: string) => void;
 }
 
@@ -70,9 +70,14 @@ export async function streamQuery(query: string, opts: QueryOptions): Promise<vo
   try {
     for await (const raw of parseSseStream(response.body, signal)) {
       if (signal?.aborted) break;
-      const event = parseFridayEvent(raw);
+      const unwrapped = unwrapEnvelope(raw.event, raw.data);
+      if (unwrapped.kind === "rejected") {
+        console.warn("[friday] envelope rejected:", unwrapped.reason);
+        continue;
+      }
+      const event = parseFridayEvent({ event: unwrapped.event, data: unwrapped.data });
       if (!event) continue;
-      onEvent(event);
+      onEvent(event, unwrapped.kind === "enveloped" ? unwrapped.meta : null);
       if (event.type === "error") onError?.(event.message);
       if (event.type === "done") break;
     }

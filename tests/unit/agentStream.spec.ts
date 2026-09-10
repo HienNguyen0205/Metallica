@@ -68,3 +68,34 @@ test("aborting during the offline fallback stops the local run early", async () 
   // an aborted run must return well before that.
   expect(elapsed).toBeLessThan(3000);
 });
+
+test("duplicate enveloped events do not double-apply", async () => {
+  const envelope = (innerEvent: string, payload: unknown, sequence: number) =>
+    JSON.stringify({
+      version: 1,
+      run_id: "run_dup",
+      session_id: "sess_1",
+      turn_id: "turn_1",
+      sequence,
+      timestamp: "2026-09-10T02:00:00Z",
+      event: innerEvent,
+      payload,
+    });
+  const sse =
+    [
+      `event: viz\ndata: ${envelope("viz", { type: "bar_3d", title: "X" }, 1)}`,
+      `event: viz\ndata: ${envelope("viz", { type: "bar_3d", title: "X" }, 1)}`,
+      `event: done\ndata: ${envelope("done", {}, 2)}`,
+    ].join("\n\n") + "\n\n";
+  const prevFetch = (globalThis as unknown as { fetch: unknown }).fetch;
+  (globalThis as unknown as { fetch: unknown }).fetch = async () =>
+    new Response(sse, { status: 200, headers: { "content-type": "text/event-stream" } });
+  try {
+    const store = recorder();
+    await runQuery(store as unknown as FridayStore, "q");
+    expect(store.calls.filter((c) => c === "addVisualization")).toHaveLength(1);
+    expect(store.calls).toContain("endTurn");
+  } finally {
+    (globalThis as unknown as { fetch: unknown }).fetch = prevFetch;
+  }
+});
