@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useFridayStore, type FridayState } from "@/lib/store";
 import { useHudDepth } from "./useHudDepth";
+import { getApiBase } from "@/lib/api/session";
 
 const STATE_TONE: Record<FridayState, string> = {
   idle: "text-cyan-200",
@@ -28,12 +29,24 @@ function useClock() {
   return time;
 }
 
+function useMisconfigured(): boolean {
+  return useMemo(() => {
+    if (typeof window === "undefined") return false;
+    const API = getApiBase();
+    const pageIsLocal = /^(localhost|127\.0\.0\.1|\[::1\])$/.test(window.location.hostname);
+    const apiIsLocal = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:|\/|$)/.test(API);
+    return !pageIsLocal && apiIsLocal;
+  }, []);
+}
+
 export function TopHud() {
   const depth = useHudDepth();
   const state = useFridayStore((s) => s.state);
   const audioEnabled = useFridayStore((s) => s.audioEnabled);
   const toggleAudio = useFridayStore((s) => s.toggleAudio);
   const time = useClock();
+  const [dismissed, setDismissed] = useState(false);
+  const misconfigured = useMisconfigured();
 
   return (
     <div
@@ -43,6 +56,16 @@ export function TopHud() {
       <div className="flex flex-col gap-1.5">
         <span className="text-[13px] font-light tracking-[0.42em] text-cyan-100/90">METALLICA</span>
         <span>FRIDAY · HOLOGRAPHIC INTERFACE</span>
+        {misconfigured && !dismissed && (
+          <button
+            role="status"
+            onClick={() => setDismissed(true)}
+            aria-label="Dismiss backend warning"
+            className="pointer-events-auto text-amber-300/80 tracking-[0.22em]"
+          >
+            UNSPECIFIED BACKEND — SHOWING DEMO DATA
+          </button>
+        )}
       </div>
       <div className="flex flex-col items-end gap-1.5">
         <span className={`tracking-[0.32em] ${STATE_TONE[state]}`} data-testid="hud-state">
