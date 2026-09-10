@@ -115,9 +115,11 @@ async def run(
         calls = message.tool_calls or []
 
         if not calls:
-            # §2 — final text set: the answer step closes the run.
+            # §2 — the reason step closes with "final answer"; the final text
+            # set then closes the run as the answer step.
             if emit_steps:
-                yield step(_next_step_id(), "answer", "completed", turn, summary="final answer")
+                yield step(reason_id, "reason", "completed", turn, summary="final answer")
+                yield step(_next_step_id(), "answer", "completed", turn)
             result.text = (message.content or "").strip()
             return
         if emit_steps:

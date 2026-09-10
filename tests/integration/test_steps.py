@@ -103,20 +103,20 @@ def test_step_sequence_for_one_tool_turn() -> None:
     assert kinds == [
         ("reason", "running"), ("reason", "completed"),
         ("tool", "running"), ("tool", "completed"),
-        # the answer comes from turn 2's LLM call, which opens its own reason
-        # step — §2 row 1 covers every LLM call start, not just the first
-        ("reason", "running"),
+        # §2 row 1 covers every LLM call: turn 2's reason closes with
+        # "final answer" before the final text set lands as the answer step
+        ("reason", "running"), ("reason", "completed"),
         ("answer", "completed"),
     ], kinds
     tool = next(p for p in steps if p["kind"] == "tool")
     assert tool["tool"] == "get_system_metrics" and "retry_count" not in tool
     # turn_id is the LLM iteration (§2): the tool turn is turn_1, the answer turn_2
-    assert [p["turn_id"] for p in steps] == ["turn_1"] * 4 + ["turn_2"] * 2
-    # One id per logical step, stable across its transitions: the turn's reason
+    assert [p["turn_id"] for p in steps] == ["turn_1"] * 4 + ["turn_2"] * 3
+    # One id per logical step, stable across its transitions: each turn's reason
     # pair shares one id, the tool attempt's running/completed share another,
     # and the answer closes the run with its own fresh id.
     reason_ids = [p["step_id"] for p in steps if p["kind"] == "reason"]
-    assert reason_ids[0] == reason_ids[1] != reason_ids[2], reason_ids
+    assert reason_ids[0] == reason_ids[1] != reason_ids[2] == reason_ids[3], reason_ids
     tool_ids = {p["step_id"] for p in steps if p["kind"] == "tool"}
     assert len(tool_ids) == 1, tool_ids
     answer_id = next(p["step_id"] for p in steps if p["kind"] == "answer")
