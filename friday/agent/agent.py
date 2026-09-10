@@ -51,12 +51,17 @@ def _arguments(call: Any) -> dict[str, Any]:
     return parsed if isinstance(parsed, dict) else {}
 
 
+def _tool_summary(output: dict[str, Any]) -> str:
+    return ", ".join(f"{k}={str(v)[:40]}" for k, v in list(output.items())[:3])
+
+
 async def run(
     query: str,
     approve: Approver,
     result: AgentResult,
     history: Sequence[dict[str, str]] = (),
     memories: str = "",
+    emit_steps: bool = False,
 ) -> AsyncIterator[AgentEvent]:
     api = llm.client()
     # Provenance của ký ức đọc từ đây. Set mới mỗi turn để hai query song song
@@ -73,7 +78,30 @@ async def run(
         {"role": "user", "content": query},
     ]
 
-    for _ in range(MAX_TURNS):
+    step_n = 0
+    tool_attempts: dict[str, int] = {}
+
+    def step(kind: str, status: str, turn: int, *, tool: str | None = None,
+             summary: str | None = None, retry: int | None = None,
+             error: str | None = None) -> AgentEvent:
+        nonlocal step_n
+        step_n += 1
+        payload: dict[str, Any] = {
+            "step_id": f"s{step_n}", "turn_id": f"turn_{turn}", "kind": kind, "status": status,
+        }
+        if tool:
+            payload["tool"] = tool
+        if summary:
+            payload["summary"] = summary[:120]
+        if retry:
+            payload["retry_count"] = retry
+        if error:
+            payload["error"] = error
+        return AgentEvent("step", payload)
+
+    for turn in range(1, MAX_TURNS + 1):
+        if emit_steps:
+            yield step("reason", "running", turn)
         response = await api.chat.completions.create(
             model=llm.model(),
             messages=messages,  # type: ignore[arg-type]
@@ -83,8 +111,13 @@ async def run(
         calls = message.tool_calls or []
 
         if not calls:
+            # §2 — final text set: the answer step closes the run.
+            if emit_steps:
+                yield step("answer", "completed", turn, summary="final answer")
             result.text = (message.content or "").strip()
             return
+        if emit_steps:
+            yield step("reason", "completed", turn, summary=f"{len(calls)} tool call(s)")
 
         messages.append(
             {
@@ -106,13 +139,27 @@ async def run(
 
             payload = _arguments(call)
 
-            if tool.needs_confirmation() and not await approve(tool.name, tool.risk, payload):
-                yield AgentEvent("denied", {"tool": tool.name})
-                messages.append(
-                    {"role": "tool", "tool_call_id": call.id,
-                     "content": json.dumps({"error": "denied by operator"})}
-                )
-                continue
+            if emit_steps:
+                attempts = tool_attempts.get(name, 0)
+                tool_attempts[name] = attempts + 1
+                yield step("tool", "running", turn, tool=name, retry=attempts or None)
+
+            if tool.needs_confirmation():
+                if emit_steps:
+                    yield step("tool", "waiting_approval", turn, tool=name, retry=attempts or None)
+                approved = await approve(tool.name, tool.risk, payload)
+                if not approved:
+                    if emit_steps:
+                        yield step("tool", "failed", turn, tool=name,
+                                   retry=attempts or None, error="denied by operator")
+                    yield AgentEvent("denied", {"tool": tool.name})
+                    messages.append(
+                        {"role": "tool", "tool_call_id": call.id,
+                         "content": json.dumps({"error": "denied by operator"})}
+                    )
+                    continue
+                if emit_steps:
+                    yield step("tool", "running", turn, tool=name, retry=attempts or None)
 
             yield AgentEvent("state", {"state": "tool_execution"})
             yield AgentEvent("tool", {"tool": tool.name, "risk": tool.risk})
@@ -121,6 +168,13 @@ async def run(
             except Exception as err:
                 log.exception("tool %s failed", tool.name)
                 output = {"error": type(err).__name__}
+                if emit_steps:
+                    yield step("tool", "failed", turn, tool=name,
+                               retry=attempts or None, error=type(err).__name__)
+            else:
+                if emit_steps:
+                    yield step("tool", "completed", turn, tool=name,
+                               retry=attempts or None, summary=_tool_summary(output))
 
             result.evidence.append({"tool": tool.name, "output": output})
 
