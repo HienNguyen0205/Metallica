@@ -1,0 +1,24 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://metallica.local/contracts/events.v1.json",
+  "title": "FRIDAY SSE event envelope v1",
+  "description": "Tolerant-reader contract: consumers require version/event/payload and validate sequence only when present. Producers SHOULD send all envelope fields.",
+  "type": "object",
+  "required": ["version", "event", "payload"],
+  "properties": {
+    "version": { "type": "integer", "const": 1 },
+    "event": { "type": "string", "enum": ["state", "tool", "confirm", "denied", "preview", "viz", "answer", "done", "error", "memory"] },
+    "payload": { "type": "object" },
+    "sequence": { "type": "integer", "minimum": 1 },
+    "run_id": { "type": "string", "minLength": 1 },
+    "session_id": { "type": "string", "minLength": 1 },
+    "turn_id": { "type": "string", "minLength": 1 },
+    "timestamp": { "type": "string" }
+  },
+  "definitions": {
+    "statePayload": { "type": "object", "required": ["state"], "properties": { "state": { "type": "string", "enum": ["idle", "listening", "thinking", "searching", "processing", "tool_execution", "visualizing", "speaking", "warning", "error"] } } },
+    "toolPayload": { "type": "object", "required": ["tool", "risk"], "properties": { "tool": { "type": "string", "minLength": 1 }, "risk": { "type": "string", "enum": ["low", "medium", "high"] } } },
+    "answerPayload": { "type": "object", "required": ["text"], "properties": { "text": { "type": "string" } } },
+    "errorPayload": { "type": "object", "properties": { "message": { "type": "string" }, "text": { "type": "string" } } }
+  }
+}
