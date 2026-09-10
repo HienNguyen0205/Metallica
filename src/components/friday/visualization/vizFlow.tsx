@@ -42,11 +42,12 @@ export function Funnel3D({ metrics = DEFAULT_FUNNEL, color, accent }: FlowChartP
       {data.map((m, i) => {
         const w = 0.6 + 3.2 * (m.value / max);
         const y = top - i * (STAGE_H + STAGE_GAP);
-        const pct = i === 0 ? 100 : Math.round((m.value / data[0].value) * 100);
+        const pct = data[0].value === 0 ? 0 : Math.round((m.value / data[0].value) * 100);
+        const prevPct = i === 0 ? 100 : data[i - 1].value === 0 ? 0 : Math.round((m.value / data[i - 1].value) * 100);
         const t = max > 0 ? m.value / max : 0;
         const fill = `#${cold.clone().lerp(hot, t).getHexString()}`;
         return (
-          <group key={m.label} position={[0, y, 0]}>
+          <group key={`${m.label}-${i}`} position={[0, y, 0]}>
             <mesh
               visible={false}
               userData={{ viz: { label: m.label.toUpperCase(), detail: `${m.value} · ${pct}% OF TOP` } }}
@@ -64,7 +65,7 @@ export function Funnel3D({ metrics = DEFAULT_FUNNEL, color, accent }: FlowChartP
               {String(m.value)}
             </TechLabel>
             <TechLabel position={[0, -STAGE_H / 2 - 0.1, 0]} color={color} size={0.055} opacity={0.6}>
-              {i === 0 ? "100% · TOP" : `${pct}% OF PREV`}
+              {i === 0 ? "100% · TOP" : `${prevPct}% OF PREV`}
             </TechLabel>
             {i < data.length - 1 && (
               <HairLine points={[[-w / 2 + 0.3, -STAGE_H / 2 - 0.02, 0], [w / 2 - 0.3, -STAGE_H / 2 - 0.02, 0]]} color={color} opacity={0.25} lineWidth={1} />

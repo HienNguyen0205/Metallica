@@ -13,6 +13,15 @@ test("funnel sample survives normalization with 4 stages", () => {
 
 test("funnel conversion math: 62/100 = 62%", () => {
   const metrics = sampleSpec("funnel_3d").data!.metrics!;
-  const pct = Math.round((metrics[1].value / metrics[0].value) * 100);
+  const pct = metrics[0].value === 0 ? 0 : Math.round((metrics[1].value / metrics[0].value) * 100);
   expect(pct).toBe(62);
+});
+
+test("funnel step-to-step conversion: 44/62 = 71%, 27/44 = 61%", () => {
+  const metrics = sampleSpec("funnel_3d").data!.metrics!;
+  const prevPct = (i: number) =>
+    metrics[i - 1].value === 0 ? 0 : Math.round((metrics[i].value / metrics[i - 1].value) * 100);
+  expect(prevPct(1)).toBe(62);
+  expect(prevPct(2)).toBe(71);
+  expect(prevPct(3)).toBe(61);
 });
