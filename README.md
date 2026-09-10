@@ -73,6 +73,17 @@ maps onto exactly one store action in `src/lib/store.ts`:
 Adding a step to the agent flow means emitting another event — the transport
 does not change.
 
+## Events v2 (`FRIDAY_EVENTS_V2`)
+
+Off (default): the wire is exactly as documented above. On: every frame is a
+v1 envelope (`version/run_id/session_id/turn_id/sequence/timestamp/event/payload`,
+see the FE repo's `contracts/events.v1.json`) and the agent emits `step` events
+(`step_id/turn_id/kind/status/tool?/summary?/retry_count?/error?`) that mirror a
+Run/Step model (`friday/runs.py`, LRU 200, in-memory like the §11 approvals).
+Sequence starts at 1 and never skips; nothing is published after `done`.
+Enable only once the frontend with P0.1+ (tolerant envelope reader) is deployed —
+an older FE drops enveloped frames silently.
+
 ## §18 Streaming visualization
 
 The hologram materializes as results land, not after the turn ends. A tool can

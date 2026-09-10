@@ -15,7 +15,7 @@ from friday.api import dependencies as deps
 from friday.api.dependencies import PENDING, guard, require_known_origin
 from friday.api.schemas import Decision, Query
 from friday.core.config import settings
-from friday.events.serializer import sse
+from friday.events.serializer import sse, sse_envelope
 from friday.memory import consolidate
 from friday.memory import embed as embed_mod
 from friday.memory import long_term
@@ -137,8 +137,15 @@ def _touch(ids: list[int]) -> None:
     touch(ids)
 
 
-async def run_query(query: str, session_id: str | None = None) -> AsyncIterator[str]:
-    yield sse("state", {"state": "thinking"})
+async def _run_query_events(
+    query: str, session_id: str | None = None, run=None
+) -> AsyncIterator[tuple[str, dict]]:
+    """Domain events of one turn, as (event, payload) tuples.
+
+    P0.2 — the V2 dispatcher below wraps these in the envelope and mirrors
+    steps into the registry; V2-off re-serializes them flat, byte-identical.
+    """
+    yield ("state", {"state": "thinking"})
 
     outcome = agent.AgentResult(text="")
     events: asyncio.Queue[agent.AgentEvent | None] = asyncio.Queue()
@@ -147,6 +154,8 @@ async def run_query(query: str, session_id: str | None = None) -> AsyncIterator[
         request_id = uuid.uuid4().hex
         decided: asyncio.Future[bool] = asyncio.get_running_loop().create_future()
         PENDING[request_id] = decided
+        if run:
+            run.status = "waiting_approval"
         await events.put(
             agent.AgentEvent("confirm", {"id": request_id, "tool": tool, "risk": risk, "input": payload})
         )
@@ -157,6 +166,8 @@ async def run_query(query: str, session_id: str | None = None) -> AsyncIterator[
             return False
         finally:
             PENDING.pop(request_id, None)
+            if run:
+                run.status = "running"
 
     failure: BaseException | None = None
     memories = ""
@@ -164,7 +175,10 @@ async def run_query(query: str, session_id: str | None = None) -> AsyncIterator[
     async def pump() -> None:
         nonlocal failure
         try:
-            async for event in agent.run(query, approve, outcome, memory.history(session_id), memories):
+            # Only a V2 run (registry-created) asks the agent for step events;
+            # passing the kwarg unconditionally would break plain generators.
+            kwargs = {"emit_steps": True} if run is not None else {}
+            async for event in agent.run(query, approve, outcome, memory.history(session_id), memories, **kwargs):
                 await events.put(event)
         except BaseException as err:
             failure = err
@@ -192,10 +206,10 @@ async def run_query(query: str, session_id: str | None = None) -> AsyncIterator[
 
             if event.kind == "preview":
                 pinned_type = event.payload.get("type") or pinned_type
-                yield sse("viz", {"animation": "materialize", "interaction": "none", **event.payload})
+                yield ("viz", {"animation": "materialize", "interaction": "none", **event.payload})
                 continue
 
-            yield sse(event.kind, event.payload)
+            yield (event.kind, event.payload)
 
         if failure is not None:
             raise failure
@@ -205,45 +219,45 @@ async def run_query(query: str, session_id: str | None = None) -> AsyncIterator[
         result = await plan_fn(query, outcome.text, outcome.evidence, pinned_type)
     except NotFoundError:
         log.exception("model %r not available at %s", llm.model(), llm.base_url())
-        yield sse("error", {"message": f"model '{llm.model()}' unavailable at this endpoint"})
-        yield sse("state", {"state": "error"})
-        yield sse("done", {})
+        yield ("error", {"message": f"model '{llm.model()}' unavailable at this endpoint"})
+        yield ("state", {"state": "error"})
+        yield ("done", {})
         return
     except RateLimitError as err:
         log.exception("provider rate limit hit for model %r", llm.model())
-        yield sse(
+        yield (
             "error",
             {"message": f"provider rate limit reached ({stage}){quota_detail(err)}"},
         )
-        yield sse("state", {"state": "error"})
-        yield sse("done", {})
+        yield ("state", {"state": "error"})
+        yield ("done", {})
         return
     except APIError as err:
         log.exception("model call failed")
-        yield sse("error", {"message": f"{stage} error: {type(err).__name__}"})
-        yield sse("state", {"state": "error"})
-        yield sse("done", {})
+        yield ("error", {"message": f"{stage} error: {type(err).__name__}"})
+        yield ("state", {"state": "error"})
+        yield ("done", {})
         return
     except Exception:
         log.exception("query failed in %s stage", stage)
-        yield sse("error", {"message": f"{stage} unavailable"})
-        yield sse("state", {"state": "error"})
-        yield sse("done", {})
+        yield ("error", {"message": f"{stage} unavailable"})
+        yield ("state", {"state": "error"})
+        yield ("done", {})
         return
     finally:
         if task is not None and not task.done():
             task.cancel()
 
-    yield sse("state", {"state": "visualizing"})
-    yield sse("viz", result.model_dump(exclude={"answer"}, exclude_none=True))
-    yield sse("state", {"state": "speaking"})
+    yield ("state", {"state": "visualizing"})
+    yield ("viz", result.model_dump(exclude={"answer"}, exclude_none=True))
+    yield ("state", {"state": "speaking"})
     answer = outcome.text or result.answer
     # Recorded only once the turn has actually produced an answer — a failed
     # turn returns above, so a provider outage cannot poison the session with
     # an exchange that never happened.
     memory.remember(session_id, query, answer)
-    yield sse("answer", {"text": answer})
-    yield sse("done", {})
+    yield ("answer", {"text": answer})
+    yield ("done", {})
     # Sau `done`, không chờ: nó tốn một model call và người dùng không có lý do
     # gì phải đợi FRIDAY dọn dẹp.
     consolidate.note_turn()
@@ -251,6 +265,30 @@ async def run_query(query: str, session_id: str | None = None) -> AsyncIterator[
         bg_task = asyncio.create_task(consolidate.run())
         _BACKGROUND_TASKS.add(bg_task)
         bg_task.add_done_callback(_BACKGROUND_TASKS.discard)
+
+
+async def run_query(query: str, session_id: str | None = None) -> AsyncIterator[str]:
+    if not settings.events_v2:
+        async for event, payload in _run_query_events(query, session_id):
+            yield sse(event, payload)
+        return
+    from friday.runs import REGISTRY
+
+    run = REGISTRY.create(session_id, query)
+    REGISTRY.begin(run.run_id)
+    sequence = 0
+    turn = "turn_1"
+    try:
+        async for event, payload in _run_query_events(query, session_id, run=run):
+            if event == "step":
+                turn = str(payload.get("turn_id") or turn)
+                REGISTRY.record_step(run.run_id, payload)
+            sequence += 1
+            yield sse_envelope(run.run_id, session_id, turn, sequence, event, payload)
+        REGISTRY.finish(run.run_id, "completed")
+    except BaseException:
+        REGISTRY.finish(run.run_id, "failed")
+        raise
 
 
 @router.post("/query", dependencies=[Depends(guard)])

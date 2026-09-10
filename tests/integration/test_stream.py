@@ -8,8 +8,10 @@ test is the event contract and the approval wiring, not the model.
 
 import asyncio
 import json
+from contextlib import contextmanager
 
 from friday import agent, main, tools
+from friday.core import config as core_config
 from friday.schema import VisualizationPlan, VizData
 
 PLAN = VisualizationPlan(
@@ -261,6 +263,59 @@ def test_silence_is_not_consent() -> None:
     assert not main.PENDING, "expired decisions must not leak"
 
 
+def test_v2_denial_records_failed_step_in_registry() -> None:
+    """P0.2 §2 — with V2 on, a denied high-risk tool leaves a failed tool step
+    (error "denied by operator") mirrored into the registry run."""
+    from friday.runs import REGISTRY
+
+    stub_planner()
+    decided_verdicts: list[bool] = []
+
+    async def gated_agent(query, approve, result, history=(), memories="", emit_steps=False):
+        yield agent.AgentEvent("step", {"step_id": "s1", "turn_id": "turn_1",
+                                        "kind": "tool", "status": "running", "tool": "write_note"})
+        yield agent.AgentEvent("step", {"step_id": "s1", "turn_id": "turn_1",
+                                        "kind": "tool", "status": "waiting_approval", "tool": "write_note"})
+        approved = await approve("write_note", "high", {"name": "x", "body": "y"})
+        decided_verdicts.append(approved)
+        if not approved:
+            yield agent.AgentEvent("step", {"step_id": "s1", "turn_id": "turn_1", "kind": "tool",
+                                            "status": "failed", "tool": "write_note",
+                                            "error": "denied by operator"})
+        result.text = "done"
+        yield agent.AgentEvent("state", {"state": "processing"})
+
+    async def drive():
+        events = []
+        async for chunk in main.run_query("deny me"):
+            name, _body, payload = parse_enveloped(chunk)
+            events.append((name, payload))
+            if name == "confirm":
+                # what POST /confirm does, without the HTTP hop
+                await main.confirm_endpoint(main.Decision(id=payload["id"], approved=False))
+        return events
+
+    original_agent, agent.run = agent.run, gated_agent
+    original_timeout, main.CONFIRM_TIMEOUT_S = main.CONFIRM_TIMEOUT_S, 0.3
+    try:
+        with events_v2(True):
+            events = asyncio.run(drive())
+    finally:
+        agent.run = original_agent
+        main.CONFIRM_TIMEOUT_S = original_timeout
+
+    assert decided_verdicts == [False]
+    names = [n for n, _ in events]
+    assert "step" in names and names[-1] == "done"
+    runs = [r for r in REGISTRY._runs.values() if r.goal == "deny me"]
+    assert runs, "run registered"
+    run = runs[-1]
+    failed = [s for s in run.steps if s.kind == "tool" and s.status == "failed"]
+    assert failed, [(s.kind, s.status) for s in run.steps]
+    assert failed[-1].error == "denied by operator"
+    assert run.status == "completed" and run.completed_at is not None
+
+
 def test_only_high_risk_tools_are_gated() -> None:
     assert tools.REGISTRY["write_note"].needs_confirmation()
     assert not tools.REGISTRY["get_system_metrics"].needs_confirmation()
@@ -286,6 +341,108 @@ def test_note_name_cannot_escape_the_notes_directory() -> None:
 
 def test_empty_note_name_is_rejected() -> None:
     assert "error" in asyncio.run(tools._write_note({"name": "///", "body": "x"}))
+
+
+# --- P0.2 v2 gating ---
+
+
+@contextmanager
+def events_v2(on: bool):
+    old = core_config.settings.events_v2
+    core_config.settings.events_v2 = on
+    try:
+        yield
+    finally:
+        core_config.settings.events_v2 = old
+
+
+def parse_enveloped(chunk: str) -> tuple[str, dict, dict]:
+    """Returns (frame_event, envelope, payload)."""
+    assert chunk.endswith("\n\n")
+    name, _, data = chunk.strip().partition("\n")
+    body = json.loads(data.removeprefix("data: "))
+    return name.removeprefix("event: "), body, body["payload"]
+
+
+def test_v2_off_is_byte_identical() -> None:
+    stub_planner()
+
+    async def fake_agent(query, approve, result, history=(), memories=""):
+        yield agent.AgentEvent("state", {"state": "tool_execution"})
+        result.text = "ok"
+
+    original = agent.run
+    agent.run = fake_agent
+    try:
+        with events_v2(False):
+            frames = collect()
+    finally:
+        agent.run = original
+    names = [n for n, _ in frames]
+    assert "step" not in names
+    assert names[0] == "state" and names[-1] == "done"
+    # flat shape: payload at top level, no envelope keys anywhere
+    _, payload = frames[0]
+    assert payload == {"state": "thinking"} and "version" not in payload
+
+
+def test_v2_on_envelopes_everything_with_sequence() -> None:
+    stub_planner()
+
+    async def fake_agent(query, approve, result, history=(), memories="", emit_steps=False):
+        yield agent.AgentEvent("state", {"state": "tool_execution"})
+        if emit_steps:
+            yield agent.AgentEvent("step", {"step_id": "s1", "turn_id": "turn_1", "kind": "reason", "status": "completed", "summary": "1 tool call(s)"})
+        result.text = "ok"
+
+    original = agent.run
+    agent.run = fake_agent
+    try:
+        with events_v2(True):
+            async def drain():
+                return [parse_enveloped(c) async for c in main.run_query("q")]
+            frames = asyncio.run(drain())
+    finally:
+        agent.run = original
+
+    seqs = [body["sequence"] for _, body, _ in frames]
+    assert seqs == list(range(1, len(frames) + 1)), seqs
+    run_ids = {body["run_id"] for _, body, _ in frames}
+    assert len(run_ids) == 1 and next(iter(run_ids)).startswith("run_")
+    for name, body, payload in frames:
+        assert body["version"] == 1 and body["event"] == name
+        assert body["turn_id"].startswith("turn_")
+        assert body["timestamp"].endswith("Z")
+    assert frames[-1][0] == "done", "nothing published after done"
+    step_payloads = [p for _, _, p in frames if p.get("step_id")]
+    assert step_payloads and step_payloads[0]["summary"] == "1 tool call(s)"
+
+
+def test_v2_on_records_steps_into_registry() -> None:
+    from friday.runs import REGISTRY
+    stub_planner()
+
+    async def fake_agent(query, approve, result, history=(), memories="", emit_steps=False):
+        yield agent.AgentEvent("step", {"step_id": "s1", "turn_id": "turn_1", "kind": "tool", "status": "running", "tool": "get_system_metrics"})
+        yield agent.AgentEvent("step", {"step_id": "s1", "turn_id": "turn_1", "kind": "tool", "status": "completed", "summary": "CPU 73%"})
+        result.text = "ok"
+
+    original = agent.run
+    agent.run = fake_agent
+    try:
+        with events_v2(True):
+            async def drain():
+                async for _ in main.run_query("q"):
+                    pass
+            asyncio.run(drain())
+    finally:
+        agent.run = original
+    # one run was created and its step updated in place
+    runs = [r for r in REGISTRY._runs.values() if r.goal == "q"]
+    assert runs, "run registered"
+    run = runs[-1]
+    assert run.status == "completed" and run.completed_at is not None
+    assert len(run.steps) == 1 and run.steps[0].status == "completed"
 
 
 if __name__ == "__main__":
