@@ -209,7 +209,7 @@ the interaction layer generic — adding a new visualization never touches
     ├── StateLights            ambient + two point lights tinted by STATE_LOOK[state]
     ├── CameraRig              eased drift + pointer parallax + per-state orbit/dolly
     ├── SpatialHud             dotted grid plane, outer frame arcs, corner brackets,
-    │                          reticles and coord/sync readouts
+    │                          reticles and sync readout
     ├── FridayCore             8-layer hologram (below)
     ├── FridayVisualization    active spec via REGISTRY
     ├── AdaptiveDpr / AdaptiveEvents (never pixelated)
@@ -227,8 +227,8 @@ Each frame the rig blends three inputs with eased interpolation:
   distance (e.g. `idle: 6.8/0.06`, `visualizing: 7.7/…`, `warning/error:
   orbit 0` — locked down when something is wrong).
 
-Camera position is written into the telemetry singleton so the DOM HUD can
-display a live VECTOR readout without React re-rendering the scene.
+Camera position is written into the telemetry singleton (retained for parallax
+and depth effects, no longer displayed as a readout).
 
 ## 6. The core hologram (`FridayCore.tsx`)
 

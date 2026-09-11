@@ -50,19 +50,9 @@ function SyncReadout({ color }: { color: string }) {
   );
 }
 
-/** Live camera coordinates — the readout the reticles imply. */
-function CoordReadout({ color }: { color: string }) {
-  const t = useTelemetry();
-  return (
-    <TechLabel position={[-2.55, 1.86, 0.2]} color={color} size={0.05} opacity={0.35} anchorX="left" capacity={35}>
-      {`X ${t.camera[0].toFixed(3)} · Y ${t.camera[1].toFixed(3)} · Z ${t.camera[2].toFixed(3)}`}
-    </TechLabel>
-  );
-}
-
 /**
  * §3 — the spatial HUD wrapped around the core: background grid, big framing
- * arcs, reticles and coordinates at three different depths.
+ * arcs, reticles and readouts at three different depths.
  */
 export default function SpatialHud({ reduced = false }: { reduced?: boolean }) {
   const state = useFridayStore((s) => s.state);
@@ -100,11 +90,7 @@ export default function SpatialHud({ reduced = false }: { reduced?: boolean }) {
         </>
       )}
 
-      {/* §5 spatial telemetry — coordinates and readouts floating in depth */}
-      <TechLabel position={[-2.55, 2.02, 0.2]} color={look.color} size={0.062} opacity={0.55} anchorX="left">
-        SECTOR 07 · ORBIT LOCK
-      </TechLabel>
-      <CoordReadout color={look.color} />
+      {/* §5 spatial telemetry — readouts floating in depth */}
       <SyncReadout color={look.color} />
     </group>
   );

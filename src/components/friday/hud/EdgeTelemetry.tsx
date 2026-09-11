@@ -28,9 +28,6 @@ export function EdgeTelemetry() {
         <span>UPLINK · {uplink}</span>
         <span>FRAME · {t.frameMs > 0 ? `${t.frameMs.toFixed(1)}MS` : "—"}</span>
         <span>MEMORY · {memory}</span>
-        <span>
-          VECTOR · {t.camera[0].toFixed(3)} / {t.camera[1].toFixed(3)}
-        </span>
       </div>
       <div className="absolute bottom-28 right-8 hidden flex-col items-end gap-1 font-mono text-[9px] tracking-[0.22em] text-cyan-300/60 md:flex">
         <span data-testid="hud-focus" className={focus ? "text-cyan-200" : undefined}>
