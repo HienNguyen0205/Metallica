@@ -73,9 +73,11 @@ export default function SpatialHud({ reduced = false }: { reduced?: boolean }) {
 
   return (
     <group>
-      {!reduced && (
+      {/* Frame arcs stand down while a viz owns the stage — centered chrome
+          over centered data reads as noise, not framing. */}
+      {!reduced && !hasViz && (
         <group ref={drift}>
-          <OuterFrame color={look.color} speed={look.ringSpeed} dim={hasViz ? 0.45 : 1} />
+          <OuterFrame color={look.color} speed={look.ringSpeed} dim={1} />
         </group>
       )}
 
@@ -90,8 +92,9 @@ export default function SpatialHud({ reduced = false }: { reduced?: boolean }) {
         </>
       )}
 
-      {/* §5 spatial telemetry — readouts floating in depth */}
-      <SyncReadout color={look.color} />
+      {/* §5 spatial telemetry — sync readout stands down with the frame arcs
+          while a viz owns the stage */}
+      {!hasViz && <SyncReadout color={look.color} />}
     </group>
   );
 }

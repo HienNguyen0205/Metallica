@@ -64,11 +64,33 @@ export function resolveVisualizationLayout(
 }
 
 /**
- * Where the core docks while a centered visualization owns the stage.
- * Lower-left, in frame on the idle camera (half-width ≈ 4.5 at z=0):
- * the receded core (≈ ±1.1 extent) clears the central column.
+ * World half-extent of the core assembly (outer arcs) at scale 1.
  */
-export const CORE_DOCK_OFFSET: [number, number, number] = [-2.9, -1.1, 0];
+export const CORE_EXTENT = 2.75;
+
+/**
+ * Dock target for a receded core, anchored to the screen's bottom-left
+ * corner — not a fixed offset: halfW/halfH are the viewport half-extents
+ * (useThree viewport.width/2, viewport.height/2), `scale` is the core's
+ * receded scale (extent = CORE_EXTENT * scale), and the dock sits one
+ * assembly plus one margin inside both edges. Too small a frame centers
+ * instead of clipping.
+ */
+export function dockPosition(
+  halfW: number,
+  halfH: number,
+  scale: number,
+  margin = 0.35,
+): [number, number, number] {
+  if (!Number.isFinite(halfW) || !Number.isFinite(halfH) || halfW <= 0 || halfH <= 0) {
+    return [0, 0, 0];
+  }
+  const e = CORE_EXTENT * scale;
+  const x = halfW - e - margin;
+  const y = halfH - e - margin;
+  if (x <= 0 || y <= 0) return [0, 0, 0];
+  return [-x, -y, 0];
+}
 
 /** Half-extent of the center-stage box: a viz inside it owns the center. */
 const CENTER_STAGE_HALF = 1.5;

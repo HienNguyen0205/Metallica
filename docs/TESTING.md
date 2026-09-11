@@ -154,7 +154,8 @@ it can click exact metric nodes in 3D space:
 
 **`dock.spec.ts` + `groupedBars.spec.ts` — layout & charts**
 
-- docked core clears the center when a viz owns the stage;
+- idle core sits at the exact center; docked core clears the center when a
+  viz owns the stage (dock target follows the screen corner, not a fixed offset);
 - grouped bars spread symmetrically and stay within one category slot.
 
 ## Backend tests (`backend/tests/` — via `backend/runtests.py`)
