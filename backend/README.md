@@ -503,6 +503,21 @@ contract parity), not here.
 Run it: `python backend/evals/runner.py [area]` from the repo root, or the
 whole gate via `npm run test:backend`.
 
+## Observability (P3)
+
+`friday/observability.py` holds correlation IDs, counters and latency
+histograms — dependency-free, process-local (a second worker would need a
+shared sink). Every run gets `request_id` (per POST, echoed as
+`X-Request-ID`) and `trace_id`, stored on the run record. Series: runs and
+failures by status, tool calls/latency/errors by tool, LLM calls/latency by
+model and status, tokens and cost estimate by model (usage-metered; cost
+needs `FRIDAY_MODEL_PRICES_JSON`, otherwise 0.0 rather than a guess),
+approval waits, memory read/write latency, verification failures, replans,
+SSE disconnects and replay reads. `GET /metrics` serves the snapshot as
+JSON. Label values are component/status/model names only — never queries,
+sessions, arguments or facts. Covered by
+`tests/unit/test_observability.py`.
+
 ## Tests
 
 One command from the repo root — `npm run test:backend` (`python

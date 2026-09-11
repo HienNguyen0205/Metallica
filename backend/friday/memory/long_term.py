@@ -19,8 +19,11 @@ thẳng trên event loop sẽ treo mọi SSE stream đang mở.
 
 import asyncio
 import logging
+import time
 from contextvars import ContextVar
 from dataclasses import dataclass
+
+from friday import observability
 
 from friday.memory.embed import EmbedError, embed
 from friday.memory.store import MAX_ROWS as store_max_rows
@@ -233,22 +236,27 @@ async def load() -> int:
 async def add(fact: str, provenance: str, embedding: list[float] | None = None) -> Memory | None:
     from friday import memory_policy
 
-    vectors = [embedding] if embedding is not None else await embed([fact])
-    proposal = memory_policy.propose(fact, provenance, vectors[0], CACHE)
-    if proposal.action == "reject":
-        log.info("memory proposal rejected: %s", proposal.reason)
-        return None
-    if proposal.action == "duplicate":
-        return next((m for m in CACHE if m.id == proposal.duplicate_of), None)
-    if proposal.action == "supersede" and proposal.replaces is not None:
-        await forget(proposal.replaces)
-    row = await asyncio.to_thread(store_insert, fact, provenance, vectors[0])
-    memory = _row_to_memory({**row, "embedding": vectors[0],
-                             "type": proposal.memory_type,
-                             "confidence": proposal.confidence})
-    CACHE.append(memory)
-    await enforce_cap()
-    return memory
+    started = time.perf_counter()
+    try:
+        vectors = [embedding] if embedding is not None else await embed([fact])
+        proposal = memory_policy.propose(fact, provenance, vectors[0], CACHE)
+        if proposal.action == "reject":
+            log.info("memory proposal rejected: %s", proposal.reason)
+            return None
+        if proposal.action == "duplicate":
+            return next((m for m in CACHE if m.id == proposal.duplicate_of), None)
+        if proposal.action == "supersede" and proposal.replaces is not None:
+            await forget(proposal.replaces)
+        row = await asyncio.to_thread(store_insert, fact, provenance, vectors[0])
+        memory = _row_to_memory({**row, "embedding": vectors[0],
+                                 "type": proposal.memory_type,
+                                 "confidence": proposal.confidence})
+        CACHE.append(memory)
+        await enforce_cap()
+        return memory
+    finally:
+        observability.observe("memory_latency_ms",
+                              (time.perf_counter() - started) * 1000, {"op": "write"})
 
 
 async def forget(memory_id: int) -> bool:
@@ -260,13 +268,18 @@ async def forget(memory_id: int) -> bool:
     được, và một store từ chối không bao giờ được báo là thành công — nếu
     không, operator thấy dòng đó quay lại sau lần khởi động kế tiếp.
     """
+    started = time.perf_counter()
     try:
-        await asyncio.to_thread(store_delete, memory_id)
-    except StoreError:
-        log.warning("could not delete memory %s from the store", memory_id, exc_info=True)
-        return False
-    CACHE[:] = [m for m in CACHE if m.id != memory_id]
-    return True
+        try:
+            await asyncio.to_thread(store_delete, memory_id)
+        except StoreError:
+            log.warning("could not delete memory %s from the store", memory_id, exc_info=True)
+            return False
+        CACHE[:] = [m for m in CACHE if m.id != memory_id]
+        return True
+    finally:
+        observability.observe("memory_latency_ms",
+                              (time.perf_counter() - started) * 1000, {"op": "delete"})
 
 
 async def run_remember(payload: dict) -> dict:
