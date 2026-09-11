@@ -8,6 +8,8 @@ from typing import Any
 class AgentResult:
     text: str
     evidence: list[dict[str, Any]] = field(default_factory=list)
+    #: Answer claims citing evidence ids (P2). wire-shaped dicts, mirroring evidence.
+    claims: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass

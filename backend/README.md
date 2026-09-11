@@ -433,6 +433,19 @@ reconnect (P1.10) — only the request records are shared. Covered by
 `tests/unit/test_store.py` (both backends against one contract, factory,
 write-through, eviction).
 
+## Evidence and claims (P2)
+
+Every tool result becomes an `Evidence` (`friday/evidence.py`): id, tool
+source, full output, timestamp, confidence and provenance. Third-party text
+(`search_web`) is suspect by construction (0.7/`external_source`); direct
+measurements and the operator's own words are 1.0; failures are recorded at
+0.0 — a failure is still a sourced observation. The turn's final answer
+becomes one `Claim` citing every collected id at weakest-link confidence,
+`unverified` until the verifier step lands. Evidence entries keep their
+`tool`/`output` keys so planner input is unchanged, and no citations are
+injected into prompts. Runs persist both lists for reconnect reads and
+verification. Covered by `tests/unit/test_evidence.py`.
+
 ## Reconnect and resume (P1.10)
 
 Every enveloped frame is appended to the run's replay log
