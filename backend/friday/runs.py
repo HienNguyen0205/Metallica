@@ -1,10 +1,18 @@
 """P0.2 §4 — first-class Run/Step model. In-memory, single-process by design
-(the §11 approval dict already pins this service to one worker)."""
+(the §11 approval dict already pins this service to one worker).
+
+P1.9 — every mutation is persisted through a StateStore (friday/store.py):
+live objects stay the operational truth, snapshots go durable. Swap the store
+for RedisStateStore and other workers can read runs; nothing here imports
+redis.
+"""
 
 import time
 import uuid
 from dataclasses import dataclass, field
 from typing import Any, Literal
+
+from friday.store import InMemoryStateStore, StateStore, from_run_dict, to_run_dict
 
 StepKind = Literal[
     "plan", "reason", "search", "tool", "memory_read",
@@ -70,17 +78,33 @@ class AgentRun:
 
 
 class RunRegistry:
-    """LRU-bounded run store. Sync methods on one asyncio loop — never blocks."""
+    """LRU-bounded run store. Sync methods on one asyncio loop — never blocks.
 
-    def __init__(self, cap: int = MAX_RUNS) -> None:
+    Live AgentRun objects are the operational truth; each mutation also writes
+    a snapshot to the StateStore, which is the durable cross-worker read path.
+    """
+
+    def __init__(self, cap: int = MAX_RUNS, store: StateStore | None = None) -> None:
         self._cap = cap
         self._runs: dict[str, AgentRun] = {}
+        self._store: StateStore = store if store is not None else InMemoryStateStore()
+
+    def _persist(self, run: AgentRun) -> None:
+        self._store.save_run(to_run_dict(run))
+
+    def get_stored(self, run_id: str) -> AgentRun | None:
+        """Durable read (other workers, reconnect). None when never persisted."""
+        data = self._store.get_run(run_id)
+        return from_run_dict(data) if data is not None else None
 
     def create(self, session_id: str | None, goal: str) -> AgentRun:
         run = AgentRun(run_id=f"run_{uuid.uuid4().hex[:12]}", session_id=session_id, goal=goal)
         self._runs[run.run_id] = run
         while len(self._runs) > self._cap:
-            self._runs.pop(next(iter(self._runs)))
+            evicted = next(iter(self._runs))
+            self._runs.pop(evicted)
+            self._store.delete_run(evicted)
+        self._persist(run)
         return run
 
     def get(self, run_id: str) -> AgentRun | None:
@@ -91,6 +115,7 @@ class RunRegistry:
         if run and run.status == "queued":
             run.status = "running"
             run.started_at = time.time()
+            self._persist(run)
 
     def update_status(self, run_id: str, status: RunStatus) -> bool:
         """Guarded non-terminal move. Terminal runs are never resurrected —
@@ -101,6 +126,7 @@ class RunRegistry:
         run.status = status
         if status in _TERMINAL:
             run.completed_at = time.time()
+        self._persist(run)
         return True
 
     def finish(self, run_id: str, status: RunStatus) -> None:
@@ -110,16 +136,19 @@ class RunRegistry:
         run = self._runs.get(run_id)
         if run and run.status not in _TERMINAL:
             run.turn_id = turn_id
+            self._persist(run)
 
     def set_plan(self, run_id: str, plan: list[dict[str, Any]]) -> None:
         run = self._runs.get(run_id)
         if run and run.status not in _TERMINAL:
             run.plan = plan
+            self._persist(run)
 
     def record_evidence(self, run_id: str, item: dict[str, Any]) -> None:
         run = self._runs.get(run_id)
         if run and run.status not in _TERMINAL:
             run.evidence.append(item)
+            self._persist(run)
 
     def set_final(self, run_id: str, answer: str | None = None, error: str | None = None) -> None:
         run = self._runs.get(run_id)
@@ -128,6 +157,7 @@ class RunRegistry:
                 run.final_answer = answer
             if error is not None:
                 run.error = error
+            self._persist(run)
 
     def record_step(self, run_id: str, payload: dict[str, Any]) -> None:
         """Update-or-create mirror of a wire step event."""
@@ -145,6 +175,7 @@ class RunRegistry:
             )
             run.steps.append(step)
             run.current_step_id = sid
+            self._persist(run)
             return
         step.status = payload["status"]
         if payload.get("summary"):
@@ -153,6 +184,7 @@ class RunRegistry:
             step.error = payload["error"]
         if step.status in _TERMINAL:
             step.completed_at = time.time()
+        self._persist(run)
 
 
 REGISTRY = RunRegistry()
