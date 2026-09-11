@@ -484,6 +484,25 @@ Covered by `tests/integration/test_reconnect.py` (verbatim replay, filtering,
 no-reexecution, 404, live partial) and the resume cases in
 `tests/unit/envelopedFlow.spec.ts`.
 
+## Evaluation suite (P2)
+
+`backend/evals/` scores decision quality, not just code paths: cases declare
+input, scripted model turns, must/must-not-call sets, approval behavior,
+answer text, memory outcome and claim status. The runner (`runner.py`)
+reports per-case pass/fail plus latency/tool-call/approval metrics and exits
+non-zero on failure; `tests/integration/test_evals.py` wires it into CI, so
+the gate can never skip it.
+
+The model is scripted because CI has no key — these evals measure the
+harness (routing, gates, memory, verification, regressions), with token/cost
+keys reserved for the metering phase. `live: True` cases (real models) are
+skipped by the CI runner and run separately. Visualization correctness lives
+in the FE suite (`tests/unit/vizPlanner.spec.ts`, ~190 planner cases plus
+contract parity), not here.
+
+Run it: `python backend/evals/runner.py [area]` from the repo root, or the
+whole gate via `npm run test:backend`.
+
 ## Tests
 
 One command from the repo root — `npm run test:backend` (`python
