@@ -146,18 +146,46 @@ npm run start
 
 | Script | Description |
 |---|---|
-| `npm run dev` | Start the development server on `:3000`. |
+| `npm run dev` | Start the frontend dev server on `:3000`. |
+| `npm run dev:frontend` | Same as `dev` — the frontend half of `dev:full`. |
+| `npm run dev:backend` | Start the orchestrator on `:8000` (`uvicorn friday.main:app`, from `backend/requirements.txt`). |
+| `npm run dev:full` | Backend + frontend together. |
 | `npm run build` | Production build. |
 | `npm run start` | Serve the production build. |
 | `npm run lint` | ESLint (flat config, `eslint-config-next`). |
 | `npm run typecheck` | `tsc --noEmit`. |
 | `npm run test` | Run all Playwright tests (unit + ui). |
 | `npm run test:unit` | Unit project only — pure logic, no server/browser. |
-| `npm run test:ui` | UI project only — drives a production build in headless Chromium. |
+| `npm run test:frontend` | Same as `test:unit` — the frontend half of the suite. |
+| `npm run test:backend` | Whole Python suite via `backend/runtests.py` (no pytest needed). |
+| `npm run test:contracts` | Contract gate: FE event/viz/run/tool/error specs + BE `test_contracts.py`. |
+| `npm run test:e2e` | Full-stack UI journey — production build + stub orchestrator in headless Chromium. |
+| `npm run test:ui` | Same as `test:e2e`. |
 | `npm run test:headed` | UI tests with a visible browser. |
 | `npm run test:debug` | UI tests in the Playwright inspector. |
 | `npm run test:report` | Open the last HTML test report. |
-| `npm run verify` | Full gate: lint + typecheck + all tests. |
+| `npm run verify` | Full gate: lint + typecheck + frontend + backend + contracts + e2e. |
+
+### Full-stack local run
+
+| Piece | Command | Port |
+|---|---|---|
+| Frontend | `npm run dev:frontend` | `:3000` |
+| Orchestrator | `npm run dev:backend` | `:8000` |
+| Both | `npm run dev:full` | `:3000` + `:8000` |
+| E2E (prod build + stub) | `npm run test:e2e` | `:3100` app, `:8123` stub |
+
+The UI targets `http://localhost:8000` unless `NEXT_PUBLIC_FRIDAY_API` is set.
+`POST /query` returns `text/event-stream` (fetch + stream reader, not
+`EventSource` — POST keeps the question out of URLs and access logs). With no
+backend running, the UI falls back to the canned offline planner.
+
+To exercise the approval flow locally: ask anything that triggers `write_note`
+(a high-risk tool), keep the backend running, and approve/deny in the
+`ConfirmPrompt` dialog — the stream stays open on `confirm` until `POST
+/confirm` releases it (120s silence refuses). `npm run test:backend` covers the
+same gate headlessly (`test_stream.py`: announced before running, denial
+reported, silence is not consent).
 
 ## Environment Variables
 

@@ -389,8 +389,9 @@ as a degraded live mode.
 
 ## Tests
 
-Run from `backend/`. `PYTHONPATH` is needed because Python puts the *script's*
-directory on `sys.path`, not the working directory:
+One command from the repo root — `npm run test:backend` (`python
+backend/runtests.py`) — runs every file below in its own process. From
+`backend/` directly:
 
 ```bash
 PYTHONPATH=. ./.venv/Scripts/python.exe tests/unit/test_memory.py

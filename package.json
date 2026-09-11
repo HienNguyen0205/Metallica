@@ -7,17 +7,24 @@
   },
   "scripts": {
     "dev": "next dev",
+    "dev:frontend": "next dev",
+    "dev:backend": "python -m uvicorn friday.main:app --port 8000 --reload --app-dir backend",
+    "dev:full": "node -e \"const{spawn}=require('child_process');for(const a of[['run','dev:backend'],['run','dev:frontend']]){const p=spawn('npm',a,{stdio:'inherit',shell:true});p.on('exit',c=>{if(c)process.exit(c)})}\"",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
     "typecheck": "next typegen && tsc --noEmit",
     "test": "playwright test",
     "test:unit": "playwright test --project=unit",
+    "test:frontend": "playwright test --project=unit",
+    "test:backend": "python backend/runtests.py",
+    "test:contracts": "playwright test --project=unit tests/unit/contracts.spec.ts tests/unit/eventContract.spec.ts tests/unit/envelopedFlow.spec.ts && python backend/runtests.py test_contracts",
+    "test:e2e": "playwright test --project=ui",
     "test:ui": "playwright test --project=ui",
     "test:headed": "playwright test --project=ui --headed",
     "test:debug": "playwright test --project=ui --debug",
     "test:report": "playwright show-report",
-    "verify": "npm run lint && npm run typecheck && npm run test"
+    "verify": "npm run lint && npm run typecheck && npm run test:frontend && npm run test:backend && npm run test:contracts && npm run test:e2e"
   },
   "dependencies": {
     "@react-three/drei": "^10.7.8",
