@@ -32,12 +32,24 @@ ROW = {
 }
 
 
-def stub(*, rows=None, insert_row=None, fail=None):
+def stub(*, rows=None, insert_row=None, fail=None, vectors=None):
     lt.clear()
     DELETED.clear()
     THREADS.clear()
-    embed_mod_embed = fake_embed([[1.0, 0.0]])
-    lt.embed = embed_mod_embed
+    # Stateful across calls (not just within one): the dedupe gate compares a
+    # new fact's vector against stored ones, so a threading test that loads a
+    # row AND stores a new fact needs distinct vectors per call.
+    pool = vectors or [[1.0, 0.0]]
+    calls = {"n": 0}
+
+    async def _embed(texts):
+        out = []
+        for _ in texts:
+            out.append(pool[calls["n"] % len(pool)])
+            calls["n"] += 1
+        return out
+
+    lt.embed = _embed
 
     def _select_all():
         THREADS.append(threading.current_thread().name)
@@ -158,7 +170,10 @@ def test_no_store_call_runs_on_the_event_loop():
     đang mở và mọi /confirm đang chờ, cùng lúc, tới mười giây. Ba đường ghi/đọc
     đều phải rời event loop.
     """
-    stub(rows=[ROW])
+    # The loaded ROW embeds as [1.0, 0.0], so the newly stored fact must
+    # embed differently — otherwise the dedupe gate (correctly) reuses the
+    # row and the insert this test counts never happens.
+    stub(rows=[ROW], vectors=[[0.0, 1.0]])
     asyncio.run(lt.load())
     asyncio.run(lt.run_remember({"fact": "gì đó"}))
     asyncio.run(lt.forget(1))

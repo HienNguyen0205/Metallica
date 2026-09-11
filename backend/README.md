@@ -244,6 +244,20 @@ given a `NEXT_PUBLIC_` prefix or otherwise reach the frontend bundle — that
 would hand a browser script full read/write/delete on every operator's
 memory table.
 
+## Memory layers and proposal policy (P2)
+
+Layers: working (short-term session history), episodic (past interactions —
+the default for stored rows), semantic (durable facts), preference (operator
+tastes, classified by heuristic), evidence (sourced observations). Every item
+carries type/source/provenance/confidence/timestamps/TTL (`friday/memory/`
+`Memory`; TTL stored, not yet enforced).
+
+The model only *proposes* memory. `friday/memory_policy.py:propose()`
+validates, deduplicates (cosine ≥ 0.95 reuses the row), supersedes on
+contradiction (preference changes replace), and rejects prompt-injection
+shapes on tool-sourced proposals — the operator's own words stay trusted,
+matching the recall fence. Covered by `tests/unit/test_memory_policy.py`.
+
 ## §22 The gate on /query
 
 `/query` is public, unauthenticated, and every call spends provider quota.
