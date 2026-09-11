@@ -11,6 +11,18 @@ import asyncio
 import dataclasses
 import json
 import os
+import shutil
+import sys
+import tempfile
+import time
+
+# Direct-script support (python backend/evals/runner.py from the root):
+# ensure backend/ is importable before anything else.
+_BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _BACKEND_DIR not in sys.path:
+    sys.path.insert(0, _BACKEND_DIR)
+import shutil
+import tempfile
 import time
 
 from friday import agent
@@ -20,8 +32,13 @@ from friday.memory import long_term as lt
 from friday.tools import registry as registry_mod
 from friday.tools.base import Tool
 
-from .cases import CASES
+try:
+    from .cases import CASES
+except ImportError:  # direct script execution: python backend/evals/runner.py
+    import sys as _sys
 
+    _sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    from evals.cases import CASES
 #: Temp tools some cases need (capability-denial probes). Never shipped.
 TEMP_TOOLS = {
     "zz_vault": Tool(name="zz_vault", description="probe",
@@ -129,6 +146,20 @@ def run_case(case: dict) -> dict:
     old_grants = os.environ.get("FRIDAY_GRANTED_CAPABILITIES")
     if "grants" in case:
         os.environ["FRIDAY_GRANTED_CAPABILITIES"] = case["grants"]
+    # P4 — case-scoped sandbox fixture: files declared inline, root repointed,
+    # everything removed afterwards. Real filesystem, no network.
+    sandbox_tmp = None
+    old_sandbox = os.environ.get("FRIDAY_SANDBOX_DIR")
+    if "sandbox_files" in case:
+        sandbox_tmp = tempfile.mkdtemp(prefix="eval-fs-")
+        for rel, content in case["sandbox_files"].items():
+            dest = os.path.join(sandbox_tmp, rel)
+            parent = os.path.dirname(dest)
+            if parent:
+                os.makedirs(parent, exist_ok=True)
+            with open(dest, "w", encoding="utf-8") as fh:
+                fh.write(content)
+        os.environ["FRIDAY_SANDBOX_DIR"] = sandbox_tmp
 
     started = time.perf_counter()
     try:
@@ -153,6 +184,12 @@ def run_case(case: dict) -> dict:
             os.environ.pop("FRIDAY_GRANTED_CAPABILITIES", None)
         else:
             os.environ["FRIDAY_GRANTED_CAPABILITIES"] = old_grants
+        if old_sandbox is None:
+            os.environ.pop("FRIDAY_SANDBOX_DIR", None)
+        else:
+            os.environ["FRIDAY_SANDBOX_DIR"] = old_sandbox
+        if sandbox_tmp is not None:
+            shutil.rmtree(sandbox_tmp, ignore_errors=True)
     latency_ms = (time.perf_counter() - started) * 1000
 
     executed = [e.payload["tool"] for e in events if e.kind == "tool"]

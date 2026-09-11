@@ -313,7 +313,9 @@ say in its own permissions.
 | `get_system_metrics` | low  | reads host CPU / memory / disk (psutil)   |
 | `get_process_list`   | low  | top processes by memory share             |
 | `search_web`         | low  | public web search, three providers in turn |
-| `write_note`         | high | writes a markdown file under `notes/`     |
+| `write_note` | high | writes a markdown file under `notes/` |
+| `list_dir` | low | lists one level under `FRIDAY_SANDBOX_DIR` (default `notes/`) |
+| `read_file` | low | reads one text file under the sandbox, truncated with a flag |
 
 `get_process_list` ranks by memory, not CPU: `cpu_percent` reads 0.0 the first
 time a process is sampled, so a CPU ranking there would be noise wearing a

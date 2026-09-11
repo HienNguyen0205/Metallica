@@ -4,6 +4,7 @@ from typing import Any
 
 from .base import Tool
 from .filesystem.notes import run_read_note, run_write_note
+from .filesystem.sandbox import run_list_dir, run_read_file
 from .integrations.search import run_search_web
 from .system.clock import run_current_time
 from .system.metrics import preview_metrics, run_system_metrics
@@ -152,6 +153,44 @@ def _build_default_registry() -> dict[str, Tool]:
             risk="low",
             run=run_remember,
             capabilities=("memory.write",),
+        ),
+        Tool(
+            name="list_dir",
+            description=(
+                "List one directory level inside the file sandbox "
+                "(FRIDAY_SANDBOX_DIR, default backend/notes/): names, kinds, "
+                "sizes. Paths outside the sandbox are refused."
+            ),
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "relative subdirectory, omit for the root"}
+                },
+                "required": [],
+            },
+            risk="low",
+            run=run_list_dir,
+            capabilities=("filesystem.read",),
+            timeout_s=10.0,
+        ),
+        Tool(
+            name="read_file",
+            description=(
+                "Read one text file inside the file sandbox, truncated with a "
+                "flag past the limit. Sensitive basenames (.env, keys) and "
+                "binary files are refused."
+            ),
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "path": {"type": "string", "description": "relative file path, required"}
+                },
+                "required": ["path"],
+            },
+            risk="low",
+            run=run_read_file,
+            capabilities=("filesystem.read",),
+            timeout_s=10.0,
         ),
     ]
     return {t.name: t for t in tools}
