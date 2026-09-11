@@ -5,6 +5,7 @@ from typing import Any
 from .base import Tool
 from .filesystem.notes import run_read_note, run_write_note
 from .filesystem.sandbox import run_list_dir, run_read_file
+from .integrations.fetch import run_fetch_url
 from .integrations.search import run_search_web
 from .system.clock import run_current_time
 from .system.metrics import preview_metrics, run_system_metrics
@@ -191,6 +192,25 @@ def _build_default_registry() -> dict[str, Tool]:
             run=run_read_file,
             capabilities=("filesystem.read",),
             timeout_s=10.0,
+        ),
+        Tool(
+            name="fetch_url",
+            description=(
+                "Fetch one public http(s) URL and return its title plus a "
+                "trimmed text extract. Private hosts, non-text content and "
+                "oversize pages are refused."
+            ),
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "url": {"type": "string", "description": "the http(s) URL to read"}
+                },
+                "required": ["url"],
+            },
+            risk="low",
+            run=run_fetch_url,
+            capabilities=("web.read",),
+            timeout_s=20.0,
         ),
     ]
     return {t.name: t for t in tools}

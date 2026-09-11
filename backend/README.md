@@ -316,6 +316,7 @@ say in its own permissions.
 | `write_note` | high | writes a markdown file under `notes/` |
 | `list_dir` | low | lists one level under `FRIDAY_SANDBOX_DIR` (default `notes/`) |
 | `read_file` | low | reads one text file under the sandbox, truncated with a flag |
+| `fetch_url` | low | fetches one public http(s) URL, title plus trimmed text extract |
 
 `get_process_list` ranks by memory, not CPU: `cpu_percent` reads 0.0 the first
 time a process is sampled, so a CPU ranking there would be noise wearing a

@@ -192,4 +192,21 @@ CASES = [
         "expect_answer": "step budget",
         "expect_claim": "unverified",
     },
+    {
+        "id": "tool_selection/browser_fetch",
+        "area": "tool_selection",
+        "input": "what does the page say",
+        "script": [("tool", "fetch_url", {"url": "{BASE}/page"}),
+                   ("text", "The page says hello.")],
+        "must_call": ["fetch_url"],
+        "must_not_call": ["write_note"],
+        "approve": "never",
+        "expect_answer": "hello",
+        "expect_claim": "supported",
+        "http_pages": {
+            "/page": ("<html><head><title>T</title></head>"
+                      "<body><p>hello page</p></body></html>",
+                      "text/html", 200),
+        },
+    },
 ]
