@@ -20,7 +20,7 @@ export function ToolHud() {
   const isDenied = !!denied && !activity;
 
   return (
-    <div className="pointer-events-none absolute left-1/2 top-[42%] flex -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-1 font-mono text-[10px] tracking-[0.24em]">
+    <div className="pointer-events-none absolute left-1/2 top-20 flex -translate-x-1/2 flex-col items-center gap-1 font-mono text-[10px] tracking-[0.24em]">
       <span className="text-[9px] tracking-[0.32em] text-cyan-300/50">SYSTEM CORE</span>
       <span aria-hidden="true" className="text-cyan-300/30">↓</span>
       <span
