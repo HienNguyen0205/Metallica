@@ -72,7 +72,12 @@ export async function streamQuery(query: string, opts: QueryOptions): Promise<vo
       if (signal?.aborted) break;
       const unwrapped = unwrapEnvelope(raw.event, raw.data);
       if (unwrapped.kind === "rejected") {
+        // P0.2 — a rejected envelope is a producer contract violation, never
+        // routine transport: surface it via onError so it lands in the store
+        // instead of dying in the console. Duplicate/stale/wrong-run/gap are
+        // flow-control (expected on retries) and stay log-only downstream.
         console.warn("[friday] envelope rejected:", unwrapped.reason);
+        onError?.(`protocol error: ${unwrapped.reason}`);
         continue;
       }
       const event = parseFridayEvent({ event: unwrapped.event, data: unwrapped.data });

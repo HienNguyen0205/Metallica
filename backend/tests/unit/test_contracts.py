@@ -106,6 +106,101 @@ def test_error_model_matches_canonical_schema() -> None:
     StepEvent(step_id="s1", turn_id="turn_1", kind="tool", status="running")
 
 
+def test_run_query_transcript_validates_against_contracts() -> None:
+    """P0.2/P0.3 — every frame of a real v2 turn validates: envelope keys,
+    contiguous sequences, single run identity, per-kind payload shapes, and a
+    single terminal `done` with nothing after it."""
+    from friday import agent, main
+    from friday.core import config as core_config
+    from friday.schema import VizData, VisualizationPlan
+
+    events_schema = load("events.v1.json")
+    viz_schema = load("visualization", "visualization.v1.json")
+    tool_schema = load("tool", "tool.v1.json")
+    event_enum = set(events_schema["properties"]["event"]["enum"])
+    defs = events_schema["definitions"]
+
+    async def fake_agent(query, approve, result, history=(), memories="", emit_steps=False):
+        yield agent.AgentEvent("state", {"state": "tool_execution"})
+        yield agent.AgentEvent("tool", {"tool": "get_system_metrics", "risk": "low"})
+        if emit_steps:
+            yield agent.AgentEvent("step", {"step_id": "s1", "turn_id": "turn_1",
+                                            "kind": "tool", "status": "running",
+                                            "tool": "get_system_metrics"})
+            yield agent.AgentEvent("step", {"step_id": "s1", "turn_id": "turn_1",
+                                            "kind": "tool", "status": "completed",
+                                            "summary": "CPU 73%"})
+        result.text = "CPU is at 73 percent."
+
+    async def fake_plan(query, answer, evidence, pinned_type=None):
+        return VisualizationPlan(
+            type="radial_gauge", title="SYSTEM LOAD",
+            data=VizData(metrics=[{"label": "CPU", "value": 73, "unit": "%"}]),
+            answer="planner phrasing",
+        )
+
+    async def drain():
+        return [c async for c in main.run_query("contract turn")]
+
+    original_agent, agent.run = agent.run, fake_agent
+    original_plan, main.plan = main.plan, fake_plan
+    old_flag = core_config.settings.events_v2
+    core_config.settings.events_v2 = True
+    try:
+        import asyncio
+
+        frames = asyncio.run(drain())
+    finally:
+        agent.run = original_agent
+        main.plan = original_plan
+        core_config.settings.events_v2 = old_flag
+
+    assert len(frames) >= 5, "a turn is state/tool/steps/viz/answer/done at minimum"
+    bodies = []
+    for chunk in frames:
+        assert chunk.endswith("\n\n"), f"malformed SSE frame: {chunk!r}"
+        name, _, data = chunk.strip().partition("\n")
+        frame_event = name.removeprefix("event: ")
+        body = json.loads(data.removeprefix("data: "))
+        # envelope identity matches the frame header (FE rejects mismatches)
+        assert body["event"] == frame_event, body
+        bodies.append(body)
+
+    seqs = [b["sequence"] for b in bodies]
+    assert seqs == list(range(1, len(bodies) + 1)), f"sequences contiguous from 1: {seqs}"
+    run_ids = {b["run_id"] for b in bodies}
+    assert len(run_ids) == 1 and next(iter(run_ids)).startswith("run_")
+    names = [b["event"] for b in bodies]
+    assert names.count("done") == 1 and names[-1] == "done", names
+    assert "error" not in names
+
+    for body in bodies:
+        assert body["version"] == 1
+        assert body["event"] in event_enum
+        assert isinstance(body["turn_id"], str) and body["turn_id"]
+        assert isinstance(body["timestamp"], str) and body["timestamp"].endswith("Z")
+        payload = body["payload"]
+        assert isinstance(payload, dict)
+        kind = body["event"]
+        if kind == "state":
+            assert payload["state"] in defs["statePayload"]["properties"]["state"]["enum"]
+        elif kind == "tool":
+            assert payload["tool"] and payload["risk"] in tool_schema["properties"]["risk"]["enum"]
+        elif kind == "step":
+            StepEvent(**payload)  # consumer-shaped: raises on contract drift
+            assert payload["kind"] in defs["stepPayload"]["properties"]["kind"]["enum"]
+            assert payload["status"] in defs["stepPayload"]["properties"]["status"]["enum"]
+        elif kind == "viz":
+            assert payload["type"] in viz_schema["properties"]["type"]["enum"]
+        elif kind == "answer":
+            assert isinstance(payload["text"], str) and payload["text"]
+
+    from friday.runs import REGISTRY
+
+    run = REGISTRY.get(bodies[0]["run_id"])
+    assert run is not None and run.status == "completed" and run.completed_at is not None
+
+
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
         if name.startswith("test_") and callable(fn):
