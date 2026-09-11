@@ -116,7 +116,7 @@ def test_agent_loop_collects_evidence_and_claims() -> None:
     assert result.evidence[0]["provenance"] == "system"
     assert len(result.claims) == 1
     claim = result.claims[0]
-    assert claim["claim_id"] == "c1" and claim["status"] == "unverified"
+    assert claim["claim_id"] == "c1" and claim["status"] == "supported"
     assert claim["evidence_ids"] == ["e1"] and claim["confidence"] == 1.0
 
 

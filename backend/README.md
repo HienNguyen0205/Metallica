@@ -446,6 +446,18 @@ becomes one `Claim` citing every collected id at weakest-link confidence,
 injected into prompts. Runs persist both lists for reconnect reads and
 verification. Covered by `tests/unit/test_evidence.py`.
 
+## Verification and replan
+
+`friday/verify.py` runs deterministic structural checks on the final answer
+(empty text, all-evidence-failed) — no model call, no cost. A failure spends
+one bounded replan (`MAX_REPLANS = 1`): the hint is appended and the loop
+takes another pass inside the existing turn budget, emitting a `verification`
+step event. An exhausted budget leaves the answer standing `unverified`
+rather than looping; passing answers are marked `supported`. Semantic
+judgments (conflicts, staleness, plausible-but-unsupported claims) need a
+model-graded verifier and are explicitly out of v1 scope. Covered by
+`tests/unit/test_verify.py`.
+
 ## Reconnect and resume (P1.10)
 
 Every enveloped frame is appended to the run's replay log
