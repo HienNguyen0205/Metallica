@@ -388,9 +388,13 @@ npm run test:unit   # fast feedback loop (~seconds, no browser)
 npm run verify      # full CI-equivalent gate locally
 ```
 
-CI (`.github/workflows/ci.yml`) runs two jobs on every push/PR:
-`static` (lint · typecheck · unit) → `ui` (cached Playwright install, WebGL
-suite against the production build, report artifact uploaded).
+CI (`.github/workflows/ci.yml`) runs four gates on every push/PR: `static`
+(lint · typecheck · unit) and `backend` (`backend/runtests.py` unit +
+integration — one command so a new test file can never be silently skipped)
+and `contracts` (`npm run test:contracts`, needs node + python, no browser)
+in parallel, then `ui` (cached Playwright install, WebGL suite against the
+production build, report artifact uploaded). No gate calls a paid model API —
+every provider call under test is a deterministic fake.
 
 ## Project Structure
 
