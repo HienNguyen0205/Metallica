@@ -209,4 +209,20 @@ CASES = [
                       "text/html", 200),
         },
     },
+    {
+        "id": "tool_selection/docs_retrieval",
+        "area": "tool_selection",
+        "input": "how does approval work",
+        "script": [("tool", "search_docs", {"query": "how does approval work"}),
+                   ("text", "Confirm releases blocked tools.")],
+        "must_call": ["search_docs"],
+        "must_not_call": ["write_note"],
+        "approve": "never",
+        "expect_answer": "Confirm",
+        "expect_claim": "supported",
+        "docs_files": {
+            "a_guide.md": "# Approval\n\nConfirm releases blocked tools.\n",
+            "b_other.md": "# Other\n\nUnrelated section here.\n",
+        },
+    },
 ]

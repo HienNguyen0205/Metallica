@@ -6,6 +6,7 @@ from .base import Tool
 from .filesystem.notes import run_read_note, run_write_note
 from .filesystem.sandbox import run_list_dir, run_read_file
 from .integrations.fetch import run_fetch_url
+from friday.rag import run_search_docs
 from .integrations.search import run_search_web
 from .system.clock import run_current_time
 from .system.metrics import preview_metrics, run_system_metrics
@@ -211,6 +212,25 @@ def _build_default_registry() -> dict[str, Tool]:
             run=run_fetch_url,
             capabilities=("web.read",),
             timeout_s=20.0,
+        ),
+        Tool(
+            name="search_docs",
+            description=(
+                "Search the repo docs for a question: returns ranked sections "
+                "with file paths. Read-only over the corpus; needs an "
+                "embedding key or it reports unconfigured."
+            ),
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "what to find in the docs"}
+                },
+                "required": ["query"],
+            },
+            risk="low",
+            run=run_search_docs,
+            capabilities=("docs.read",),
+            timeout_s=60.0,
         ),
     ]
     return {t.name: t for t in tools}
