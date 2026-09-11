@@ -67,6 +67,41 @@ def test_module_singleton_exists() -> None:
     assert isinstance(REGISTRY, RunRegistry)
 
 
+def test_update_status_guards_terminal_runs() -> None:
+    r = RunRegistry()
+    run = r.create(None, "q")
+    assert r.update_status(run.run_id, "planning") is True
+    assert r.update_status(run.run_id, "waiting_approval") is True
+    assert r.update_status(run.run_id, "running") is True
+    assert run.status == "running" and run.completed_at is None
+    r.finish(run.run_id, "completed")
+    assert r.update_status(run.run_id, "running") is False
+    assert run.status == "completed", "terminal runs are never resurrected"
+
+
+def test_first_class_run_fields_accumulate() -> None:
+    r = RunRegistry()
+    run = r.create("sess_1", "disk and cpu")
+    assert run.turn_id is None and run.plan is None
+    assert run.evidence == [] and run.final_answer is None and run.error is None
+    r.begin(run.run_id)
+    r.set_turn(run.run_id, "turn_1")
+    r.set_plan(run.run_id, [{"id": "A", "goal": "collect metrics"}])
+    r.record_evidence(run.run_id, {"evidence_id": "e1", "content": "CPU 73%"})
+    r.set_final(run.run_id, answer="CPU 73 percent.")
+    assert run.turn_id == "turn_1"
+    assert run.plan == [{"id": "A", "goal": "collect metrics"}]
+    assert run.evidence == [{"evidence_id": "e1", "content": "CPU 73%"}]
+    assert run.final_answer == "CPU 73 percent." and run.error is None
+    r.set_final(run.run_id, error="planner unavailable")
+    assert run.error == "planner unavailable"
+    # writes stop at the terminal edge
+    r.finish(run.run_id, "completed")
+    r.set_final(run.run_id, answer="too late")
+    r.record_evidence(run.run_id, {"evidence_id": "e2"})
+    assert run.final_answer == "CPU 73 percent." and len(run.evidence) == 1
+
+
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
         if name.startswith("test_") and callable(fn):

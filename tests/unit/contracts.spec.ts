@@ -46,6 +46,10 @@ test("run status enum matches the step/agent status universe", () => {
   expect(run.definitions.RunStatus.enum).toEqual(expect.arrayContaining([...STEP_STATUSES]));
   expect([...STEP_STATUSES].sort()).toEqual([...run.definitions.RunStatus.enum].sort());
   expect(STEP_KINDS).toEqual(expect.arrayContaining(["plan", "tool", "answer"]));
+  // first-class run fields (P1.1) are all documented contract properties
+  for (const key of ["turn_id", "goal", "plan", "evidence", "final_answer", "error", "budget", "current_step_id"]) {
+    expect(Object.keys(run.properties)).toContain(key);
+  }
 });
 
 test("tool schema risk enum matches the parser and declares a policy decision", () => {
