@@ -69,6 +69,14 @@ class Memory:
     embedding: list[float]
     created_at: str = ""
     last_used_at: str = ""
+    #: P2 layers — working lives in short_term.py; stored rows default to
+    #: episodic (past interactions). In-memory only: the Supabase schema is
+    #: unchanged, so these ride the row, not the table.
+    type: str = "episodic"
+    source: str = "remember"
+    confidence: float = 1.0
+    updated_at: str = ""
+    ttl_s: int | None = None
 
 
 CACHE: list[Memory] = []
@@ -185,13 +193,22 @@ def current_provenance() -> str:
 
 
 def _row_to_memory(row: dict) -> Memory:
+    from friday import memory_policy
+
+    provenance = row.get("provenance", "user")
+    created = str(row.get("created_at", ""))
     return Memory(
         id=int(row["id"]),
         fact=row["fact"],
-        provenance=row.get("provenance", "user"),
+        provenance=provenance,
         embedding=row.get("embedding") or [],
-        created_at=str(row.get("created_at", "")),
+        created_at=created,
         last_used_at=str(row.get("last_used_at", "")),
+        type=str(row.get("type", "episodic")),
+        source=str(row.get("source", "remember")),
+        confidence=float(row.get("confidence", memory_policy.confidence_for(provenance))),
+        updated_at=str(row.get("updated_at", created)),
+        ttl_s=row.get("ttl_s"),
     )
 
 
@@ -213,10 +230,22 @@ async def load() -> int:
     return len(CACHE)
 
 
-async def add(fact: str, provenance: str) -> Memory | None:
-    vectors = await embed([fact])
+async def add(fact: str, provenance: str, embedding: list[float] | None = None) -> Memory | None:
+    from friday import memory_policy
+
+    vectors = [embedding] if embedding is not None else await embed([fact])
+    proposal = memory_policy.propose(fact, provenance, vectors[0], CACHE)
+    if proposal.action == "reject":
+        log.info("memory proposal rejected: %s", proposal.reason)
+        return None
+    if proposal.action == "duplicate":
+        return next((m for m in CACHE if m.id == proposal.duplicate_of), None)
+    if proposal.action == "supersede" and proposal.replaces is not None:
+        await forget(proposal.replaces)
     row = await asyncio.to_thread(store_insert, fact, provenance, vectors[0])
-    memory = _row_to_memory({**row, "embedding": vectors[0]})
+    memory = _row_to_memory({**row, "embedding": vectors[0],
+                             "type": proposal.memory_type,
+                             "confidence": proposal.confidence})
     CACHE.append(memory)
     await enforce_cap()
     return memory
@@ -248,10 +277,21 @@ async def run_remember(payload: dict) -> dict:
     if not store_configured():
         return {"error": "long-term memory is not configured"}
 
+    from friday import memory_policy
+
+    # Cheap pre-screen before spending an embedding call: injection and empty
+    # checks need no vector. add() re-runs the full gate with the real one.
+    pre = memory_policy.propose(fact, current_provenance(), [], CACHE)
+    if pre.action == "reject":
+        log.info("memory proposal rejected: %s", pre.reason)
+        return {"error": f"memory proposal rejected: {pre.reason}"}
+
     try:
         memory = await add(fact, current_provenance())
     except (StoreError, EmbedError) as err:
         log.warning("could not store a memory", exc_info=True)
         return {"error": f"could not remember: {type(err).__name__}"}
+    if memory is None:
+        return {"error": "memory proposal rejected"}
 
     return {"remembered": memory.fact, "id": memory.id, "provenance": memory.provenance}
