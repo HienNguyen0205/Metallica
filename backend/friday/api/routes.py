@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import time
 import uuid
 from collections.abc import AsyncIterator
 from typing import Any
@@ -13,7 +14,7 @@ from openai import APIError, NotFoundError, RateLimitError
 from friday import agent, llm, memory
 from friday.api import dependencies as deps
 from friday.api.dependencies import PENDING, guard, require_known_origin
-from friday.api.schemas import Decision, Query
+from friday.api.schemas import Decision, Query, RunBudget
 from friday.core.config import settings
 from friday.events.serializer import sse, sse_envelope
 from friday.memory import consolidate
@@ -67,6 +68,12 @@ router = APIRouter()
 #: swallows its own exceptions. Each task removes itself on completion, so
 #: this stays bounded.
 _BACKGROUND_TASKS: set[asyncio.Task] = set()
+
+#: Live streaming tasks by run_id. `POST /runs/{id}/cancel` cancels the task;
+#: the run_query handler below translates that into a terminal `cancelled`
+#: state. Entries are removed in run_query's finally — a present-but-done
+#: entry simply means the run already ended (cancel is idempotent).
+_RUN_TASKS: dict[str, asyncio.Task] = {}
 
 
 def quota_detail(err: Exception) -> str:
@@ -269,7 +276,9 @@ async def _run_query_events(
         bg_task.add_done_callback(_BACKGROUND_TASKS.discard)
 
 
-async def run_query(query: str, session_id: str | None = None) -> AsyncIterator[str]:
+async def run_query(
+    query: str, session_id: str | None = None, budget: RunBudget | None = None
+) -> AsyncIterator[str]:
     if not settings.events_v2:
         # P0.3 legacy flat path — removal plan: keep until FRIDAY_EVENTS_V2
         # becomes the default and one release of enveloped traffic has baked
@@ -282,15 +291,70 @@ async def run_query(query: str, session_id: str | None = None) -> AsyncIterator[
 
     run = REGISTRY.create(session_id, query)
     REGISTRY.begin(run.run_id)
+    if budget is not None and budget.max_wall_time_ms:
+        run.deadline = (run.started_at or time.time()) + budget.max_wall_time_ms / 1000
+    max_tools = budget.max_tool_calls if budget is not None else None
+    tool_count = 0
     sequence = 0
     turn = "turn_1"
     saw_error = False
+    current = asyncio.current_task()
+    if current is not None:
+        _RUN_TASKS[run.run_id] = current
+    agen = _run_query_events(query, session_id, run=run)
+
+    async def budget_exceeded(reason: str) -> AsyncIterator[str]:
+        """Structured terminal frames for an exhausted budget (P1.6): an
+        `error` with code budget_exceeded, never an ambiguous exception."""
+        nonlocal sequence
+        REGISTRY.set_final(run.run_id, error=reason)
+        for event, payload in (("error", {"code": "budget_exceeded", "message": reason}),
+                               ("state", {"state": "error"}),
+                               ("done", {})):
+            sequence += 1
+            yield sse_envelope(run.run_id, session_id, turn, sequence, event, payload)
+        REGISTRY.finish(run.run_id, "failed")
+
     try:
-        async for event, payload in _run_query_events(query, session_id, run=run):
+        while True:
+            # P1.6 — the deadline also bounds silence: wait_for on the next
+            # event (not just a check per received event) so a hung tool or
+            # model call trips the budget instead of stalling past it.
+            if run.deadline is not None:
+                remaining = run.deadline - time.time()
+                if remaining <= 0:
+                    async for chunk in budget_exceeded(
+                        f"budget exceeded: wall time past {budget.max_wall_time_ms}ms"
+                    ):
+                        yield chunk
+                    return
+                try:
+                    event, payload = await asyncio.wait_for(agen.__anext__(), remaining)
+                except StopAsyncIteration:
+                    break
+                except asyncio.TimeoutError:
+                    async for chunk in budget_exceeded(
+                        f"budget exceeded: wall time past {budget.max_wall_time_ms}ms"
+                    ):
+                        yield chunk
+                    return
+            else:
+                try:
+                    event, payload = await agen.__anext__()
+                except StopAsyncIteration:
+                    break
             if event == "step":
                 turn = str(payload.get("turn_id") or turn)
                 REGISTRY.set_turn(run.run_id, turn)
                 REGISTRY.record_step(run.run_id, payload)
+                if payload.get("kind") == "tool" and payload.get("status") == "running":
+                    tool_count += 1
+                    if max_tools is not None and tool_count > max_tools:
+                        async for chunk in budget_exceeded(
+                            f"budget exceeded: {tool_count} tool calls (max {max_tools})"
+                        ):
+                            yield chunk
+                        return
             if event == "answer":
                 REGISTRY.set_final(run.run_id, answer=str(payload.get("text", "")))
             if event == "error":
@@ -308,12 +372,35 @@ async def run_query(query: str, session_id: str | None = None) -> AsyncIterator[
     except BaseException:
         REGISTRY.finish(run.run_id, "failed")
         raise
+    finally:
+        _RUN_TASKS.pop(run.run_id, None)
+        await agen.aclose()
+
+
+@router.post("/runs/{run_id}/cancel", dependencies=[Depends(guard)])
+async def cancel_run(run_id: str) -> dict[str, Any]:
+    """P1.5 — cancel a live run. Idempotent: cancelling a finished run
+    reports its terminal status; unknown runs are a 404. The streaming task
+    gets CancelledError, which run_query translates into `cancelled` exactly
+    once; a pending approval wait dies with it (PENDING is popped, never
+    resolved as approved)."""
+    from friday.runs import REGISTRY
+
+    run = REGISTRY.get(run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail="no such run")
+    if REGISTRY.update_status(run_id, "cancelled"):
+        task = _RUN_TASKS.get(run_id)
+        if task is not None and not task.done():
+            task.cancel()
+        return {"ok": True, "run_id": run_id, "status": "cancelled", "cancelled": True}
+    return {"ok": True, "run_id": run_id, "status": run.status, "cancelled": False}
 
 
 @router.post("/query", dependencies=[Depends(guard)])
 async def query_endpoint(body: Query) -> StreamingResponse:
     return StreamingResponse(
-        run_query(body.query, body.session_id),
+        run_query(body.query, body.session_id, body.budget),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )

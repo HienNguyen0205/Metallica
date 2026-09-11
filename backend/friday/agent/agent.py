@@ -1,5 +1,6 @@
 """§9 agent loop — plan, call tools, gather results."""
 
+import asyncio
 import json
 import logging
 from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
@@ -171,7 +172,15 @@ async def run(
             yield AgentEvent("state", {"state": "tool_execution"})
             yield AgentEvent("tool", {"tool": tool.name, "risk": tool.risk})
             try:
-                output = await tool.run(payload)
+                if tool.timeout_s:
+                    output = await asyncio.wait_for(tool.run(payload), tool.timeout_s)
+                else:
+                    output = await tool.run(payload)
+                if tool.max_output_bytes:
+                    blob = json.dumps(output)
+                    if len(blob.encode()) > tool.max_output_bytes:
+                        output = {"truncated": True,
+                                  "preview": blob[:tool.max_output_bytes]}
             except Exception as err:
                 log.exception("tool %s failed", tool.name)
                 output = {"error": type(err).__name__}

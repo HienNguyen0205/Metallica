@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { FRIDAY_LANG_KEY, useFridayStore } from "@/lib/store";
-import { runQuery } from "@/lib/agentStream";
+import { runQuery, cancelActiveRun } from "@/lib/agentStream";
 import { canListen, startListening, stopSpeaking } from "@/lib/voice";
 import { attachMic, detachMic, resolveLang } from "@/lib/audioBus";
 
@@ -51,6 +51,9 @@ export default function InputBar() {
     if (!turnRef.current) return;
     turnRef.current.abort();
     turnRef.current = null;
+    // P1.5 — dropping the stream ends the turn locally; this also stops the
+    // server run (best-effort: abort above is the guarantee).
+    void cancelActiveRun();
     stopSpeaking();
     useFridayStore.getState().reset();
   };

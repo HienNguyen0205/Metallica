@@ -3,6 +3,7 @@ import { planVisualization, summarize } from "@/lib/vizPlanner";
 import { speak, stopSpeaking } from "@/lib/voice";
 import {
   streamQuery,
+  cancelRun,
   confirmDecision,
   warnIfMisconfigured,
   OrchestratorRefused,
@@ -56,6 +57,31 @@ async function speakUnlessAborted(text: string): Promise<void> {
 
 function log(...args: unknown[]) {
   console.warn("[friday]", ...args);
+}
+
+/**
+ * P1.5 — the run_id of the turn in flight (from enveloped frames), so a
+ * cancel also stops the server run instead of merely dropping the stream.
+ * Cleared every turn; flat/offline turns never set it. A stale id is harmless:
+ * cancelling a finished run is a server-side no-op report.
+ */
+let activeRunId: string | null = null;
+
+/**
+ * Best-effort server cancel for the in-flight turn. Returns the run id that
+ * was cancelled, or null when there is nothing to cancel. Never throws —
+ * aborting the fetch is the guarantee; this only stops server-side spend.
+ */
+export async function cancelActiveRun(): Promise<string | null> {
+  const id = activeRunId;
+  activeRunId = null;
+  if (!id) return null;
+  try {
+    await cancelRun(id);
+  } catch (err) {
+    log("could not deliver cancel:", err);
+  }
+  return id;
 }
 
 type FlowStore = Pick<
@@ -154,6 +180,7 @@ export async function runQuery(
   store.setLiveMode("connecting");
   stopSpeaking();
   warnIfMisconfigured();
+  activeRunId = null;
 
   let spoken: string | null = null;
   let hadLiveStream = false;
@@ -174,6 +201,8 @@ export async function runQuery(
         }
         hadLiveStream = true;
         store.setLiveMode("live");
+        if (ev.type === "done") activeRunId = null;
+        else if (meta?.runId) activeRunId = meta.runId;
         if (ev.type === "answer") spoken = ev.text;
         dispatch(store, ev, flags);
       },

@@ -92,6 +92,19 @@ export async function streamQuery(query: string, opts: QueryOptions): Promise<vo
   }
 }
 
+/** POST /runs/{id}/cancel — P1.5. Best-effort from the UI: aborting the fetch
+ *  is the guarantee (the turn ends locally either way); this also stops the
+ *  server run so it cannot keep spending model calls. 404 tolerated — a run
+ *  that is already gone needs no cancelling. */
+export async function cancelRun(runId: string, signal?: AbortSignal): Promise<void> {
+  const API = getApiBase();
+  const res = await fetch(`${API}/runs/${encodeURIComponent(runId)}/cancel`, {
+    method: "POST",
+    signal,
+  });
+  if (!res.ok && res.status !== 404) throw new Error(`cancel ${res.status}`);
+}
+
 export async function confirmDecision(
   id: string,
   approved: boolean,
