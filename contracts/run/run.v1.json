@@ -28,6 +28,11 @@
     },
     "final_answer": { "type": "string" },
     "error": { "type": "string" },
+    "events": {
+      "type": "array",
+      "items": { "type": "object" },
+      "description": "Replay log of enveloped frames (P1.10): sequence/event/payload. Read-only for everyone except the streaming worker."
+    },
     "current_step_id": { "type": "string" }
   },
   "definitions": {

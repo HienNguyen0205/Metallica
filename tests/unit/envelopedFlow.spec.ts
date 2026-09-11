@@ -132,3 +132,91 @@ test("cancelActiveRun stops the server run mid-turn and is a no-op after done", 
     globalThis.fetch = prevFetch;
   }
 });
+
+function enveloped(event: string, payload: unknown, sequence: number, runId = RUN): string {
+  const body = {
+    version: 1,
+    run_id: runId,
+    session_id: "sess_1",
+    turn_id: "turn_1",
+    sequence,
+    timestamp: "2026-09-11T02:00:00Z",
+    event,
+    payload,
+  };
+  return `event: ${event}\ndata: ${JSON.stringify(body)}\n\n`;
+}
+
+test("an interrupted turn resumes from the server log and lands clean", async () => {
+  const replayCalls: string[] = [];
+  const prevFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: unknown) => {
+    const url = String(input);
+    if (url.includes("/runs/") && url.includes("/events")) {
+      replayCalls.push(url);
+      const replay = {
+        run_id: RUN,
+        status: "completed",
+        terminal: true,
+        events: [
+          { sequence: 3, event: "answer", payload: { text: "Resumed answer" } },
+          { sequence: 4, event: "done", payload: {} },
+        ],
+      };
+      return new Response(JSON.stringify(replay), { status: 200 });
+    }
+    const head =
+      enveloped("state", { state: "thinking" }, 1) +
+      enveloped("viz", { type: "bar_3d", title: "X", data: {} }, 2);
+    const body = new ReadableStream<Uint8Array>({
+      start(c) {
+        c.enqueue(new TextEncoder().encode(head));
+        setTimeout(() => c.error(new Error("socket hang up")), 10);
+      },
+    });
+    return new Response(body, { status: 200, headers: { "content-type": "text/event-stream" } });
+  }) as typeof fetch;
+  try {
+    await runQuery(useFridayStore.getState(), "q");
+
+    const s = useFridayStore.getState();
+    // the two live frames plus the two replayed ones, no failure surfaced
+    expect(s.answer).toBe("Resumed answer");
+    expect(s.visualizations).toHaveLength(1);
+    expect(s.state).toBe("idle");
+    expect(s.liveMode).toBe("idle");
+    expect(s.sessionError).toBeNull();
+    expect(replayCalls).toHaveLength(1);
+    expect(replayCalls[0]).toContain(`after_sequence=2`);
+  } finally {
+    globalThis.fetch = prevFetch;
+  }
+});
+
+test("an unknown run on resume keeps the existing error path", async () => {
+  const prevFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: unknown) => {
+    const url = String(input);
+    if (url.includes("/runs/") && url.includes("/events")) {
+      return new Response("no such run", { status: 404 });
+    }
+    const head = enveloped("state", { state: "thinking" }, 1);
+    const body = new ReadableStream<Uint8Array>({
+      start(c) {
+        c.enqueue(new TextEncoder().encode(head));
+        setTimeout(() => c.error(new Error("socket hang up")), 10);
+      },
+    });
+    return new Response(body, { status: 200, headers: { "content-type": "text/event-stream" } });
+  }) as typeof fetch;
+  try {
+    await runQuery(useFridayStore.getState(), "q");
+
+    const s = useFridayStore.getState();
+    expect(s.answer).toBeNull();
+    expect(s.sessionError).toContain("socket hang up");
+    expect(s.state).toBe("idle");
+  } finally {
+    globalThis.fetch = prevFetch;
+  }
+});
