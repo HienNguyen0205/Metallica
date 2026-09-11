@@ -8,6 +8,7 @@ from typing import Any
 
 from friday import llm
 from friday import policy
+from friday import verify
 from friday import evidence as evidence_mod
 from friday.memory import long_term
 from friday.tools.registry import REGISTRY, api_tools
@@ -84,13 +85,14 @@ async def run(
     step_n = 0
     tool_attempts: dict[str, int] = {}
     collected: list[evidence_mod.Evidence] = []
+    replans_used = 0
 
-    def _close_answer(text: str) -> None:
+    def _close_answer(text: str, status: str = "unverified") -> None:
         """Final text plus the claim citing everything collected (P2)."""
         result.text = text
-        result.claims.append(
-            evidence_mod.build_answer_claim(text, collected).to_dict()
-        )
+        claim = evidence_mod.build_answer_claim(text, collected).to_dict()
+        claim["status"] = status
+        result.claims.append(claim)
 
     def _next_step_id() -> str:
         nonlocal step_n
@@ -128,11 +130,26 @@ async def run(
         if not calls:
             # §2 — the reason step closes with "final answer"; the final text
             # set then closes the run as the answer step.
+            text = (message.content or "").strip()
+            verdict = verify.verify_answer(text, collected)
+            if verdict.ok or replans_used >= verify.MAX_REPLANS or not verdict.retryable:
+                if emit_steps:
+                    yield step(reason_id, "reason", "completed", turn, summary="final answer")
+                    yield step(_next_step_id(), "answer", "completed", turn)
+                _close_answer(text, status="supported" if verdict.ok else "unverified")
+                return
+            # Bounded replan: one more pass with the verifier's hint instead of
+            # accepting a structurally broken answer. Turn budget still caps us.
+            replans_used += 1
+            log.info("verification failed (%s); replanning", ",".join(verdict.issues))
             if emit_steps:
-                yield step(reason_id, "reason", "completed", turn, summary="final answer")
-                yield step(_next_step_id(), "answer", "completed", turn)
-            _close_answer((message.content or "").strip())
-            return
+                yield step(_next_step_id(), "verification", "failed", turn,
+                           summary="; ".join(verdict.issues), error=verdict.hint)
+            messages.append({
+                "role": "user",
+                "content": f"Verification flagged this turn ({'; '.join(verdict.issues)}): {verdict.hint}",
+            })
+            continue
         if emit_steps:
             yield step(reason_id, "reason", "completed", turn, summary=f"{len(calls)} tool call(s)")
 
