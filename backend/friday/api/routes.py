@@ -269,6 +269,10 @@ async def _run_query_events(
 
 async def run_query(query: str, session_id: str | None = None) -> AsyncIterator[str]:
     if not settings.events_v2:
+        # P0.3 legacy flat path — removal plan: keep until FRIDAY_EVENTS_V2
+        # becomes the default and one release of enveloped traffic has baked
+        # without fallback, then delete this branch and the flag. FE already
+        # tolerates both shapes (unwrapEnvelope), so removal is BE-only.
         async for event, payload in _run_query_events(query, session_id):
             yield sse(event, payload)
         return

@@ -178,7 +178,11 @@ export async function runQuery(
         dispatch(store, ev, flags);
       },
       onError: (msg) => {
-        log(msg);
+        // P0.2 — protocol errors and orchestrator error frames land in the
+        // store, never only in the console. Error events are also dispatched
+        // above, so this is a harmless double-set for them; for rejected
+        // envelopes it is the only surfacing.
+        store.setSessionError(msg);
       },
     });
     // A stream that yielded events but never `done` died mid-pipeline: the
