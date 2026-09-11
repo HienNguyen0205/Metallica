@@ -5,10 +5,12 @@ import {
   streamQuery,
   cancelRun,
   confirmDecision,
+  fetchRunEvents,
   warnIfMisconfigured,
   OrchestratorRefused,
 } from "@/lib/api/fridayClient";
-import type { FridayEvent } from "@/lib/agent/events";
+import type { EnvelopeMeta, FridayEvent } from "@/lib/agent/events";
+import { parseFridayEvent } from "@/lib/agent/events";
 import { StreamGuard } from "@/lib/agent/streamGuard";
 import { normalizeVisualization } from "@/lib/visualization/normalization";
 
@@ -82,6 +84,63 @@ export async function cancelActiveRun(): Promise<string | null> {
     log("could not deliver cancel:", err);
   }
   return id;
+}
+
+/**
+ * P1.10 — resume an interrupted turn from the server's event log. Missed
+ * frames flow through the same guard → parser → store path as live ones, so
+ * duplicates are impossible (the server filters by after_sequence) and a
+ * replay can never re-execute tools — it is a read-only catch-up. Completes
+ * only when the server reports a terminal run *and* its `done` landed here;
+ * anything else (unknown run, network down, run still live) returns
+ * incomplete and the caller keeps the existing error path.
+ */
+async function tryResume(
+  store: FlowStore,
+  guard: StreamGuard,
+  flags: { doneSeen: boolean },
+): Promise<{ completed: boolean; spoken: string | null }> {
+  const incomplete = { completed: false, spoken: null } as const;
+  const runId = activeRunId;
+  const after = guard.lastSeenSequence ?? 0;
+  if (!runId) return { ...incomplete };
+  let replay;
+  try {
+    replay = await fetchRunEvents(runId, after);
+  } catch (err) {
+    log("resume failed:", err);
+    return { ...incomplete };
+  }
+  let spoken: string | null = null;
+  for (const entry of replay.events) {
+    if (
+      typeof entry.sequence !== "number" ||
+      typeof entry.event !== "string" ||
+      typeof entry.payload !== "object" ||
+      entry.payload === null
+    ) {
+      continue;
+    }
+    const meta: EnvelopeMeta = {
+      version: 1,
+      runId,
+      sessionId: null,
+      turnId: null,
+      sequence: entry.sequence,
+      timestamp: null,
+    };
+    const verdict = guard.observe(meta, JSON.stringify(entry));
+    if (verdict === "duplicate" || verdict === "stale" || verdict === "wrong-run") continue;
+    const ev = parseFridayEvent({ event: entry.event, data: JSON.stringify(entry.payload) });
+    if (!ev) continue;
+    store.setLiveMode("live");
+    if (ev.type === "done") activeRunId = null;
+    if (ev.type === "answer") spoken = ev.text;
+    dispatch(store, ev, flags);
+  }
+  if (replay.terminal && flags.doneSeen) activeRunId = null;
+  if (!(replay.terminal && flags.doneSeen)) return { ...incomplete };
+  return { completed: true, spoken };
 }
 
 type FlowStore = Pick<
@@ -227,28 +286,38 @@ export async function runQuery(
     }
   } catch (err) {
     if ((err as Error).name === "AbortError" || signal?.aborted) return;
-    // If we already streamed something, don't fallback — just surface error
+    // A streamed turn never falls back to the offline planner — that would
+    // swap real events for canned data. Resume completion falls through to
+    // the normal tail below; everything else returns from its branch.
     if (hadLiveStream) {
-      log("stream interrupted:", err);
-      store.setSessionError(err instanceof Error ? err.message : String(err));
-      store.setLiveMode("idle");
-      store.endTurn();
-      return;
-    }
-    // A refusal is not an outage. The orchestrator is up and said no, so the
-    // offline demo path would replace a real limit with a fabricated answer.
-    if (err instanceof OrchestratorRefused) {
-      const wait_s = err.retryAfter ? ` — retry in ${Math.ceil(err.retryAfter / 60)} min` : "";
-      store.setSessionError(`${err.message}${wait_s}`);
-      store.setLiveMode("idle");
-      store.endTurn();
-      return;
-    }
+      // If we already streamed something, catch up from the server log before
+      // reporting failure — a terminal replay completes the turn.
+      const resumed = await tryResume(store, guard, flags);
+      if (resumed.completed) {
+        if (resumed.spoken) spoken = resumed.spoken;
+      } else {
+        log("stream interrupted:", err);
+        store.setSessionError(err instanceof Error ? err.message : String(err));
+        store.setLiveMode("idle");
+        store.endTurn();
+        return;
+      }
+    } else {
+      // A refusal is not an outage. The orchestrator is up and said no, so the
+      // offline demo path would replace a real limit with a fabricated answer.
+      if (err instanceof OrchestratorRefused) {
+        const wait_s = err.retryAfter ? ` — retry in ${Math.ceil(err.retryAfter / 60)} min` : "";
+        store.setSessionError(`${err.message}${wait_s}`);
+        store.setLiveMode("idle");
+        store.endTurn();
+        return;
+      }
 
-    log("orchestrator unreachable, using local rules planner:", err);
-    store.setLiveMode("offline");
-    await runLocal(store, query, voice, signal);
-    return;
+      log("orchestrator unreachable, using local rules planner:", err);
+      store.setLiveMode("offline");
+      await runLocal(store, query, voice, signal);
+      return;
+    }
   }
 
   // The answer is held until it has been read out, rather than for a fixed

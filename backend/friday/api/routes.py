@@ -312,6 +312,7 @@ async def run_query(
                                ("state", {"state": "error"}),
                                ("done", {})):
             sequence += 1
+            REGISTRY.record_event(run.run_id, sequence, event, payload)
             yield sse_envelope(run.run_id, session_id, turn, sequence, event, payload)
         REGISTRY.finish(run.run_id, "failed")
 
@@ -363,6 +364,7 @@ async def run_query(
                 saw_error = True
                 REGISTRY.set_final(run.run_id, error=str(payload.get("message", "")))
             sequence += 1
+            REGISTRY.record_event(run.run_id, sequence, event, payload)
             yield sse_envelope(run.run_id, session_id, turn, sequence, event, payload)
         REGISTRY.finish(run.run_id, "failed" if saw_error else "completed")
     except asyncio.CancelledError:
@@ -395,6 +397,31 @@ async def cancel_run(run_id: str) -> dict[str, Any]:
             task.cancel()
         return {"ok": True, "run_id": run_id, "status": "cancelled", "cancelled": True}
     return {"ok": True, "run_id": run_id, "status": run.status, "cancelled": False}
+
+
+@router.get("/runs/{run_id}/events", dependencies=[Depends(guard)])
+async def replay_run(run_id: str, after_sequence: int = 0) -> dict[str, Any]:
+    """P1.10 — reconnect/resume. Returns enveloped frames already emitted for
+    this run with sequence > after_sequence, plus the run status and whether
+    it is terminal. Pure log read: replay never re-executes tools, the agent,
+    or the planner. Unknown runs are a 404 (stale runs get a clear status,
+    never an empty stream)."""
+    from friday.runs import REGISTRY, _TERMINAL
+
+    run = REGISTRY.get(run_id)
+    if run is None:
+        stored = REGISTRY.get_stored(run_id)
+        if stored is None:
+            raise HTTPException(status_code=404, detail="no such run")
+        run = stored
+    after = max(0, after_sequence)
+    events = [e for e in run.events if e.get("sequence", 0) > after]
+    return {
+        "run_id": run_id,
+        "status": run.status,
+        "terminal": run.status in _TERMINAL,
+        "events": events,
+    }
 
 
 @router.post("/query", dependencies=[Depends(guard)])

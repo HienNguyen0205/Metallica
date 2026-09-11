@@ -105,6 +105,37 @@ export async function cancelRun(runId: string, signal?: AbortSignal): Promise<vo
   if (!res.ok && res.status !== 404) throw new Error(`cancel ${res.status}`);
 }
 
+/** P1.10 reconnect/resume — read-only replay of a run's event log. */
+export interface RunReplay {
+  runId: string;
+  status: string;
+  terminal: boolean;
+  events: Array<{ sequence: number; event: string; payload: Record<string, unknown> }>;
+}
+
+export async function fetchRunEvents(runId: string, afterSequence: number): Promise<RunReplay> {
+  const API = getApiBase();
+  const res = await fetch(
+    `${API}/runs/${encodeURIComponent(runId)}/events?after_sequence=${afterSequence}`,
+  );
+  if (!res.ok) throw new Error(`replay ${res.status}`);
+  const body = (await res.json()) as {
+    run_id?: unknown;
+    status?: unknown;
+    terminal?: unknown;
+    events?: unknown;
+  };
+  if (typeof body.run_id !== "string" || typeof body.status !== "string" || !Array.isArray(body.events)) {
+    throw new Error("malformed replay");
+  }
+  return {
+    runId: body.run_id,
+    status: body.status,
+    terminal: body.terminal === true,
+    events: body.events as RunReplay["events"],
+  };
+}
+
 export async function confirmDecision(
   id: string,
   approved: boolean,

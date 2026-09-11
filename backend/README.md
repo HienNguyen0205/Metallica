@@ -418,6 +418,18 @@ reconnect (P1.10) — only the request records are shared. Covered by
 `tests/unit/test_store.py` (both backends against one contract, factory,
 write-through, eviction).
 
+## Reconnect and resume (P1.10)
+
+Every enveloped frame is appended to the run's replay log
+(`GET /runs/{run_id}/events?after_sequence=N` reads it back with the run
+status and a terminal flag). A client that loses the stream mid-turn resumes
+from the log instead of re-asking: the replay is a pure log read, so tools,
+the agent and the planner never re-execute, and already-seen sequences are
+skipped by the frontend guard. Unknown runs are a 404, never an empty stream.
+Covered by `tests/integration/test_reconnect.py` (verbatim replay, filtering,
+no-reexecution, 404, live partial) and the resume cases in
+`tests/unit/envelopedFlow.spec.ts`.
+
 ## Tests
 
 One command from the repo root — `npm run test:backend` (`python

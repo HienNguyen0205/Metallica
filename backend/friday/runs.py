@@ -27,6 +27,10 @@ StepStatus = RunStatus
 MAX_RUNS = 200
 _TERMINAL: set[str] = {"completed", "failed", "cancelled", "expired"}
 
+#: Cap on the per-run replay log (P1.10). Runs emit ~15 frames; 500 is
+#: headroom, not a target — the log is truncated oldest-first past it.
+MAX_STORED_EVENTS = 500
+
 
 @dataclass
 class AgentStep:
@@ -72,6 +76,7 @@ class AgentRun:
     evidence: list[dict[str, Any]] = field(default_factory=list)
     final_answer: str | None = None
     error: str | None = None
+    events: list[dict[str, Any]] = field(default_factory=list)
     current_step_id: str | None = None
     steps: list[AgentStep] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
@@ -184,6 +189,16 @@ class RunRegistry:
             step.error = payload["error"]
         if step.status in _TERMINAL:
             step.completed_at = time.time()
+        self._persist(run)
+
+    def record_event(self, run_id: str, sequence: int, event: str, payload: dict[str, Any]) -> None:
+        """Append one enveloped frame to the replay log (P1.10). Read-only
+        for everyone except the streaming worker; replay never re-executes."""
+        run = self._runs.get(run_id)
+        if run is None or run.status in _TERMINAL:
+            return
+        run.events.append({"sequence": sequence, "event": event, "payload": payload})
+        del run.events[: max(0, len(run.events) - MAX_STORED_EVENTS)]
         self._persist(run)
 
 
