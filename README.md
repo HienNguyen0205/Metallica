@@ -227,6 +227,13 @@ would pass while exercising the wrong path.
 | `SUPABASE_URL` | backend | unset | Long-term memory store. Unset means FRIDAY runs with short-term memory only — no restart-durable facts. |
 | `SUPABASE_SERVICE_KEY` | backend | unset | Bypasses row-level security. Backend-only — never prefix with `NEXT_PUBLIC_` or ship it to the frontend bundle. |
 | `FRIDAY_EMBED_MODEL` | backend | `gemini-embedding-001` | Embedding model for long-term memory recall/write. |
+| `FRIDAY_EVENTS_V2` | backend | `false` | Enveloped frames + `step` events. FE tolerates both shapes. |
+| `FRIDAY_STATE_BACKEND` | backend | `memory` | Run snapshots: `memory` (process-local) or `redis` (+ `FRIDAY_REDIS_URL`, needs `pip install redis`). |
+| `FRIDAY_GRANTED_CAPABILITIES` | backend | `*` | Comma-separated tool capabilities granted to every session; overreach is denied pre-execution. |
+| `FRIDAY_TRUST_IDENTITY_HEADERS` | backend | `false` | Honor `X-User-Id` for run ownership (needs a proxy stripping it). |
+| `FRIDAY_SANDBOX_DIR` | backend | `backend/notes/` | Root for the `list_dir`/`read_file` tools. |
+| `FRIDAY_MODEL_PRICES_JSON` | backend | unset | Per-1M-token `[in, out]` USD prices for the cost estimate; unset records 0.0. |
+| `FRIDAY_DOCS_ROOT` / `FRIDAY_RAG_CACHE` | backend | `docs/` / gitignored json | Corpus root and embedding cache for `search_docs`. |
 
 These backend variables are listed for reference — the orchestrator lives in
 `backend/` in this repo. It owns the SSE event contract (`state`, `viz`, `answer`,
@@ -372,20 +379,30 @@ All visualizations support optional drill-down focus unless
 Testing strategy and helper utilities are documented in
 [`docs/TESTING.md`](docs/TESTING.md). Summary:
 
-- **Unit project** (`tests/unit`) — runs the zustand store and the viz planner
-  directly under Playwright's runner; no browser, no server, no build.
-- **UI project** (`tests/ui`) — drives the production build in Chromium and
+- **Unit project** (`tests/unit`, 24 specs) — runs the zustand store and the
+  viz planner directly under Playwright's runner; no browser, no server, no
+  build. Includes the contract gate (`contracts`, `eventContract`,
+  `envelopedFlow`) and the resume/cancel flows.
+- **UI project** (`tests/ui`, 6 suites) — drives the production build in Chromium and
   asserts *pixel statistics*, not just DOM: center-weighted luma composition,
   cyan-ratio (is the hologram actually painting?), perceptible frame diffs,
   GL context health across all 10 states, ≥ 24 fps on real GPUs, WCAG AA
   contrast computed against the true background color, and response-flow
   ordering recorded via an in-page `MutationObserver`.
+- **Backend** (`backend/tests/`, 34 files via `backend/runtests.py`) — no
+  pytest; every file runs standalone. Contracts, runs/steps, transport and
+  permissions, memory (+policy), persistence, evidence/verification, cancel
+  and budgets, reconnect, observability, identity/audit, tools, search,
+  provider — plus `test_evals.py`, the decision-quality gate over
+  `backend/evals/` (scripted model, no key, no network).
 - **Drill-down tests** include their own world→screen projection math to click
   exact gauge nodes in 3D space.
 
 ```bash
-npm run test:unit   # fast feedback loop (~seconds, no browser)
-npm run verify      # full CI-equivalent gate locally
+npm run test:unit       # fast feedback loop (~seconds, no browser)
+npm run test:backend    # whole Python suite, one command
+npm run test:contracts  # shared-contract gate, both sides
+npm run verify          # full CI-equivalent gate locally
 ```
 
 CI (`.github/workflows/ci.yml`) runs four gates on every push/PR: `static`
@@ -448,15 +465,31 @@ src/
     ├── ttsPlayer.ts            # Progressive TTS worklet player
     ├── agent/
     │   ├── stateMachine.ts     # Guarded TRANSITIONS + illegal reporting
-    │   └── events.ts           # Typed FridayEvent parser
+    │   ├── events.ts           # Typed FridayEvent parser + v1 envelope
+    │   └── streamGuard.ts      # duplicate/stale/gap/wrong-run verdicts
     ├── api/
     │   ├── session.ts          # API base + per-tab session id
-    │   ├── fridayClient.ts     # POST /query SSE + /confirm + /memory
+    │   ├── fridayClient.ts     # POST /query SSE + /confirm + /memory + cancel/replay
     │   ├── sse.ts              # Chunk-split-safe SSE parser
     │   └── ttsClient.ts        # Framed TTS stream client
 tests/
 ├── unit/                       # Store & planner logic (no browser)
 └── ui/                         # Pixel-statistics & interaction suites (Chromium)
+
+contracts/                       # canonical source of truth (both sides validate)
+├── events.v1.json              # SSE envelope + per-event payloads
+├── visualization/visualization.v1.json
+├── run/run.v1.json             # AgentRun status, budgets, evidence/claims
+├── tool/tool.v1.json           # declarations + PolicyDecision
+└── error/error.v1.json         # structured errors
+
+backend/
+├── friday/                     # orchestrator: agent loop, policy, evidence,
+│                               # verify, memory, runs, store, audit,
+│                               # observability, tools, RAG, API routes
+├── evals/                      # decision-quality cases + runner (no key)
+├── tests/unit+integration/     # 34 files via backend/runtests.py
+└── requirements.txt            # pinned runtime deps
 ```
 
 ## Performance Notes

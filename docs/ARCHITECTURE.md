@@ -116,6 +116,14 @@ See [STATE_MACHINE.md](STATE_MACHINE.md) for the full table and rationale.
    then `endTurn()` (silent idle landing); answer/viz persist until the next turn.
 4. `step` events (P0.2, `FRIDAY_EVENTS_V2` on the BE) set `currentStep`;
    duplicate/stale/wrong-run frames are dropped by the P0.1 stream guard.
+5. Rejected envelopes surface to `sessionError` (never console-only);
+   duplicates/stale/wrong-run/gap stay log-only transport flow-control.
+6. ESC/cancel aborts the fetch *and* fires `cancelActiveRun()` → the server
+   run stops too (best-effort); the turn lands idle via `reset()`.
+7. An interrupted stream (events landed, no `done`) resumes from the server
+   event log (`GET /runs/{id}/events`) through the same guard → parser →
+   store path — a terminal replay completes the turn, anything else keeps
+   the error path. Replays never re-execute tools.
 
 Offline fallback `runLocal()` (same file) simulates the pipeline with timed
 waits (`thinking → searching → tool_execution → processing → visualizing →
@@ -136,8 +144,9 @@ back to `{event, data: payload}` before `parseFridayEvent`, and `StreamGuard`
 observes the meta per turn (`runQuery` wires guard → `dispatch` → store).
 Validation: `version` must be `1`; the SSE frame name and envelope `event`
 must match; `sequence` is an int ≥ 1 when present; `run_id`/`session_id`/
-`turn_id`/`timestamp` are strings when present. Anything else is rejected and
-dropped with a warn — it never reaches the parser.
+`turn_id`/`timestamp` are strings when present. Anything else is rejected:
+skipped by the consumer with a warn *and* surfaced to `sessionError` via
+`onError` — contract violations are never console-only.
 Guard verdicts: duplicate/stale sequences are skipped without moving the
 cursor, a gap is accepted and counted (`gapCount`), a wrong `run_id` is
 skipped without moving the cursor, and legacy flat frames bypass the guard.
@@ -358,3 +367,43 @@ Two deliberate constraints:
 - **`force-dynamic` page.** A nonce cannot be injected into a build-time
   prerender, so `page.tsx` opts out of static rendering (a live hologram has
   no use for one anyway).
+
+## 15. Backend runtime (overview)
+
+The orchestrator (`backend/friday/`) is a separate deployable behind the SSE
+contract above — same repo, independent deploys (frontend → Vercel, backend →
+Render/single-process uvicorn). Full depth lives in `backend/README.md`;
+the shape:
+
+```text
+POST /query ─▶ run_query ─▶ _run_query_events ─▶ agent.run ─▶ tools ─▶ plan
+                     │                │                            │
+                     │                ▼                            ▼
+                     │         approval gate              VisualizationPlan
+                     │         (confirm/timeout)                (SSE viz)
+                     ▼
+              RunRegistry + StateStore (memory | redis)
+              policy → evidence → verify → answer → done
+```
+
+- **Runs/steps** (`runs.py`): first-class `AgentRun`/`AgentStep` with guarded
+  transitions — terminal states are never resurrected or inferred.
+- **Policy** (`policy.py`): allow/deny/`ask_human`/`step_up` from
+  server-declared risk + capabilities + argument validation; the model can
+  override nothing.
+- **Evidence/claims** (`evidence.py`) feed a structural **verifier**
+  (`verify.py`) with one bounded replan; passing answers are `supported`.
+- **Memory** (`memory/` + `memory_policy.py`): working/episodic/semantic/
+  preference/evidence layers; the model proposes, the policy validates,
+  dedupes, supersedes and screens injection before anything persists.
+- **Budgets** (`RunBudget`): wall-time (hard ceiling, even over silence) and
+  tool-call caps end turns with `code: budget_exceeded`, never an ambiguous
+  exception. `POST /runs/{id}/cancel` is idempotent; `GET
+  /runs/{id}/events` replays the per-run frame log for reconnects.
+- **Observability/audit** (`observability.py`, `audit.py`): request/trace
+  ids, counters and latency histograms at `GET /metrics`; append-only audit
+  ring at `GET /audit`. Label values and audit fields never carry content.
+
+Shared contracts in `contracts/` are the source of truth both sides validate
+against (see `tests/unit/contracts.spec.ts` and
+`backend/tests/unit/test_contracts.py`).
