@@ -79,6 +79,20 @@ class _Completion:
         self.choices = [_Choice(message)]
 
 
+def _substitute(value, base: str):
+    """Replace the {BASE} placeholder with the fixture server URL, anywhere
+    in the script structure."""
+    if isinstance(value, str):
+        return value.replace("{BASE}", base)
+    if isinstance(value, list):
+        return [_substitute(v, base) for v in value]
+    if isinstance(value, tuple):
+        return tuple(_substitute(v, base) for v in value)
+    if isinstance(value, dict):
+        return {k: _substitute(v, base) for k, v in value.items()}
+    return value
+
+
 def run_case(case: dict) -> dict:
     """Returns {"id", "area", "passed", "failures": [...], "metrics": {...}}."""
     failures: list[str] = []
@@ -146,6 +160,35 @@ def run_case(case: dict) -> dict:
     old_grants = os.environ.get("FRIDAY_GRANTED_CAPABILITIES")
     if "grants" in case:
         os.environ["FRIDAY_GRANTED_CAPABILITIES"] = case["grants"]
+    # P4 — case-scoped HTTP fixture: pages declared inline, served on
+    # localhost with private fetch allowed for the case only. Real HTTP
+    # stack, no external network.
+    http_server = None
+    old_private = os.environ.get("FRIDAY_ALLOW_PRIVATE_FETCH")
+    if "http_pages" in case:
+        import threading
+        from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+        pages = case["http_pages"]
+
+        class _FixtureHandler(BaseHTTPRequestHandler):
+            def log_message(self, *_args):
+                pass
+
+            def do_GET(self):
+                body, ctype, code = pages.get(self.path, ("nope", "text/plain", 404))
+                raw = body.encode()
+                self.send_response(code)
+                self.send_header("content-type", ctype)
+                self.send_header("content-length", str(len(raw)))
+                self.end_headers()
+                self.wfile.write(raw)
+
+        http_server = ThreadingHTTPServer(("127.0.0.1", 0), _FixtureHandler)
+        threading.Thread(target=http_server.serve_forever, daemon=True).start()
+        base = f"http://127.0.0.1:{http_server.server_address[1]}"
+        os.environ["FRIDAY_ALLOW_PRIVATE_FETCH"] = "1"
+        script = _substitute(script, base)
     # P4 — case-scoped sandbox fixture: files declared inline, root repointed,
     # everything removed afterwards. Real filesystem, no network.
     sandbox_tmp = None
@@ -190,6 +233,13 @@ def run_case(case: dict) -> dict:
             os.environ["FRIDAY_SANDBOX_DIR"] = old_sandbox
         if sandbox_tmp is not None:
             shutil.rmtree(sandbox_tmp, ignore_errors=True)
+        if old_private is None:
+            os.environ.pop("FRIDAY_ALLOW_PRIVATE_FETCH", None)
+        else:
+            os.environ["FRIDAY_ALLOW_PRIVATE_FETCH"] = old_private
+        if http_server is not None:
+            http_server.shutdown()
+            http_server.server_close()
     latency_ms = (time.perf_counter() - started) * 1000
 
     executed = [e.payload["tool"] for e in events if e.kind == "tool"]
