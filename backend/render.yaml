@@ -13,6 +13,10 @@ services:
     runtime: python
     plan: free
     healthCheckPath: /health
+    # Monorepo: the Blueprint points at the Metallica repo root, so the
+    # service must run from backend/ — without this the build looks for
+    # requirements.txt at the repo root and fails.
+    rootDir: backend
 
     buildCommand: pip install -r requirements.txt
     # --host 0.0.0.0 is required: bound to localhost the health check cannot

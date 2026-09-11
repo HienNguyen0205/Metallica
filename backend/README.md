@@ -2,8 +2,8 @@
 
 The backend half of §2. One SSE endpoint drives the frontend state machine.
 
-> Paths like `src/lib/store.ts` below refer to the **Metallica UI repository**,
-> which is separate from this one. The two are contract-coupled but deploy
+> Paths like `src/lib/store.ts` below live in this same repo, next to
+> `backend/`. The two halves are contract-coupled but deploy
 > independently: this service owns the event contract, the UI consumes it.
 
 ## Run
@@ -125,7 +125,7 @@ running tools, and the UI's transition table has no `visualizing →
 tool_execution` edge; announcing it strands the HUD on VISUALIZING for the rest
 of the turn, because guarded transitions drop illegal edges silently with no
 error anywhere. `test_stream.py` mirrors that table and walks every emitted
-sequence against it, and the UI repo asserts the same invariant from the other
+sequence against it, and the UI asserts the same invariant from the other
 side: `PROCESSING` must appear before the first `VISUALIZING`, since a stranded
 HUD never shows `TOOL EXECUTION` again and any check against *that* passes in
 both the healthy and the broken case.
@@ -419,7 +419,8 @@ planner, and the `json_schema` -> `json_object` fallback. No key, no network.
 ## Deploying to Render
 
 `render.yaml` is a Blueprint: **New → Blueprint** in the dashboard, point it at
-this repo, and it creates the service. Or create a Web Service manually with:
+this repo, set the service's **Root Directory** to `backend/`, and it creates
+the service. Or create a Web Service manually with:
 
 | Field | Value |
 | --- | --- |

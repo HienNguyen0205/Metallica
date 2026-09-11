@@ -57,7 +57,7 @@ rings, particles, waveform, lights, camera rig and HUD — responds coherently
 to the current state.
 
 > The query pipeline is driven by a Python orchestrator over SSE, which lives
-> in its **own repository**. With none running, the UI degrades to a local
+> in `backend/` in this repo. With none running, the UI degrades to a local
 > rules planner (`src/lib/vizPlanner.ts`) serving canned data, so the interface
 > is still presentable offline — that is a demo path, not a live one.
 
@@ -118,6 +118,18 @@ npm run dev
 Open <http://localhost:3000>. Type something into `ASK FRIDAY`, or use the
 left/right dev rails to preview any of the 13 visualization types or 10 agent
 states directly.
+
+The live pipeline needs the orchestrator too (same repo, `backend/`):
+
+```bash
+cd backend
+python -m venv .venv
+./.venv/Scripts/python.exe -m pip install -r requirements.txt   # Windows
+./.venv/Scripts/python.exe -m uvicorn friday.main:app --port 8000 --reload
+```
+
+It serves `POST /query` on `:8000`, which the UI targets by default. Full
+backend docs (env vars, tools, memory, deploy): [`backend/README.md`](backend/README.md).
 
 For a production build:
 
@@ -188,8 +200,8 @@ would pass while exercising the wrong path.
 | `SUPABASE_SERVICE_KEY` | backend | unset | Bypasses row-level security. Backend-only — never prefix with `NEXT_PUBLIC_` or ship it to the frontend bundle. |
 | `FRIDAY_EMBED_MODEL` | backend | `gemini-embedding-001` | Embedding model for long-term memory recall/write. |
 
-These backend variables are listed for reference — the orchestrator is a
-separate repository. It owns the SSE event contract (`state`, `viz`, `answer`,
+These backend variables are listed for reference — the orchestrator lives in
+`backend/` in this repo. It owns the SSE event contract (`state`, `viz`, `answer`,
 `confirm`, `done`) that `src/lib/agentStream.ts` consumes, and the model call
 that picks a visualization. The renderer contract it emits must stay in lockstep
 with `VisualizationSpec` in `src/lib/store.ts`.
