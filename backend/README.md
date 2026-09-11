@@ -406,6 +406,18 @@ in `src/lib/vizPlanner.ts` and logs a warning. That path serves **canned demo
 data** — it exists so the interface is presentable with no backend running, not
 as a degraded live mode.
 
+## Run state storage (P1.9)
+
+Every registry mutation persists a snapshot through `friday/store.py`'s
+`StateStore` — live objects stay the operational truth, snapshots go durable.
+`FRIDAY_STATE_BACKEND=memory` (default) keeps snapshots process-local;
+`redis` (+ `FRIDAY_REDIS_URL`, `pip install redis`) puts them in Redis where
+any worker can read them. No agent code imports redis. Single writer per run:
+the streaming worker owns its run; approval *waits* stay process-local until
+reconnect (P1.10) — only the request records are shared. Covered by
+`tests/unit/test_store.py` (both backends against one contract, factory,
+write-through, eviction).
+
 ## Tests
 
 One command from the repo root — `npm run test:backend` (`python
