@@ -1,7 +1,7 @@
 """Minimal tool abstraction — no framework, just a contract."""
 
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Literal
 
 RiskLevel = Literal["low", "medium", "high"]
@@ -19,6 +19,11 @@ class Tool:
     risk: RiskLevel
     run: Callable[[dict[str, Any]], Awaitable[dict[str, Any]]]
     preview: Preview | None = None
+    #: Capabilities this tool needs (P1.8). Calls needing more than the
+    #: session is granted are denied before anything runs.
+    capabilities: tuple[str, ...] = ()
+    #: Declared operating bounds (P1.8), e.g. output directory or result caps.
+    constraints: dict[str, Any] = field(default_factory=dict)
     #: Per-tool ceiling in seconds (None = unbounded; the run wall-time still
     #: applies). Wire unit is timeout_ms in contracts/tool/tool.v1.json.
     timeout_s: float | None = None

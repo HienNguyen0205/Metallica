@@ -42,6 +42,8 @@ class Settings(BaseSettings):
     # ---- P1.9 durable state ----
     state_backend: str = Field(default="memory", alias="FRIDAY_STATE_BACKEND")
     redis_url: str = Field(default="redis://localhost:6379/0", alias="FRIDAY_REDIS_URL")
+    # ---- P1.8 capability grants ----
+    granted_capabilities: str = Field(default="*", alias="FRIDAY_GRANTED_CAPABILITIES")
 
     # ---- §22 abuse limits — see api/dependencies.py ----
     # Sized against the provider's free tier, not against demand: one query is
