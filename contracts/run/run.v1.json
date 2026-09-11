@@ -26,6 +26,11 @@
       "items": { "type": "object" },
       "description": "Source-backed observations feeding claims (P2)."
     },
+    "claims": {
+      "type": "array",
+      "items": { "type": "object" },
+      "description": "Answer claims citing evidence ids (P2); status flips under verification."
+    },
     "final_answer": { "type": "string" },
     "error": { "type": "string" },
     "events": {

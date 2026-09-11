@@ -266,6 +266,16 @@ async def _run_query_events(
     # an exchange that never happened.
     memory.remember(session_id, query, answer)
     yield ("answer", {"text": answer})
+    if run is not None:
+        # P2 — mirror the turn's evidence and answer claims into the run for
+        # durable reads (reconnect) and verification. V2 only: run is None on
+        # the flat path.
+        from friday.runs import REGISTRY as _REGISTRY
+
+        for entry in outcome.evidence:
+            _REGISTRY.record_evidence(run.run_id, entry)
+        for claim in outcome.claims:
+            _REGISTRY.record_claim(run.run_id, claim)
     yield ("done", {})
     # Sau `done`, không chờ: nó tốn một model call và người dùng không có lý do
     # gì phải đợi FRIDAY dọn dẹp.

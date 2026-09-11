@@ -74,6 +74,7 @@ class AgentRun:
     turn_id: str | None = None
     plan: list[dict[str, Any]] | None = None
     evidence: list[dict[str, Any]] = field(default_factory=list)
+    claims: list[dict[str, Any]] = field(default_factory=list)
     final_answer: str | None = None
     error: str | None = None
     events: list[dict[str, Any]] = field(default_factory=list)
@@ -153,6 +154,12 @@ class RunRegistry:
         run = self._runs.get(run_id)
         if run and run.status not in _TERMINAL:
             run.evidence.append(item)
+            self._persist(run)
+
+    def record_claim(self, run_id: str, claim: dict[str, Any]) -> None:
+        run = self._runs.get(run_id)
+        if run and run.status not in _TERMINAL:
+            run.claims.append(claim)
             self._persist(run)
 
     def set_final(self, run_id: str, answer: str | None = None, error: str | None = None) -> None:

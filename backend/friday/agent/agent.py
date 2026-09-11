@@ -8,6 +8,7 @@ from typing import Any
 
 from friday import llm
 from friday import policy
+from friday import evidence as evidence_mod
 from friday.memory import long_term
 from friday.tools.registry import REGISTRY, api_tools
 
@@ -82,6 +83,14 @@ async def run(
 
     step_n = 0
     tool_attempts: dict[str, int] = {}
+    collected: list[evidence_mod.Evidence] = []
+
+    def _close_answer(text: str) -> None:
+        """Final text plus the claim citing everything collected (P2)."""
+        result.text = text
+        result.claims.append(
+            evidence_mod.build_answer_claim(text, collected).to_dict()
+        )
 
     def _next_step_id() -> str:
         nonlocal step_n
@@ -122,7 +131,7 @@ async def run(
             if emit_steps:
                 yield step(reason_id, "reason", "completed", turn, summary="final answer")
                 yield step(_next_step_id(), "answer", "completed", turn)
-            result.text = (message.content or "").strip()
+            _close_answer((message.content or "").strip())
             return
         if emit_steps:
             yield step(reason_id, "reason", "completed", turn, summary=f"{len(calls)} tool call(s)")
@@ -212,6 +221,13 @@ async def run(
                                retry=attempts or None, summary=_tool_summary(output))
 
             result.evidence.append({"tool": tool.name, "output": output})
+            collected.append(evidence_mod.collect_tool_evidence(tool.name, output, len(collected) + 1))
+            evid = collected[-1]
+            result.evidence[-1].update({
+                "evidence_id": evid.evidence_id,
+                "confidence": evid.confidence,
+                "provenance": evid.provenance,
+            })
 
             long_term.mark_tool_used(tool.name)
 
@@ -233,7 +249,7 @@ async def run(
         yield AgentEvent("state", {"state": "processing"})
 
     log.warning("hit MAX_TURNS without a final answer")
-    result.text = "I wasn't able to finish that within the step budget."
+    _close_answer("I wasn't able to finish that within the step budget.")
 
 
 def _memory_event(output: dict) -> AgentEvent | None:
