@@ -16,6 +16,8 @@ VisualizationType = Literal[
     "globe",
     "timeline",
     "heatmap_3d",
+    "funnel_3d",
+    "sankey_flow",
 ]
 
 

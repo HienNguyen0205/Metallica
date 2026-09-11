@@ -1,0 +1,35 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://metallica.local/contracts/tool.v1.json",
+  "title": "ToolDeclaration v1",
+  "description": "Every tool needs an explicit declaration: schema, capability requirements, risk classification, timeout, output limit, approval policy. Never add a tool with only a Python function and a model description. Risk levels are declared by the tool — never provided or overridden by the LLM.",
+  "type": "object",
+  "required": ["tool", "risk"],
+  "properties": {
+    "tool": { "type": "string", "minLength": 1 },
+    "risk": { "type": "string", "enum": ["low", "medium", "high"] },
+    "description": { "type": "string" },
+    "capabilities": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Capabilities required to execute, e.g. database.read.orders, notes.write, browser.read."
+    },
+    "timeout_ms": { "type": "integer", "minimum": 1 },
+    "retry_limit": { "type": "integer", "minimum": 0 },
+    "max_output_bytes": { "type": "integer", "minimum": 1 },
+    "approval": { "type": "string", "enum": ["never", "when_high_risk", "always"] }
+  },
+  "definitions": {
+    "PolicyDecision": {
+      "type": "object",
+      "description": "Formalized risk/approval verdict. Inputs: tool, user/session identity, capabilities, resource, arguments, risk, environment, budget.",
+      "required": ["tool", "decision"],
+      "properties": {
+        "tool": { "type": "string", "minLength": 1 },
+        "decision": { "type": "string", "enum": ["allow", "deny", "ask_human", "step_up"] },
+        "reason": { "type": "string" },
+        "constraints": { "type": "object" }
+      }
+    }
+  }
+}
