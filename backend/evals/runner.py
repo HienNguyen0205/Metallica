@@ -21,13 +21,11 @@ import time
 _BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _BACKEND_DIR not in sys.path:
     sys.path.insert(0, _BACKEND_DIR)
-import shutil
-import tempfile
-import time
 
 from friday import agent
 from friday import llm as llm_mod
 from friday.agent.state import AgentResult
+from friday.memory import embed as embed_mod
 from friday.memory import long_term as lt
 from friday.tools import registry as registry_mod
 from friday.tools.base import Tool
@@ -203,6 +201,34 @@ def run_case(case: dict) -> dict:
             with open(dest, "w", encoding="utf-8") as fh:
                 fh.write(content)
         os.environ["FRIDAY_SANDBOX_DIR"] = sandbox_tmp
+    # P4 — case-scoped docs corpus: files declared inline, indexed with a
+    # constant stub embedding (every chunk scores identically, so retrieval
+    # order is deterministic file order; ranking quality belongs to the
+    # provider, plumbing is what's under eval here).
+    docs_tmp = None
+    old_docs_root = os.environ.get("FRIDAY_DOCS_ROOT")
+    old_rag_cache = os.environ.get("FRIDAY_RAG_CACHE")
+    orig_rag_embed = None
+    orig_configured = None
+    if "docs_files" in case:
+        docs_tmp = tempfile.mkdtemp(prefix="eval-docs-")
+        for rel, content in case["docs_files"].items():
+            dest = os.path.join(docs_tmp, rel)
+            parent = os.path.dirname(dest)
+            if parent:
+                os.makedirs(parent, exist_ok=True)
+            with open(dest, "w", encoding="utf-8") as fh:
+                fh.write(content)
+        os.environ["FRIDAY_DOCS_ROOT"] = docs_tmp
+        os.environ["FRIDAY_RAG_CACHE"] = os.path.join(docs_tmp, "index.json")
+
+        async def _fake_rag_embed(texts):
+            return [[1.0, 0.0] for _ in texts]
+
+        orig_rag_embed = embed_mod.embed
+        embed_mod.embed = _fake_rag_embed
+        orig_configured = llm_mod.configured
+        llm_mod.configured = lambda: True
 
     started = time.perf_counter()
     try:
@@ -240,6 +266,18 @@ def run_case(case: dict) -> dict:
         if http_server is not None:
             http_server.shutdown()
             http_server.server_close()
+        if docs_tmp is not None:
+            embed_mod.embed = orig_rag_embed
+            llm_mod.configured = orig_configured
+            if old_docs_root is None:
+                os.environ.pop("FRIDAY_DOCS_ROOT", None)
+            else:
+                os.environ["FRIDAY_DOCS_ROOT"] = old_docs_root
+            if old_rag_cache is None:
+                os.environ.pop("FRIDAY_RAG_CACHE", None)
+            else:
+                os.environ["FRIDAY_RAG_CACHE"] = old_rag_cache
+            shutil.rmtree(docs_tmp, ignore_errors=True)
     latency_ms = (time.perf_counter() - started) * 1000
 
     executed = [e.payload["tool"] for e in events if e.kind == "tool"]

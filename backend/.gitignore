@@ -8,3 +8,6 @@ __pycache__/
 
 # written by the write_note tool
 notes/
+
+# local RAG embedding cache (rebuilt from docs/ when stale)
+.rag_index.json
