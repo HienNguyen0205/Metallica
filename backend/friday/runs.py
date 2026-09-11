@@ -65,6 +65,7 @@ class AgentRun:
     run_id: str
     session_id: str | None
     goal: str
+    owner_user_id: str | None = None
     status: RunStatus = "queued"
     created_at: float = field(default_factory=time.time)
     started_at: float | None = None
@@ -103,8 +104,10 @@ class RunRegistry:
         data = self._store.get_run(run_id)
         return from_run_dict(data) if data is not None else None
 
-    def create(self, session_id: str | None, goal: str) -> AgentRun:
-        run = AgentRun(run_id=f"run_{uuid.uuid4().hex[:12]}", session_id=session_id, goal=goal)
+    def create(self, session_id: str | None, goal: str,
+               owner_user_id: str | None = None) -> AgentRun:
+        run = AgentRun(run_id=f"run_{uuid.uuid4().hex[:12]}", session_id=session_id,
+                       goal=goal, owner_user_id=owner_user_id)
         self._runs[run.run_id] = run
         while len(self._runs) > self._cap:
             evicted = next(iter(self._runs))

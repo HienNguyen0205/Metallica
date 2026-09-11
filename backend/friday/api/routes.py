@@ -7,11 +7,12 @@ import uuid
 from collections.abc import AsyncIterator
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException
 from fastapi.responses import StreamingResponse
 from openai import APIError, NotFoundError, RateLimitError
 
-from friday import agent, llm, memory, observability
+from friday import agent, audit, llm, memory, observability
+from friday import identity as identity_mod
 from friday.api import dependencies as deps
 from friday.api.dependencies import PENDING, guard, require_known_origin
 from friday.api.schemas import Decision, Query, RunBudget
@@ -61,6 +62,19 @@ async def _get_plan():
 log = logging.getLogger("friday")
 
 router = APIRouter()
+
+
+def _caller(session_id: str | None, user_id_header: str | None = None):
+    """Caller identity for this request. Identity headers count only when
+    FRIDAY_TRUST_IDENTITY_HEADERS is true (a proxy strips them). Accepts the
+    raw Header marker on direct calls (tests) as absent."""
+    if not isinstance(user_id_header, str):
+        user_id_header = None
+    return identity_mod.resolve_identity(
+        session_id,
+        user_id_header,
+        bool(settings.trust_identity_headers),
+    )
 
 #: Strong references for fire-and-forget background tasks (consolidation).
 #: asyncio only holds a *weak* ref to a task, so one nothing else points to
@@ -167,11 +181,15 @@ async def _run_query_events(
         request_id = uuid.uuid4().hex
         decided: asyncio.Future[bool] = asyncio.get_running_loop().create_future()
         PENDING[request_id] = decided
+        actor = (run.owner_user_id if run else None) or session_id
         if run:
             REGISTRY.update_status(run.run_id, "waiting_approval")
         await events.put(
             agent.AgentEvent("confirm", {"id": request_id, "tool": tool, "risk": risk, "input": payload})
         )
+        audit.record("approval.requested", actor=actor,
+                     run_id=run.run_id if run else None, target=tool,
+                     details={"risk": risk, "request_id": request_id})
         try:
             wait_start = time.perf_counter()
             try:
@@ -179,10 +197,23 @@ async def _run_query_events(
             finally:
                 observability.observe(
                     "approval_wait_ms", (time.perf_counter() - wait_start) * 1000)
+            audit.record("approval.resolved", actor=actor,
+                         run_id=run.run_id if run else None, target=tool,
+                         decision="granted" if approved else "denied")
             return approved
-        except (asyncio.TimeoutError, asyncio.CancelledError):
+        except asyncio.TimeoutError:
             log.info("approval for %s timed out", tool)
+            audit.record("approval.resolved", actor=actor,
+                         run_id=run.run_id if run else None, target=tool,
+                         decision="timeout")
             return False
+        except asyncio.CancelledError:
+            # The run is dying with the wait still open: record the truth
+            # (cancelled, not timed out) and let it propagate.
+            audit.record("approval.resolved", actor=actor,
+                         run_id=run.run_id if run else None, target=tool,
+                         decision="cancelled")
+            raise
         finally:
             PENDING.pop(request_id, None)
             if run:
@@ -196,6 +227,7 @@ async def _run_query_events(
         try:
             # Only a V2 run (registry-created) asks the agent for step events;
             # passing the kwarg unconditionally would break plain generators.
+            # (Same reason run_id travels by contextvar, not parameter.)
             kwargs = {"emit_steps": True} if run is not None else {}
             async for event in agent.run(query, approve, outcome, memory.history(session_id), memories, **kwargs):
                 await events.put(event)
@@ -298,7 +330,8 @@ async def _run_query_events(
 
 async def run_query(
     query: str, session_id: str | None = None, budget: RunBudget | None = None,
-    request_id: str | None = None,
+    request_id: str | None = None, owner_user_id: str | None = None,
+    actor: str | None = None,
 ) -> AsyncIterator[str]:
     if not settings.events_v2:
         # P0.3 legacy flat path — removal plan: keep until FRIDAY_EVENTS_V2
@@ -310,12 +343,15 @@ async def run_query(
         return
     from friday.runs import REGISTRY
 
-    run = REGISTRY.create(session_id, query)
+    run = REGISTRY.create(session_id, query, owner_user_id)
     REGISTRY.begin(run.run_id)
     trace_id = uuid.uuid4().hex
     observability.request_id_var.set(request_id)
     observability.trace_id_var.set(trace_id)
+    observability.run_id_var.set(run.run_id)
     REGISTRY.set_metadata(run.run_id, {"request_id": request_id, "trace_id": trace_id})
+    audit.record("run.created", actor=actor or owner_user_id or session_id,
+                 run_id=run.run_id, reason=query[:120])
     if budget is not None and budget.max_wall_time_ms:
         run.deadline = (run.started_at or time.time()) + budget.max_wall_time_ms / 1000
     max_tools = budget.max_tool_calls if budget is not None else None
@@ -392,27 +428,35 @@ async def run_query(
             REGISTRY.record_event(run.run_id, sequence, event, payload)
             yield sse_envelope(run.run_id, session_id, turn, sequence, event, payload)
         REGISTRY.finish(run.run_id, "failed" if saw_error else "completed")
-        observability.incr("agent_runs_total", 1,
-                           {"status": "failed" if saw_error else "completed"})
+        final_status = "failed" if saw_error else "completed"
+        observability.incr("agent_runs_total", 1, {"status": final_status})
         if saw_error:
             observability.incr("agent_failures_total")
+        audit.record("run.finished", actor=actor or run.owner_user_id or session_id,
+                     run_id=run.run_id, decision=final_status)
     except asyncio.CancelledError:
         # Client went away mid-turn — a cancellation, not a model failure.
         observability.incr("sse_disconnect_total")
+        audit.record("run.finished", actor=actor or run.owner_user_id or session_id,
+                     run_id=run.run_id, decision="cancelled")
         REGISTRY.finish(run.run_id, "cancelled")
         raise
     except BaseException:
         observability.incr("agent_runs_total", 1, {"status": "failed"})
         observability.incr("agent_failures_total")
+        audit.record("run.finished", actor=actor or run.owner_user_id or session_id,
+                     run_id=run.run_id, decision="failed")
         REGISTRY.finish(run.run_id, "failed")
         raise
     finally:
         _RUN_TASKS.pop(run.run_id, None)
+        observability.run_id_var.set(None)
         await agen.aclose()
 
 
 @router.post("/runs/{run_id}/cancel", dependencies=[Depends(guard)])
-async def cancel_run(run_id: str) -> dict[str, Any]:
+async def cancel_run(run_id: str,
+                     x_user_id: str | None = Header(default=None)) -> dict[str, Any]:
     """P1.5 — cancel a live run. Idempotent: cancelling a finished run
     reports its terminal status; unknown runs are a 404. The streaming task
     gets CancelledError, which run_query translates into `cancelled` exactly
@@ -423,16 +467,22 @@ async def cancel_run(run_id: str) -> dict[str, Any]:
     run = REGISTRY.get(run_id)
     if run is None:
         raise HTTPException(status_code=404, detail="no such run")
+    caller = _caller(run.session_id, x_user_id)
+    if not identity_mod.may_access(run.owner_user_id, caller):
+        raise HTTPException(status_code=403, detail="not your run")
     if REGISTRY.update_status(run_id, "cancelled"):
         task = _RUN_TASKS.get(run_id)
         if task is not None and not task.done():
             task.cancel()
+        audit.record("run.cancelled", actor=caller.actor, run_id=run_id,
+                     decision="cancelled")
         return {"ok": True, "run_id": run_id, "status": "cancelled", "cancelled": True}
     return {"ok": True, "run_id": run_id, "status": run.status, "cancelled": False}
 
 
 @router.get("/runs/{run_id}/events", dependencies=[Depends(guard)])
-async def replay_run(run_id: str, after_sequence: int = 0) -> dict[str, Any]:
+async def replay_run(run_id: str, after_sequence: int = 0,
+                     x_user_id: str | None = Header(default=None)) -> dict[str, Any]:
     """P1.10 — reconnect/resume. Returns enveloped frames already emitted for
     this run with sequence > after_sequence, plus the run status and whether
     it is terminal. Pure log read: replay never re-executes tools, the agent,
@@ -446,6 +496,8 @@ async def replay_run(run_id: str, after_sequence: int = 0) -> dict[str, Any]:
         if stored is None:
             raise HTTPException(status_code=404, detail="no such run")
         run = stored
+    if not identity_mod.may_access(run.owner_user_id, _caller(run.session_id, x_user_id)):
+        raise HTTPException(status_code=403, detail="not your run")
     observability.incr("sse_reconnect_total")
     after = max(0, after_sequence)
     events = [e for e in run.events if e.get("sequence", 0) > after]
@@ -458,10 +510,15 @@ async def replay_run(run_id: str, after_sequence: int = 0) -> dict[str, Any]:
 
 
 @router.post("/query", dependencies=[Depends(guard)])
-async def query_endpoint(body: Query) -> StreamingResponse:
+async def query_endpoint(body: Query,
+                         x_user_id: str | None = Header(default=None)) -> StreamingResponse:
     request_id = uuid.uuid4().hex
+    caller = _caller(body.session_id, x_user_id)
+    if caller.user_id is not None:
+        audit.record("auth.identified", actor=caller.actor)
     return StreamingResponse(
-        run_query(body.query, body.session_id, body.budget, request_id),
+        run_query(body.query, body.session_id, body.budget, request_id,
+                  caller.user_id, caller.actor),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no",
                  "X-Request-ID": request_id},
@@ -525,6 +582,13 @@ async def metrics_endpoint() -> dict[str, Any]:
     """P3 — counters and latency summaries as JSON. Label values are
     component/status/model names only; never queries, sessions or facts."""
     return observability.snapshot()
+
+
+@router.get("/audit", dependencies=[Depends(guard)])
+async def audit_endpoint(run_id: str | None = None, limit: int = 100) -> dict[str, Any]:
+    """P3 — recent audit entries, newest first, filterable by run. Operators
+    only (same origin gate as everything else)."""
+    return {"events": audit.recent(limit, run_id)}
 
 
 @router.get("/health")

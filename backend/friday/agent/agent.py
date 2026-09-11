@@ -7,6 +7,7 @@ import time
 from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 from typing import Any
 
+from friday import audit
 from friday import llm
 from friday import observability
 from friday import policy
@@ -68,7 +69,12 @@ async def run(
     history: Sequence[dict[str, str]] = (),
     memories: str = "",
     emit_steps: bool = False,
+    run_id: str | None = None,
 ) -> AsyncIterator[AgentEvent]:
+    if run_id is None:
+        # Production path: run_query sets this per streaming task, so audit
+        # attribution needs no signature change in tests and tools.
+        run_id = observability.run_id_var.get()
     api = llm.client()
     # Provenance của ký ức đọc từ đây. Set mới mỗi turn để hai query song song
     # không thấy tool của nhau.
@@ -197,6 +203,10 @@ async def run(
             decision = policy.evaluate(tool, name, payload, policy.default_context())
             if decision.decision == "deny":
                 log.info("policy denied %s: %s", name, decision.reason)
+                audit.record("tool.denied", run_id=run_id, target=name,
+                             decision="deny", reason=decision.reason,
+                             details={"risk": tool.risk,
+                                      "args": sorted(payload.keys())})
                 if emit_steps:
                     yield step(tool_id, "tool", "failed", turn, tool=name,
                                retry=attempts or None,
@@ -244,6 +254,9 @@ async def run(
                 observability.observe("tool_latency_ms",
                                       (time.perf_counter() - tool_start) * 1000,
                                       {"tool": tool.name})
+                audit.record("tool.executed", run_id=run_id, target=tool.name,
+                             decision="error", reason=type(err).__name__,
+                             details={"risk": tool.risk})
                 log.exception("tool %s failed", tool.name)
                 output = {"error": type(err).__name__}
                 if emit_steps:
@@ -254,6 +267,10 @@ async def run(
                 observability.observe("tool_latency_ms",
                                       (time.perf_counter() - tool_start) * 1000,
                                       {"tool": tool.name})
+                audit.record("tool.executed", run_id=run_id, target=tool.name,
+                             decision="ok",
+                             details={"risk": tool.risk,
+                                      "args": sorted(payload.keys())})
                 if emit_steps:
                     yield step(tool_id, "tool", "completed", turn, tool=name,
                                retry=attempts or None, summary=_tool_summary(output))
