@@ -59,6 +59,11 @@ class AgentRun:
     completed_at: float | None = None
     deadline: float | None = None    # P0.6
     budget: dict[str, Any] | None = None  # P0.7
+    turn_id: str | None = None
+    plan: list[dict[str, Any]] | None = None
+    evidence: list[dict[str, Any]] = field(default_factory=list)
+    final_answer: str | None = None
+    error: str | None = None
     current_step_id: str | None = None
     steps: list[AgentStep] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
@@ -87,11 +92,42 @@ class RunRegistry:
             run.status = "running"
             run.started_at = time.time()
 
+    def update_status(self, run_id: str, status: RunStatus) -> bool:
+        """Guarded non-terminal move. Terminal runs are never resurrected —
+        use this instead of poking run.status directly (approval flow)."""
+        run = self._runs.get(run_id)
+        if run is None or run.status in _TERMINAL:
+            return False
+        run.status = status
+        if status in _TERMINAL:
+            run.completed_at = time.time()
+        return True
+
     def finish(self, run_id: str, status: RunStatus) -> None:
+        self.update_status(run_id, status)
+
+    def set_turn(self, run_id: str, turn_id: str) -> None:
         run = self._runs.get(run_id)
         if run and run.status not in _TERMINAL:
-            run.status = status
-            run.completed_at = time.time()
+            run.turn_id = turn_id
+
+    def set_plan(self, run_id: str, plan: list[dict[str, Any]]) -> None:
+        run = self._runs.get(run_id)
+        if run and run.status not in _TERMINAL:
+            run.plan = plan
+
+    def record_evidence(self, run_id: str, item: dict[str, Any]) -> None:
+        run = self._runs.get(run_id)
+        if run and run.status not in _TERMINAL:
+            run.evidence.append(item)
+
+    def set_final(self, run_id: str, answer: str | None = None, error: str | None = None) -> None:
+        run = self._runs.get(run_id)
+        if run and run.status not in _TERMINAL:
+            if answer is not None:
+                run.final_answer = answer
+            if error is not None:
+                run.error = error
 
     def record_step(self, run_id: str, payload: dict[str, Any]) -> None:
         """Update-or-create mirror of a wire step event."""

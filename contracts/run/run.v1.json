@@ -16,6 +16,18 @@
     "completed_at": { "type": "string" },
     "deadline": { "type": "string" },
     "budget": { "$ref": "#/definitions/RunBudget" },
+    "plan": {
+      "type": "array",
+      "items": { "type": "object" },
+      "description": "Explicit plan nodes (P1.4); null until the planner runs."
+    },
+    "evidence": {
+      "type": "array",
+      "items": { "type": "object" },
+      "description": "Source-backed observations feeding claims (P2)."
+    },
+    "final_answer": { "type": "string" },
+    "error": { "type": "string" },
     "current_step_id": { "type": "string" }
   },
   "definitions": {

@@ -145,6 +145,8 @@ async def _run_query_events(
     P0.2 — the V2 dispatcher below wraps these in the envelope and mirrors
     steps into the registry; V2-off re-serializes them flat, byte-identical.
     """
+    from friday.runs import REGISTRY
+
     yield ("state", {"state": "thinking"})
 
     outcome = agent.AgentResult(text="")
@@ -155,7 +157,7 @@ async def _run_query_events(
         decided: asyncio.Future[bool] = asyncio.get_running_loop().create_future()
         PENDING[request_id] = decided
         if run:
-            run.status = "waiting_approval"
+            REGISTRY.update_status(run.run_id, "waiting_approval")
         await events.put(
             agent.AgentEvent("confirm", {"id": request_id, "tool": tool, "risk": risk, "input": payload})
         )
@@ -167,7 +169,7 @@ async def _run_query_events(
         finally:
             PENDING.pop(request_id, None)
             if run:
-                run.status = "running"
+                REGISTRY.update_status(run.run_id, "running")
 
     failure: BaseException | None = None
     memories = ""
@@ -287,11 +289,15 @@ async def run_query(query: str, session_id: str | None = None) -> AsyncIterator[
         async for event, payload in _run_query_events(query, session_id, run=run):
             if event == "step":
                 turn = str(payload.get("turn_id") or turn)
+                REGISTRY.set_turn(run.run_id, turn)
                 REGISTRY.record_step(run.run_id, payload)
+            if event == "answer":
+                REGISTRY.set_final(run.run_id, answer=str(payload.get("text", "")))
             if event == "error":
                 # §2 accuracy — an error frame is a failed turn, not a completed
                 # one; P0.9 reads final_status from here.
                 saw_error = True
+                REGISTRY.set_final(run.run_id, error=str(payload.get("message", "")))
             sequence += 1
             yield sse_envelope(run.run_id, session_id, turn, sequence, event, payload)
         REGISTRY.finish(run.run_id, "failed" if saw_error else "completed")

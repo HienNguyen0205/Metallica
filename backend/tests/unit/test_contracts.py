@@ -82,9 +82,18 @@ def test_visualization_types_match_canonical_schema() -> None:
 
 
 def test_run_status_matches_canonical_schema() -> None:
+    import dataclasses
+
+    from friday.runs import AgentRun
+
     schema = load("run", "run.v1.json")
     assert set(["run_id", "status"]) <= set(schema["required"])
     assert set(get_args(RunStatus)) == set(schema["definitions"]["RunStatus"]["enum"])
+    # every first-class model field is a documented contract property —
+    # except steps (conveyed as step events, not embedded) and metadata
+    # (process-internal, never on the wire)
+    model_fields = {f.name for f in dataclasses.fields(AgentRun)} - {"steps", "metadata"}
+    assert model_fields <= set(schema["properties"]), model_fields - set(schema["properties"])
 
 
 def test_tool_risk_and_policy_match_canonical_schema() -> None:
@@ -199,6 +208,7 @@ def test_run_query_transcript_validates_against_contracts() -> None:
 
     run = REGISTRY.get(bodies[0]["run_id"])
     assert run is not None and run.status == "completed" and run.completed_at is not None
+    assert run.turn_id == "turn_1" and run.final_answer == "CPU is at 73 percent."
 
 
 if __name__ == "__main__":
