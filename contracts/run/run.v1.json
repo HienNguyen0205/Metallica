@@ -1,0 +1,49 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://metallica.local/contracts/run.v1.json",
+  "title": "AgentRun v1",
+  "description": "First-class run identity and status. Run state is explicit — never inferred from the last event. Mirrors backend/friday/runs.py — any change must update it and the parity tests.",
+  "type": "object",
+  "required": ["run_id", "status"],
+  "properties": {
+    "run_id": { "type": "string", "minLength": 1 },
+    "session_id": { "type": "string", "minLength": 1 },
+    "turn_id": { "type": "string", "minLength": 1 },
+    "goal": { "type": "string" },
+    "status": { "$ref": "#/definitions/RunStatus" },
+    "created_at": { "type": "string" },
+    "started_at": { "type": "string" },
+    "completed_at": { "type": "string" },
+    "deadline": { "type": "string" },
+    "budget": { "$ref": "#/definitions/RunBudget" },
+    "current_step_id": { "type": "string" }
+  },
+  "definitions": {
+    "RunStatus": {
+      "type": "string",
+      "enum": [
+        "queued",
+        "planning",
+        "running",
+        "waiting_approval",
+        "verifying",
+        "completed",
+        "failed",
+        "cancelled",
+        "expired"
+      ]
+    },
+    "RunBudget": {
+      "type": "object",
+      "description": "Per-run budgets (P1.6). When exceeded the run ends with status failed/cancelled and a structured budget_exceeded error — never an ambiguous generic exception.",
+      "properties": {
+        "max_wall_time_ms": { "type": "integer", "minimum": 1 },
+        "max_tool_calls": { "type": "integer", "minimum": 1 },
+        "max_tokens": { "type": "integer", "minimum": 1 },
+        "max_search_calls": { "type": "integer", "minimum": 1 },
+        "max_context_bytes": { "type": "integer", "minimum": 1 },
+        "max_estimated_cost_usd": { "type": "number", "minimum": 0 }
+      }
+    }
+  }
+}

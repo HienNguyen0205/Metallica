@@ -1,0 +1,108 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://metallica.local/contracts/visualization.v1.json",
+  "title": "VisualizationSpec v1",
+  "description": "Canonical renderer contract. Tolerant reader: consumers require only `type`; every other field is optional. Producers SHOULD send title + data. Mirrors src/lib/visualization/types.ts and backend/friday/schemas/visualization.py — any change must update both and the parity tests.",
+  "type": "object",
+  "required": ["type"],
+  "properties": {
+    "type": {
+      "type": "string",
+      "enum": [
+        "radial_gauge",
+        "health_core",
+        "radar",
+        "waveform",
+        "network",
+        "line_3d",
+        "bar_3d",
+        "particle_flow",
+        "globe",
+        "timeline",
+        "heatmap_3d",
+        "funnel_3d",
+        "sankey_flow"
+      ]
+    },
+    "title": { "type": "string" },
+    "animation": { "type": "string", "enum": ["materialize", "pulse", "none"] },
+    "interaction": { "type": "string", "enum": ["none", "drill_down"] },
+    "theme": {
+      "type": "object",
+      "properties": {
+        "color": { "type": "string" },
+        "accent": { "type": "string" }
+      },
+      "additionalProperties": false
+    },
+    "position": {
+      "type": "array",
+      "items": { "type": "number" },
+      "minItems": 3,
+      "maxItems": 3
+    },
+    "scale": { "type": "number" },
+    "data": { "$ref": "#/definitions/VizData" },
+    "answer": { "type": "string" }
+  },
+  "definitions": {
+    "MetricDatum": {
+      "type": "object",
+      "required": ["label", "value"],
+      "properties": {
+        "label": { "type": "string" },
+        "value": { "type": "number" },
+        "unit": { "type": "string" }
+      }
+    },
+    "SeriesDatum": {
+      "type": "object",
+      "required": ["label", "points"],
+      "properties": {
+        "label": { "type": "string" },
+        "points": { "type": "array", "items": { "type": "number" } }
+      }
+    },
+    "NodeDatum": {
+      "type": "object",
+      "required": ["id"],
+      "properties": {
+        "id": { "type": "string" },
+        "label": { "type": "string" }
+      }
+    },
+    "GeoPoint": {
+      "type": "object",
+      "required": ["lat", "lon"],
+      "properties": {
+        "lat": { "type": "number" },
+        "lon": { "type": "number" },
+        "label": { "type": "string" }
+      }
+    },
+    "TimelineEvent": {
+      "type": "object",
+      "required": ["label", "at"],
+      "properties": {
+        "label": { "type": "string" },
+        "at": { "type": "number" }
+      }
+    },
+    "VizData": {
+      "type": "object",
+      "description": "Every field optional: each renderer reads only the ones it needs.",
+      "properties": {
+        "metrics": { "type": "array", "items": { "$ref": "#/definitions/MetricDatum" } },
+        "series": { "type": "array", "items": { "$ref": "#/definitions/SeriesDatum" } },
+        "nodes": { "type": "array", "items": { "$ref": "#/definitions/NodeDatum" } },
+        "links": {
+          "type": "array",
+          "items": { "type": "array", "items": { "type": "integer" }, "minItems": 2, "maxItems": 2 }
+        },
+        "points": { "type": "array", "items": { "$ref": "#/definitions/GeoPoint" } },
+        "events": { "type": "array", "items": { "$ref": "#/definitions/TimelineEvent" } },
+        "rate": { "type": "number" }
+      }
+    }
+  }
+}

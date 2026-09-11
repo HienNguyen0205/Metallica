@@ -30,6 +30,8 @@ const KNOWN_VIZ: ReadonlySet<string> = new Set([
   "globe",
   "timeline",
   "heatmap_3d",
+  "funnel_3d",
+  "sankey_flow",
 ]);
 
 export const STEP_KINDS = [
