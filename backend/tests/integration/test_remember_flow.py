@@ -96,11 +96,15 @@ def drive(script):
     os.environ["FRIDAY_LLM_API_KEY"] = "test-key"
 
     events = []
+    approvals = []
     try:
         result = agent.AgentResult(text="")
 
-        async def approve(*_):
-            raise AssertionError("nothing in these scripts is high risk")
+        async def approve(tool, risk, payload):
+            # P1.8 — remember carries memory.write (sensitive), so the policy
+            # steps it up to the operator instead of writing silently.
+            approvals.append(tool)
+            return True
 
         async def run():
             async for event in agent.run("remember that I like dark mode", approve, result):
@@ -115,13 +119,13 @@ def drive(script):
                 os.environ[key] = value
         server.shutdown()
         server.server_close()
-    return events
+    return events, approvals
 
 
-def test_remember_is_registered_and_ungated():
+def test_remember_is_registered_and_low_risk():
     tool = tools.get("remember")
     assert tool is not None, "model không thể gọi thứ không có trong registry"
-    assert not tool.needs_confirmation(), "một ghi chú không nên ngắt lời người dùng"
+    assert not tool.needs_confirmation(), "risk stays low — the policy step_up (not the risk gate) prompts"
 
 
 def test_a_write_reaches_the_operator_as_an_event():
@@ -132,8 +136,10 @@ def test_a_write_reaches_the_operator_as_an_event():
     thật sự ghi, rồi event phải lọt ra ngoài cho operator thấy.
     """
     stub_memory()
-    events = drive([REMEMBER_CALL])
+    events, approvals = drive([REMEMBER_CALL])
 
+    # P1.8 — a permanent write steps up to the operator first, then proceeds.
+    assert approvals == ["remember"], approvals
     memory_events = [e for e in events if e.kind == "memory"]
     assert memory_events, events
     assert memory_events[0].payload["fact"] == "operator prefers dark mode", memory_events
@@ -158,7 +164,7 @@ def test_a_fact_distilled_after_a_search_is_marked_as_coming_from_the_web():
     original = REGISTRY["search_web"]
     REGISTRY["search_web"] = dataclasses.replace(original, run=fake_search)
     try:
-        events = drive([SEARCH_CALL, REMEMBER_CALL])
+        events, _approvals = drive([SEARCH_CALL, REMEMBER_CALL])
     finally:
         REGISTRY["search_web"] = original
 

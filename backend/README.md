@@ -333,6 +333,21 @@ Per §22 there is no shell tool, no `eval`, and no arbitrary-path write.
 `write_note` sanitises the model's string to a bare stem and rebuilds the path
 itself, so nothing the model sends is ever used as a path component verbatim.
 
+## Policy and capabilities (P1.7/P1.8)
+
+Every tool call passes `friday/policy.py:evaluate()` before it runs — risk
+level, required capabilities and argument shape are server declarations the
+model cannot override (smuggled `risk`/`decision` keys in arguments are
+ignored). Verdicts: `allow`, `ask_human` (high risk), `step_up` (sensitive
+capabilities such as `memory.write`/`notes.write`, even on low-risk tools),
+`deny` (unknown tool, missing capability, bad arguments — no human prompt).
+
+Tools declare `capabilities` (e.g. `system.read`, `web.read`, `notes.write`);
+the deployment grants a set via `FRIDAY_GRANTED_CAPABILITIES` (`*` by
+default). `ask_human` and `step_up` share the existing confirm UX, separated
+for audit. Covered by `tests/unit/test_policy.py` (matrix, capability and
+argument gates, model-override proof, agent-loop denial without a prompt).
+
 `search_web` is the only tool that reaches off this machine, and the only one
 that puts text written by strangers into the model's context — a
 prompt-injection surface by construction. The containment is the §11 gate rather

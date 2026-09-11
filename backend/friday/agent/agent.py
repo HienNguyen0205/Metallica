@@ -7,6 +7,7 @@ from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 from typing import Any
 
 from friday import llm
+from friday import policy
 from friday.memory import long_term
 from friday.tools.registry import REGISTRY, api_tools
 
@@ -152,7 +153,25 @@ async def run(
                 tool_id = _next_step_id()
                 yield step(tool_id, "tool", "running", turn, tool=name, retry=attempts or None)
 
-            if tool.needs_confirmation():
+            # P1.7/P1.8 — every call passes the policy gate first. Denials never
+            # reach the human; ask_human and step_up share the confirm flow
+            # (separated for audit, same UX until the frontend distinguishes).
+            decision = policy.evaluate(tool, name, payload, policy.default_context())
+            if decision.decision == "deny":
+                log.info("policy denied %s: %s", name, decision.reason)
+                if emit_steps:
+                    yield step(tool_id, "tool", "failed", turn, tool=name,
+                               retry=attempts or None,
+                               error=f"denied by policy: {decision.reason}")
+                yield AgentEvent("denied", {"tool": tool.name})
+                messages.append(
+                    {"role": "tool", "tool_call_id": call.id,
+                     "content": json.dumps({"error": f"denied by policy: {decision.reason}"})}
+                )
+                continue
+            if decision.decision in ("ask_human", "step_up"):
+                if decision.decision == "step_up":
+                    log.info("policy step_up %s: %s", name, decision.reason)
                 if emit_steps:
                     yield step(tool_id, "tool", "waiting_approval", turn, tool=name, retry=attempts or None)
                 approved = await approve(tool.name, tool.risk, payload)

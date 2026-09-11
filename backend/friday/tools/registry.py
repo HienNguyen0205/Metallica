@@ -22,6 +22,7 @@ def _build_default_registry() -> dict[str, Tool]:
             input_schema={"type": "object", "properties": {}, "required": []},
             risk="low",
             run=run_system_metrics,
+            capabilities=("system.read",),
             preview=preview_metrics,
         ),
         Tool(
@@ -35,6 +36,7 @@ def _build_default_registry() -> dict[str, Tool]:
             input_schema={"type": "object", "properties": {}, "required": []},
             risk="low",
             run=run_current_time,
+            capabilities=("system.read",),
         ),
         Tool(
             name="get_process_list",
@@ -51,6 +53,7 @@ def _build_default_registry() -> dict[str, Tool]:
             },
             risk="low",
             run=run_process_list,
+            capabilities=("system.read",),
             preview=preview_processes,
         ),
         Tool(
@@ -83,6 +86,8 @@ def _build_default_registry() -> dict[str, Tool]:
             # FRIDAY to write a note still has to get past the operator.
             risk="low",
             run=run_search_web,
+            capabilities=("web.read",),
+            constraints={"max_results": 5, "max_chars": 600},
         ),
         Tool(
             name="write_note",
@@ -97,6 +102,8 @@ def _build_default_registry() -> dict[str, Tool]:
             },
             risk="high",
             run=run_write_note,
+            capabilities=("notes.write",),
+            constraints={"directory": "notes/"},
         ),
         Tool(
             name="read_note",
@@ -121,6 +128,7 @@ def _build_default_registry() -> dict[str, Tool]:
             # no text from strangers into the context.
             risk="low",
             run=run_read_note,
+            capabilities=("notes.read",),
         ),
         Tool(
             name="remember",
@@ -143,6 +151,7 @@ def _build_default_registry() -> dict[str, Tool]:
             # vĩnh viễn, và biện pháp bảo vệ là provenance cộng đường xem/xoá.
             risk="low",
             run=run_remember,
+            capabilities=("memory.write",),
         ),
     ]
     return {t.name: t for t in tools}
