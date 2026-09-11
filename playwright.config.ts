@@ -36,7 +36,7 @@ export default defineConfig({
    *
    * Measured on this suite, 8 cores: `workers: 1` → 19.0-19.6 min, all green.
    * `--workers=4` → 20.8 min and five failures, with hologram.spec going
-   * 7.4 → 16.2 min and memoryRail 1.1 → 8.4 min.
+   * 7.4 → 16.2 min.
    *
    * Note also that Playwright parallelises across *files*, never within one, so
    * `--workers=N` on a single spec changes nothing at all.

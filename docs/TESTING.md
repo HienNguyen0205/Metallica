@@ -152,11 +152,6 @@ it can click exact metric nodes in 3D space:
   coordinates — see `drilldown.spec.ts` comments); the wiring lives in
   `FridayVisualization.tsx` (`onClick`/`onPointerMissed`).
 
-**`memoryRail.spec.ts` — long-term memory**
-
-- `/memory` rows validated (malformed rows dropped, never render `undefined`);
-- operator review + FORGET flow deletes permanently (backend RAM cache too).
-
 **`dock.spec.ts` + `groupedBars.spec.ts` — layout & charts**
 
 - docked core clears the center when a viz owns the stage;

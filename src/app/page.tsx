@@ -9,7 +9,7 @@ import {
 } from "@/components/friday/hud/Hud";
 import InputBar from "@/components/friday/hud/InputBar";
 import ConfirmPrompt from "@/components/friday/hud/ConfirmPrompt";
-import { LiveIndicator, MemoryRail, ToolHud } from "@/components/friday/hud/ToolHud";
+import { LiveIndicator, ToolHud } from "@/components/friday/hud/ToolHud";
 import SceneIsland from "@/components/friday/SceneIsland";
 
 /**
@@ -39,7 +39,6 @@ export default function Home() {
       <VizRail />
       <StateRail />
       <ToolHud />
-      <MemoryRail />
       <AnswerLine />
       <FocusPanel />
       <InputBar />

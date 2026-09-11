@@ -209,7 +209,7 @@ the interaction layer generic — adding a new visualization never touches
     ├── StateLights            ambient + two point lights tinted by STATE_LOOK[state]
     ├── CameraRig              eased drift + pointer parallax + per-state orbit/dolly
     ├── SpatialHud             dotted grid plane, outer frame arcs, corner brackets,
-    │                          reticles, coord/sync readouts, level columns
+    │                          reticles and coord/sync readouts
     ├── FridayCore             8-layer hologram (below)
     ├── FridayVisualization    active spec via REGISTRY
     ├── AdaptiveDpr / AdaptiveEvents (never pixelated)
@@ -317,7 +317,7 @@ A single module-level rAF loop measures counters over 500 ms windows:
 
 Consumers call `useTelemetry(hz = 4)` which samples into React state at 4 Hz —
 sampling per frame would cost more than the scene itself. `SpatialHud` also
-drives PWR/MEM/NET level columns from the same counters. The loop is
+drives its coordinate readouts from the same counters. The loop is
 ref-counted: each mounted consumer starts it, the last unmount stops it. It
 pauses while the tab is hidden (a backgrounded rAF loop would report dead
 0 fps as data) and resumes on visible; `stopTelemetry()` force-stops it as a
@@ -338,7 +338,7 @@ Triggered by `(max-width: 768px)` or `(prefers-reduced-motion: reduce)`:
 - DPR capped at `[1, 1.5]` (vs `[1, 2]`),
 - particles 260 (vs 950),
 - god-ray shafts disabled,
-- outer frame, reticles and level columns hidden.
+- outer frame and reticles hidden.
 
 Mobile tests assert the simplified layout renders without overflow while
 keeping the state label and input functional.
