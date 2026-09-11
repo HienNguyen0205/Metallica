@@ -3,6 +3,18 @@
 from pydantic import BaseModel, Field
 
 
+class RunBudget(BaseModel):
+    """Per-run ceilings (P1.6). Wall-time and tool calls are enforced;
+    token/search/context/cost keys are accepted for later metering phases."""
+
+    max_wall_time_ms: int | None = Field(default=None, gt=0)
+    max_tool_calls: int | None = Field(default=None, gt=0)
+    max_tokens: int | None = Field(default=None, gt=0)
+    max_search_calls: int | None = Field(default=None, gt=0)
+    max_context_bytes: int | None = Field(default=None, gt=0)
+    max_estimated_cost_usd: float | None = Field(default=None, gt=0)
+
+
 class Query(BaseModel):
     #: Bounded before any model call: an unbounded public string burns
     #: tokens/embeddings/memory per request (DoS on the provider bill).
@@ -21,15 +33,3 @@ class Decision(BaseModel):
     #: cannot be used to probe arbitrary keys.
     id: str = Field(max_length=64, pattern="^[A-Za-z0-9_-]+$")
     approved: bool
-
-
-class RunBudget(BaseModel):
-    """Per-run ceilings (P1.6). Wall-time and tool calls are enforced;
-    token/search/context/cost keys are accepted for later metering phases."""
-
-    max_wall_time_ms: int | None = Field(default=None, gt=0)
-    max_tool_calls: int | None = Field(default=None, gt=0)
-    max_tokens: int | None = Field(default=None, gt=0)
-    max_search_calls: int | None = Field(default=None, gt=0)
-    max_context_bytes: int | None = Field(default=None, gt=0)
-    max_estimated_cost_usd: float | None = Field(default=None, gt=0)
