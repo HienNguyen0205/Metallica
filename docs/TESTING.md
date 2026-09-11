@@ -5,10 +5,13 @@ browser-driven UI tests — so there is a single runner, config, reporter and
 CI integration. There is no separate vitest/jest setup.
 
 ```bash
-npm run test:unit    # fast: no browser, no server, no build
-npm run test:ui      # full: production build + headless Chromium
-npm run test         # both
-npm run verify       # lint + typecheck + all tests (local CI gate)
+npm run test:unit       # fast: no browser, no server, no build
+npm run test:frontend   # same as test:unit — the frontend half
+npm run test:backend    # whole Python suite via backend/runtests.py
+npm run test:contracts  # contract gate: FE specs + BE test_contracts.py
+npm run test:e2e        # full: production build + headless Chromium (test:ui alias)
+npm run test           # all Playwright tests (unit + ui)
+npm run verify         # full gate: lint + typecheck + frontend + backend + contracts + e2e
 ```
 
 ## Projects (`playwright.config.ts`)
@@ -28,7 +31,7 @@ limit with nothing completed. 30 s is generous — real actions take
 milliseconds, and every legitimately long poll (`waitForHologram`, flow
 recording) passes an explicit timeout that overrides it.
 
-## Unit project (`tests/unit/` — 16 specs)
+## Unit project (`tests/unit/` — 24 specs)
 
 ### `store.spec.ts` / `agentFlow.spec.ts` / `agentStream.spec.ts`
 
@@ -71,11 +74,16 @@ Locks planner rule ordering and invariants:
 ### Other unit specs
 
 `sse` (chunk splits, CRLF, comments, abort), `events` (rejects unknown
-states/risks/viz), `ttsPlayer` (header parse, truncation, abort, backpressure,
-30 s anti-hang timeout), `audioBus` (TTS-first fallback, FFT mapping, mic
-lifecycle), `gpu` (shared software-GL classifier), `quality` (heavy truth
-table), `labelCapacity` (texture never clips), `spriteGeometry` (shared
-geometry never disposed).
+states/risks/viz), `eventContract` + `contracts` (canonical schemas ↔
+parser parity, incl. the funnel/sankey drift fix), `envelopedFlow` (full v2
+turn, rejection surfacing, server-cancel, resume-from-log), `agentStream`
+(duplicate/wrong-run/step handling), `streamGuard` (ordering verdicts),
+`store` (guarded transitions), `sessionBanner`, `coreDock`, `vizBarGroups`,
+`vizFlow` (funnel/sankey math), `ttsPlayer` (header parse, truncation,
+abort, backpressure, 30 s anti-hang timeout), `audioBus` (TTS-first
+fallback, FFT mapping, mic lifecycle), `gpu` (shared software-GL
+classifier), `quality` (heavy truth table), `labelCapacity` (texture never
+clips), `spriteGeometry` (shared geometry never disposed).
 
 ## UI project
 
@@ -149,6 +157,25 @@ it can click exact metric nodes in 3D space:
 - `/memory` rows validated (malformed rows dropped, never render `undefined`);
 - operator review + FORGET flow deletes permanently (backend RAM cache too).
 
+**`dock.spec.ts` + `groupedBars.spec.ts` — layout & charts**
+
+- docked core clears the center when a viz owns the stage;
+- grouped bars spread symmetrically and stay within one category slot.
+
+## Backend tests (`backend/tests/` — via `backend/runtests.py`)
+
+No pytest: every `test_*.py` runs standalone with `PYTHONPATH=backend`, and
+`runtests.py` discovers and runs all of them (unit, then integration), so a
+new file can never be silently skipped by CI. From the repo root:
+`npm run test:backend`; filtered: `python backend/runtests.py test_contracts`.
+
+Areas mirror `backend/README.md` §Tests: contracts, runs/steps, transport and
+permissions, memory (+policy), persistence, evidence/verification, cancel and
+budgets, reconnect, observability, identity/audit, tools, search, provider —
+plus `test_evals.py`, the decision-quality gate over `backend/evals/` (12+
+scripted cases with must/must-not-call sets, approval, memory and claim
+assertions; model scripted, no key, no network).
+
 ## CI (`.github/workflows/ci.yml`)
 
 Triggers: push to main/master, any PR, manual dispatch. Concurrency group with
@@ -157,6 +184,8 @@ cancel-in-progress. Node 22, `NEXT_TELEMETRY_DISABLED=1`.
 | Job | Steps | Budget |
 |---|---|---|
 | **static** ("Lint · Types · Unit") | npm ci → lint → typecheck → `test:unit` | 10 min |
+| **backend** ("Orchestrator (Python)") | pip install → `runtests.py unit` → `runtests.py integration` | 10 min |
+| **contracts** ("FE consumer · BE producer") | npm ci + pip install → `test:contracts` | 10 min |
 | **ui** ("UI (WebGL)") | npm ci → cache Playwright browsers keyed on version → install chromium deps → cache `.next/cache` → `test:ui` (suite builds itself) | 30 min |
 
 The `ui` job uploads `playwright-report/` (14 days) on every non-cancelled

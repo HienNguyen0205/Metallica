@@ -1,5 +1,8 @@
 name: CI
 
+# HISTORICAL — GitHub only reads .github/workflows/ at the repo root, so this
+# file no longer runs. The live backend gate is the `backend` job in the root
+# workflow (backend/runtests.py, unit + integration). Kept for reference only.
 on:
   push:
     branches: [main, master]

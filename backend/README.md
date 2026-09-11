@@ -65,9 +65,12 @@ maps onto exactly one store action in `src/lib/store.ts`:
 | `tool`    | `{"tool": "...", "risk": "low"}`        | (progress only)          |
 | `confirm` | `{"id", "tool", "risk", "input"}`       | `setPendingConfirm()`    |
 | `denied`  | `{"tool": "..."}`                       | (progress only)          |
-| `viz`     | a `VisualizationSpec`                   | `setVisualization()`     |
+| `preview` | a partial `VisualizationSpec`           | early `viz` with `interaction: "none"` |
+| `viz`     | a `VisualizationSpec`                   | `addVisualization(spec)` |
+| `step`    | `{step_id, turn_id, kind, status, …}`   | `setCurrentStep()` (v2 only) |
+| `memory`  | `{"id", "fact", "provenance"}`          | `addMemory()`            |
 | `answer`  | `{"text": "..."}`                       | `setAnswer(text)`        |
-| `error`   | `{"message": "..."}`                    | logged, flow continues   |
+| `error`   | `{"message": "..."}`                    | `setSessionError()`      |
 | `done`    | `{}`                                    | stream complete          |
 
 Adding a step to the agent flow means emitting another event — the transport
@@ -311,13 +314,16 @@ say in its own permissions.
 | Tool                 | Risk | Effect                                    |
 | -------------------- | ---- | ----------------------------------------- |
 | `get_system_metrics` | low  | reads host CPU / memory / disk (psutil)   |
+| `get_current_time`   | low  | reads the host clock (date, time, offset) |
 | `get_process_list`   | low  | top processes by memory share             |
 | `search_web`         | low  | public web search, three providers in turn |
-| `write_note` | high | writes a markdown file under `notes/` |
-| `list_dir` | low | lists one level under `FRIDAY_SANDBOX_DIR` (default `notes/`) |
-| `read_file` | low | reads one text file under the sandbox, truncated with a flag |
 | `fetch_url` | low | fetches one public http(s) URL, title plus trimmed text extract |
 | `search_docs` | low | searches the repo docs (RAG over `docs/`), ranked sections |
+| `read_note`          | low  | reads a note (or lists them), confines to `notes/` |
+| `remember`           | low* | stores one fact in long-term memory (*steps up to approval: `memory.write` is sensitive) |
+| `list_dir` | low | lists one level under `FRIDAY_SANDBOX_DIR` (default `notes/`) |
+| `read_file` | low | reads one text file under the sandbox, truncated with a flag |
+| `write_note` | high | writes a markdown file under `notes/` |
 
 `get_process_list` ranks by memory, not CPU: `cpu_percent` reads 0.0 the first
 time a process is sampled, so a CPU ranking there would be noise wearing a
@@ -549,7 +555,11 @@ PYTHONPATH=. ./.venv/Scripts/python.exe tests/unit/test_memory.py
 PYTHONPATH=. ./.venv/Scripts/python.exe tests/integration/test_search.py
 PYTHONPATH=. ./.venv/Scripts/python.exe tests/integration/test_stream.py
 PYTHONPATH=. ./.venv/Scripts/python.exe tests/integration/test_provider.py
+PYTHONPATH=. ./.venv/Scripts/python.exe tests/integration/test_evals.py
 ```
+
+34 files and counting, grouped by area (see `backend/runtests.py`, which is
+what CI actually runs — a new `test_*.py` file is picked up automatically):
 
 `test_stream.py` covers the event sequence, the approval gate (announced before
 running, denial reported to the model, timeout refuses), that a dead model still
@@ -567,6 +577,20 @@ discover it), a provider 401 doing the same, and result trimming.
 `test_provider.py` runs the **real** agent loop and planner against a local
 fake OpenAI-compatible server: the tool-call round trip, evidence reaching the
 planner, and the `json_schema` -> `json_object` fallback. No key, no network.
+
+By area: contracts (`test_contracts`), runs/steps (`test_runs`,
+`test_steps`), transport and permissions (`test_stream`, `test_guard`,
+`test_quota_detail`), memory (`test_memory*`, `test_long_term*`,
+`test_consolidate`, `test_remember_flow`, `test_recall_stream`,
+`test_memory_api`, `test_lifecycle_memory_load`, `test_memory_policy`),
+policy (`test_policy`), persistence (`test_store`), evidence and
+verification (`test_evidence`, `test_verify`), cancellation and budgets
+(`test_cancel`, `test_budgets`), reconnect (`test_reconnect`),
+observability (`test_observability`), identity and audit
+(`test_identity_audit`), tools (`test_read_note`, `test_clock`,
+`test_filesystem`, `test_browser`, `test_rag`), search (`test_search`), and
+the decision-quality eval gate (`test_evals.py`, see Evaluation suite
+above).
 
 ## Deploying to Render
 
