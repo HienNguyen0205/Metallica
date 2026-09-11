@@ -1,0 +1,10 @@
+# secrets — never commit; .env.example is the committed template
+.env
+
+# python
+.venv/
+__pycache__/
+*.pyc
+
+# written by the write_note tool
+notes/
