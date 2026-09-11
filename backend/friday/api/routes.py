@@ -11,7 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from openai import APIError, NotFoundError, RateLimitError
 
-from friday import agent, llm, memory
+from friday import agent, llm, memory, observability
 from friday.api import dependencies as deps
 from friday.api.dependencies import PENDING, guard, require_known_origin
 from friday.api.schemas import Decision, Query, RunBudget
@@ -124,7 +124,11 @@ async def recall_block(query: str) -> str:
     if not long_term.CACHE:
         return ""
     try:
+        mem_start = time.perf_counter()
         vectors = await embed_mod.embed([query])
+        observability.observe("memory_latency_ms",
+                              (time.perf_counter() - mem_start) * 1000,
+                              {"op": "recall_embed"})
         hits = long_term.top_k(vectors[0], long_term.TOP_K_DEFAULT)
         if hits:
             asyncio.get_running_loop().run_in_executor(None, _touch, [m.id for m in hits])
@@ -169,7 +173,13 @@ async def _run_query_events(
             agent.AgentEvent("confirm", {"id": request_id, "tool": tool, "risk": risk, "input": payload})
         )
         try:
-            return await asyncio.wait_for(decided, _get_confirm_timeout())
+            wait_start = time.perf_counter()
+            try:
+                approved = await asyncio.wait_for(decided, _get_confirm_timeout())
+            finally:
+                observability.observe(
+                    "approval_wait_ms", (time.perf_counter() - wait_start) * 1000)
+            return approved
         except (asyncio.TimeoutError, asyncio.CancelledError):
             log.info("approval for %s timed out", tool)
             return False
@@ -287,7 +297,8 @@ async def _run_query_events(
 
 
 async def run_query(
-    query: str, session_id: str | None = None, budget: RunBudget | None = None
+    query: str, session_id: str | None = None, budget: RunBudget | None = None,
+    request_id: str | None = None,
 ) -> AsyncIterator[str]:
     if not settings.events_v2:
         # P0.3 legacy flat path — removal plan: keep until FRIDAY_EVENTS_V2
@@ -301,6 +312,10 @@ async def run_query(
 
     run = REGISTRY.create(session_id, query)
     REGISTRY.begin(run.run_id)
+    trace_id = uuid.uuid4().hex
+    observability.request_id_var.set(request_id)
+    observability.trace_id_var.set(trace_id)
+    REGISTRY.set_metadata(run.run_id, {"request_id": request_id, "trace_id": trace_id})
     if budget is not None and budget.max_wall_time_ms:
         run.deadline = (run.started_at or time.time()) + budget.max_wall_time_ms / 1000
     max_tools = budget.max_tool_calls if budget is not None else None
@@ -377,11 +392,18 @@ async def run_query(
             REGISTRY.record_event(run.run_id, sequence, event, payload)
             yield sse_envelope(run.run_id, session_id, turn, sequence, event, payload)
         REGISTRY.finish(run.run_id, "failed" if saw_error else "completed")
+        observability.incr("agent_runs_total", 1,
+                           {"status": "failed" if saw_error else "completed"})
+        if saw_error:
+            observability.incr("agent_failures_total")
     except asyncio.CancelledError:
         # Client went away mid-turn — a cancellation, not a model failure.
+        observability.incr("sse_disconnect_total")
         REGISTRY.finish(run.run_id, "cancelled")
         raise
     except BaseException:
+        observability.incr("agent_runs_total", 1, {"status": "failed"})
+        observability.incr("agent_failures_total")
         REGISTRY.finish(run.run_id, "failed")
         raise
     finally:
@@ -424,6 +446,7 @@ async def replay_run(run_id: str, after_sequence: int = 0) -> dict[str, Any]:
         if stored is None:
             raise HTTPException(status_code=404, detail="no such run")
         run = stored
+    observability.incr("sse_reconnect_total")
     after = max(0, after_sequence)
     events = [e for e in run.events if e.get("sequence", 0) > after]
     return {
@@ -436,10 +459,12 @@ async def replay_run(run_id: str, after_sequence: int = 0) -> dict[str, Any]:
 
 @router.post("/query", dependencies=[Depends(guard)])
 async def query_endpoint(body: Query) -> StreamingResponse:
+    request_id = uuid.uuid4().hex
     return StreamingResponse(
-        run_query(body.query, body.session_id, body.budget),
+        run_query(body.query, body.session_id, body.budget, request_id),
         media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no",
+                 "X-Request-ID": request_id},
     )
 
 
@@ -495,9 +520,16 @@ async def list_memory() -> dict[str, Any]:
 async def forget_memory(memory_id: int) -> dict[str, Any]:
     return {"ok": await long_term.forget(memory_id)}
 
+@router.get("/metrics", dependencies=[Depends(guard)])
+async def metrics_endpoint() -> dict[str, Any]:
+    """P3 — counters and latency summaries as JSON. Label values are
+    component/status/model names only; never queries, sessions or facts."""
+    return observability.snapshot()
+
 
 @router.get("/health")
 async def health() -> dict[str, Any]:
+
     return {
         "ok": True,
         "planner": llm.configured(),

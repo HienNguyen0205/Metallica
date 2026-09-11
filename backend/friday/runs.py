@@ -171,6 +171,13 @@ class RunRegistry:
                 run.error = error
             self._persist(run)
 
+    def set_metadata(self, run_id: str, mapping: dict[str, Any]) -> None:
+        """Merge operational tags (request/trace ids). Never content."""
+        run = self._runs.get(run_id)
+        if run:
+            run.metadata.update(mapping)
+            self._persist(run)
+
     def record_step(self, run_id: str, payload: dict[str, Any]) -> None:
         """Update-or-create mirror of a wire step event."""
         run = self._runs.get(run_id)

@@ -3,10 +3,12 @@
 import asyncio
 import json
 import logging
+import time
 from collections.abc import AsyncIterator, Awaitable, Callable, Sequence
 from typing import Any
 
 from friday import llm
+from friday import observability
 from friday import policy
 from friday import verify
 from friday import evidence as evidence_mod
@@ -119,11 +121,18 @@ async def run(
         if emit_steps:
             reason_id = _next_step_id()
             yield step(reason_id, "reason", "running", turn)
-        response = await api.chat.completions.create(
-            model=llm.model(),
-            messages=messages,  # type: ignore[arg-type]
-            tools=api_tools(),  # type: ignore[arg-type]
-        )
+        llm_start = time.perf_counter()
+        try:
+            response = await api.chat.completions.create(
+                model=llm.model(),
+                messages=messages,  # type: ignore[arg-type]
+                tools=api_tools(),  # type: ignore[arg-type]
+            )
+        except Exception:
+            observability.incr("llm_calls_total", 1, {"model": llm.model(), "status": "error"})
+            raise
+        observability.record_llm_usage(
+            response, llm.model(), (time.perf_counter() - llm_start) * 1000)
         message = response.choices[0].message
         calls = message.tool_calls or []
 
@@ -132,6 +141,8 @@ async def run(
             # set then closes the run as the answer step.
             text = (message.content or "").strip()
             verdict = verify.verify_answer(text, collected)
+            if not verdict.ok:
+                observability.incr("verification_failures_total")
             if verdict.ok or replans_used >= verify.MAX_REPLANS or not verdict.retryable:
                 if emit_steps:
                     yield step(reason_id, "reason", "completed", turn, summary="final answer")
@@ -141,6 +152,7 @@ async def run(
             # Bounded replan: one more pass with the verifier's hint instead of
             # accepting a structurally broken answer. Turn budget still caps us.
             replans_used += 1
+            observability.incr("replan_total")
             log.info("verification failed (%s); replanning", ",".join(verdict.issues))
             if emit_steps:
                 yield step(_next_step_id(), "verification", "failed", turn,
@@ -216,6 +228,7 @@ async def run(
 
             yield AgentEvent("state", {"state": "tool_execution"})
             yield AgentEvent("tool", {"tool": tool.name, "risk": tool.risk})
+            tool_start = time.perf_counter()
             try:
                 if tool.timeout_s:
                     output = await asyncio.wait_for(tool.run(payload), tool.timeout_s)
@@ -227,12 +240,20 @@ async def run(
                         output = {"truncated": True,
                                   "preview": blob[:tool.max_output_bytes]}
             except Exception as err:
+                observability.incr("tool_calls_total", 1, {"tool": tool.name, "status": "error"})
+                observability.observe("tool_latency_ms",
+                                      (time.perf_counter() - tool_start) * 1000,
+                                      {"tool": tool.name})
                 log.exception("tool %s failed", tool.name)
                 output = {"error": type(err).__name__}
                 if emit_steps:
                     yield step(tool_id, "tool", "failed", turn, tool=name,
                                retry=attempts or None, error=type(err).__name__)
             else:
+                observability.incr("tool_calls_total", 1, {"tool": tool.name, "status": "ok"})
+                observability.observe("tool_latency_ms",
+                                      (time.perf_counter() - tool_start) * 1000,
+                                      {"tool": tool.name})
                 if emit_steps:
                     yield step(tool_id, "tool", "completed", turn, tool=name,
                                retry=attempts or None, summary=_tool_summary(output))
