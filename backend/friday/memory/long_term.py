@@ -23,7 +23,7 @@ import time
 from contextvars import ContextVar
 from dataclasses import dataclass
 
-from friday import observability
+from friday import audit, observability
 
 from friday.memory.embed import EmbedError, embed
 from friday.memory.store import MAX_ROWS as store_max_rows
@@ -253,6 +253,9 @@ async def add(fact: str, provenance: str, embedding: list[float] | None = None) 
                                  "confidence": proposal.confidence})
         CACHE.append(memory)
         await enforce_cap()
+        audit.record("memory.created", target=str(memory.id),
+                     decision=proposal.memory_type,
+                     details={"provenance": provenance})
         return memory
     finally:
         observability.observe("memory_latency_ms",
@@ -276,6 +279,7 @@ async def forget(memory_id: int) -> bool:
             log.warning("could not delete memory %s from the store", memory_id, exc_info=True)
             return False
         CACHE[:] = [m for m in CACHE if m.id != memory_id]
+        audit.record("memory.deleted", target=str(memory_id))
         return True
     finally:
         observability.observe("memory_latency_ms",

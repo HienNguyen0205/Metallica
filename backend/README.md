@@ -518,6 +518,22 @@ JSON. Label values are component/status/model names only — never queries,
 sessions, arguments or facts. Covered by
 `tests/unit/test_observability.py`.
 
+## Identity and audit (P3)
+
+Identity is plumbing, not login: requests without a trusted identity header
+are anonymous and `session_id` stays their boundary. Runs record
+`owner_user_id`; the cancel/replay endpoints refuse mismatched callers
+(403) while anonymous-owned runs behave exactly as before. Headers count
+only with `FRIDAY_TRUST_IDENTITY_HEADERS=true` (a proxy must strip them —
+blind trust would let anyone be anyone).
+
+`friday/audit.py` is an append-only ring (1000 entries): run lifecycle, tool
+execution, policy denials, approval requested/resolved, memory created and
+deleted, cancellations. Secret-shaped keys are redacted, long strings
+trimmed, tool arguments logged by key name only. `GET /audit`
+(`?run_id=`, `?limit=`) serves it to operators. Covered by
+`tests/unit/test_identity_audit.py`.
+
 ## Tests
 
 One command from the repo root — `npm run test:backend` (`python

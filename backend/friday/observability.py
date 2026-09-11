@@ -20,6 +20,10 @@ from typing import Any
 request_id_var: ContextVar[str | None] = ContextVar("request_id", default=None)
 #: Per-run trace id (one trace per run; spans share it via the run record).
 trace_id_var: ContextVar[str | None] = ContextVar("trace_id", default=None)
+#: Run currently streaming on this task (set by run_query, read by the agent
+#: loop for audit attribution — avoids threading run_id through every fake
+#: agent signature in tests).
+run_id_var: ContextVar[str | None] = ContextVar("run_id", default=None)
 
 _lock = threading.Lock()
 _counters: dict[str, float] = {}

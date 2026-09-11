@@ -39,6 +39,7 @@ class PolicyContext:
     per-session grants arrive with P3 identity — until then grants are global."""
 
     session_id: str | None = None
+    user_id: str | None = None
     granted_capabilities: frozenset[str] = frozenset({"*"})
     environment: str = "local"
 
