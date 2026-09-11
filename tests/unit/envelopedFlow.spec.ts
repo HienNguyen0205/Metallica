@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { runQuery } from "@/lib/agentStream";
+import { runQuery, cancelActiveRun } from "@/lib/agentStream";
 import { useFridayStore } from "@/lib/store";
 
 /**
@@ -95,4 +95,40 @@ test("a rejected envelope surfaces in the store instead of dying silently", asyn
   expect(s.state).toBe("idle");
   // ... but the contract violation is visible, not console-only
   expect(s.sessionError).toContain("protocol error");
+});
+
+test("cancelActiveRun stops the server run mid-turn and is a no-op after done", async () => {
+  const calls: Array<{ url: string; method: string }> = [];
+  const prevFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: unknown, init?: { method?: string }) => {
+    const url = String(input);
+    calls.push({ url, method: init?.method ?? "GET" });
+    if (url.endsWith("/cancel")) return new Response("{}", { status: 200 });
+    // an endless enveloped stream: thinking, then silence (no done)
+    seq = 0;
+    const head =
+      `event: state\ndata: ${JSON.stringify({ version: 1, run_id: "run_cancel_1", session_id: "s", turn_id: "turn_1", sequence: 1, timestamp: "2026-09-11T02:00:00Z", event: "state", payload: { state: "thinking" } })}\n\n`;
+    const body = new ReadableStream<Uint8Array>({
+      start(c) {
+        c.enqueue(new TextEncoder().encode(head));
+      },
+    });
+    return new Response(body, { status: 200, headers: { "content-type": "text/event-stream" } });
+  }) as typeof fetch;
+  try {
+    const controller = new AbortController();
+    const done = runQuery(useFridayStore.getState(), "q", { signal: controller.signal });
+    // let the thinking frame land so the run id is tracked
+    for (let i = 0; i < 200 && calls.length < 1; i++) await new Promise((r) => setTimeout(r, 5));
+    await new Promise((r) => setTimeout(r, 20));
+    const cancelled = await cancelActiveRun();
+    expect(cancelled).toBe("run_cancel_1");
+    expect(calls).toContainEqual({ url: expect.stringContaining("/runs/run_cancel_1/cancel"), method: "POST" });
+    // second call finds nothing to cancel
+    expect(await cancelActiveRun()).toBeNull();
+    controller.abort();
+    await done;
+  } finally {
+    globalThis.fetch = prevFetch;
+  }
 });

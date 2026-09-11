@@ -310,6 +310,25 @@ UI shows the tool name and its exact arguments; `POST /confirm {id, approved}`
 releases it. Silence is not consent — after `CONFIRM_TIMEOUT_S` (120s) the call
 is refused and the model is told it was denied.
 
+## Cancellation and budgets
+
+`POST /runs/{run_id}/cancel` stops a live run: the streaming task gets
+`CancelledError`, the registry records `cancelled` exactly once, and a pending
+approval wait dies unapproved (never resolved as approved). Cancelling a
+finished run reports its terminal status; unknown runs are a 404 — both
+idempotent. The UI also calls it on cancel/Escape; aborting the fetch alone
+already ends the turn locally, the endpoint additionally stops server spend.
+
+`POST /query` accepts an optional `budget` (`max_wall_time_ms`,
+`max_tool_calls`, plus token/search/context/cost keys reserved for later
+metering). An exhausted budget ends the turn with an `error` frame carrying
+`code: "budget_exceeded"` — a structured error, never an ambiguous exception —
+and the run is recorded `failed`. Per-tool `timeout_s` / `max_output_bytes`
+ride the same failed/completed step path as any tool error. Covered by
+`tests/integration/test_cancel.py` and `test_budgets.py` (cancel while
+thinking / in tool / waiting approval / after completion / duplicate /
+unknown; wall-time, tool-call, no-budget, tool timeout, output cap).
+
 Per §22 there is no shell tool, no `eval`, and no arbitrary-path write.
 `write_note` sanitises the model's string to a bare stem and rebuilds the path
 itself, so nothing the model sends is ever used as a path component verbatim.
