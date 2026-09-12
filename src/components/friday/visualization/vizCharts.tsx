@@ -2,7 +2,7 @@
 
 import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
-import { Color, DoubleSide, Object3D, type InstancedMesh } from "three";
+import { DoubleSide, Object3D, type InstancedMesh } from "three";
 import type { SeriesDatum, TimelineEvent } from "@/lib/store";
 import { HairLine, TechLabel, useMaterialize } from "../primitives";
 
@@ -190,7 +190,7 @@ export function BarChart3D({ series = DEFAULT_SERIES, color, accent }: ChartProp
   const ref = useMaterialize(0.8);
   const meshes = useRef<(InstancedMesh | null)[]>([]);
   const dummy = useMemo(() => new Object3D(), []);
-  // Grouped: one instanced mesh per series (mirrors HeatmapRow), so drill-down
+  // Grouped: one instanced mesh per series, so drill-down
   // reuses vizBar unchanged — each mesh carries its own series label + values.
   const data = series.length ? series.slice(0, BAR_GROUP_MAX) : DEFAULT_SERIES;
   const count = Math.max(...data.map((s) => s.points.length));
@@ -323,113 +323,6 @@ export function BarChart3D({ series = DEFAULT_SERIES, color, accent }: ChartProp
             {s.label}
           </TechLabel>
         ))}
-    </group>
-  );
-}
-
-/** §6 density → 3D heatmap grid. One instanced row each so drill-down reuses vizBar. */
-export function Heatmap3D({ series = DEFAULT_SERIES, color, accent }: ChartProps) {
-  const ref = useMaterialize(0.8);
-  const data = series.length ? series : DEFAULT_SERIES;
-  const cols = Math.max(...data.map((s) => s.points.length));
-  const max = Math.max(...data.flatMap((s) => s.points), 1);
-  const dummies = useMemo(() => new Object3D(), []);
-
-  return (
-    <group ref={ref} position={[0, 0.45, 1.1]}>
-      {data.map((row, r) => (
-        <HeatmapRow
-          key={row.label}
-          row={row}
-          rowIndex={r}
-          cols={cols}
-          max={max}
-          color={color}
-          accent={accent}
-          dummies={dummies}
-        />
-      ))}
-      {data.map((row, r) => (
-        <TechLabel
-          key={`label-${row.label}`}
-          position={[-2.6, 0.9 - r * 0.62, 0]}
-          color={color}
-          size={0.07}
-          opacity={0.7}
-          anchorX="left"
-        >
-          {row.label}
-        </TechLabel>
-      ))}
-    </group>
-  );
-}
-
-function HeatmapRow({
-  row,
-  rowIndex,
-  cols,
-  max,
-  color,
-  accent,
-  dummies,
-}: {
-  row: SeriesDatum;
-  rowIndex: number;
-  cols: number;
-  max: number;
-  color: string;
-  accent: string;
-  dummies: Object3D;
-}) {
-  const mesh = useRef<InstancedMesh>(null);
-  const y = 0.9 - rowIndex * 0.62;
-  const tmpColor = useMemo(() => new Color(), []);
-
-  useLayoutEffect(() => {
-    if (!mesh.current) return;
-    const cold = new Color(color);
-    const hot = new Color(accent);
-    for (let c = 0; c < cols; c++) {
-      const v = row.points[c] ?? 0;
-      const t = max > 0 ? v / max : 0;
-      const s = 0.12 + t * 0.4;
-      dummies.position.set(-2 + c * 0.58, y, 0);
-      dummies.scale.set(s / 0.5, s / 0.5, 1);
-      dummies.updateMatrix();
-      mesh.current.setMatrixAt(c, dummies.matrix);
-      // Value → color (not size only): cold → hot so hotspots read as heat.
-      tmpColor.copy(cold).lerp(hot, t);
-      mesh.current.setColorAt(c, tmpColor);
-    }
-    mesh.current.instanceMatrix.needsUpdate = true;
-    if (mesh.current.instanceColor) mesh.current.instanceColor.needsUpdate = true;
-  }, [row, cols, max, y, dummies, color, accent, tmpColor]);
-
-  const peak = row.points.indexOf(Math.max(...row.points));
-  void rowIndex;
-  return (
-    <group>
-      <instancedMesh
-        ref={mesh}
-        args={[undefined, undefined, cols]}
-        userData={{ vizBar: { label: row.label.toUpperCase(), values: row.points } }}
-      >
-        <planeGeometry args={[0.5, 0.5]} />
-        <meshBasicMaterial
-          color="#ffffff"
-          transparent
-          opacity={0.85}
-          toneMapped={false}
-          depthWrite={false}
-          side={DoubleSide}
-        />
-      </instancedMesh>
-      {peak >= 0 && (
-        <TechLabel position={[-2 + peak * 0.58, y + 0.34, 0]} color="#e5f6ff" size={0.06} opacity={0.85}>
-          {String(row.points[peak])}
-        </TechLabel>
-      )}
     </group>
   );
 }

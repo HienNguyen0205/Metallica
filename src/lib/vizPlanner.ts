@@ -12,8 +12,7 @@ interface Rule {
  * An LLM planner can later be layered in front of these rules; the output
  * contract (VisualizationSpec) stays the same.
  */
-// Order matters: the most specific rule wins, so "network topology" reaches
-// the graph rule instead of being swallowed by the traffic rule.
+// Order matters: the most specific rule wins.
 const RULES: Rule[] = [
   {
     type: "funnel_3d",
@@ -72,36 +71,8 @@ const RULES: Rule[] = [
     }),
   },
   {
-    type: "particle_flow",
-    match: /traffic|throughput|bandwidth|packet|network flow|data flow|\bflow\b|\bnetwork\b/i,
-    build: () => ({
-      type: "particle_flow",
-      title: "NETWORK FLOW",
-      animation: "materialize",
-      data: { rate: 820 },
-    }),
-  },
-  {
-    type: "heatmap_3d",
-    // before globe: "heatmap" contains the substring "map"
-    match: /heatmap|hotspot|density|correlation/i,
-    build: () => ({
-      type: "heatmap_3d",
-      title: "DENSITY HEATMAP",
-      animation: "materialize",
-      data: {
-        series: [
-          { label: "A", points: [34, 58, 22, 71, 47, 63, 39] },
-          { label: "B", points: [12, 44, 66, 28, 81, 52, 37] },
-          { label: "C", points: [61, 25, 48, 73, 33, 57, 69] },
-        ],
-      },
-    }),
-  },
-  {
     type: "globe",
-    // "map" is word-boundaried: without it "heatmap" matches the globe rule.
-    // The heatmap rule above still wins on order; this is the second lock.
+    // "map" is word-boundaried so "heatmap" (now unmapped) cannot reach it.
     match: /where|region|location|global|\bmap\b|globe|country|latency by/i,
     build: () => ({
       type: "globe",
@@ -156,16 +127,6 @@ const RULES: Rule[] = [
           { label: "MITIGATED", at: 2 },
         ],
       },
-    }),
-  },
-  {
-    type: "radar",
-    match: /scan|search|find|look for|detect|threat/i,
-    build: () => ({
-      type: "radar",
-      title: "SCAN SWEEP",
-      animation: "materialize",
-      data: { metrics: [{ label: "N", value: 40 }, { label: "E", value: 72 }, { label: "S", value: 55 }] },
     }),
   },
   {
@@ -230,15 +191,12 @@ const RULE_BY_TYPE: Record<Exclude<VisualizationType, "radial_gauge">, Rule> = O
 const SAMPLES: Record<VisualizationType, () => VisualizationSpec> = {
   radial_gauge: () => DEFAULT_SPEC,
   health_core: () => RULE_BY_TYPE.health_core.build(),
-  radar: () => RULE_BY_TYPE.radar.build(),
   waveform: () => RULE_BY_TYPE.waveform.build(),
   line_3d: () => RULE_BY_TYPE.line_3d.build(),
   bar_3d: () => RULE_BY_TYPE.bar_3d.build(),
   timeline: () => RULE_BY_TYPE.timeline.build(),
   network: () => RULE_BY_TYPE.network.build(),
   globe: () => RULE_BY_TYPE.globe.build(),
-  particle_flow: () => RULE_BY_TYPE.particle_flow.build(),
-  heatmap_3d: () => RULE_BY_TYPE.heatmap_3d.build(),
   funnel_3d: () => RULE_BY_TYPE.funnel_3d.build(),
   sankey_flow: () => RULE_BY_TYPE.sankey_flow.build(),
 };
@@ -250,8 +208,6 @@ export function sampleSpec(type: VisualizationType): VisualizationSpec {
 /** Short spoken-style answer to accompany the hologram (§10 — secondary). */
 export function summarize(spec: VisualizationSpec): string {
   switch (spec.type) {
-    case "particle_flow":
-      return "Network throughput steady at 820 megabits.";
     case "network":
       return "Six services online. No broken dependencies.";
     case "globe":
@@ -262,14 +218,10 @@ export function summarize(spec: VisualizationSpec): string {
       return "Traffic is concentrated on two services.";
     case "timeline":
       return "One alert logged since the last sync.";
-    case "radar":
-      return "Sweep complete. Three contacts, none hostile.";
     case "health_core":
       return "System integrity at 87 percent.";
     case "waveform":
       return "Audio channel open.";
-    case "heatmap_3d":
-      return "Hotspots concentrated in two zones.";
     case "funnel_3d":
       return "Funnel drops hardest at activate — 44 of 100 visits remain.";
     case "sankey_flow":

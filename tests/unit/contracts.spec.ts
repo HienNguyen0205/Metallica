@@ -27,7 +27,7 @@ test("events schema covers the full producer event universe incl. step", () => {
 
 test("visualization schema type universe matches the FE parser (incl. funnel/sankey)", () => {
   const types: string[] = viz.properties.type.enum;
-  for (const t of ["radial_gauge", "health_core", "radar", "waveform", "network", "line_3d", "bar_3d", "particle_flow", "globe", "timeline", "heatmap_3d", "funnel_3d", "sankey_flow"]) {
+  for (const t of ["radial_gauge", "health_core", "waveform", "network", "line_3d", "bar_3d", "globe", "timeline", "funnel_3d", "sankey_flow"]) {
     expect(types).toContain(t);
   }
   // tolerant reader: only `type` is required

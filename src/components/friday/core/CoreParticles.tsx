@@ -48,7 +48,7 @@ export default function CoreParticles({
       // unmounting either one took the core's field down with it.
       sprite.material.dispose();
       // The per-field instanced attributes ARE ours — without this their GL
-      // buffers leak on every mount/unmount (e.g. opening ParticleFlow).
+      // buffers leak on every mount/unmount of any particle field.
       disposeAttributes();
     };
   }, [sprite, disposeAttributes]);

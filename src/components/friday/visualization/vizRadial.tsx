@@ -156,57 +156,6 @@ export function HealthCore({ metrics = [], color, accent }: VizProps) {
   );
 }
 
-/** §6 search / scan → radar sweep with concentric rings and blips. */
-export function Radar({ metrics = [], color, accent }: VizProps) {
-  const sweep = useRef<Group>(null);
-  const ref = useMaterialize(0.6);
-
-  useFrame((_, delta) => {
-    if (sweep.current) sweep.current.rotation.z -= delta * 1.5;
-  });
-
-  const blips = metrics.length
-    ? metrics.map((m, i) => ({ a: (i / metrics.length) * Math.PI * 2, r: 0.6 + (m.value / 100) * 1.7 }))
-    : [0.4, 1.9, 3.3, 5.1].map((a, i) => ({ a, r: 0.8 + i * 0.4 }));
-
-  return (
-    <group ref={ref} rotation={[Math.PI / 2.15, 0, 0]}>
-      {[0.9, 1.5, 2.1, 2.6].map((r) => (
-        <mesh key={r}>
-          <ringGeometry args={[r, r + 0.004, 96]} />
-          <meshBasicMaterial color={color} transparent opacity={0.18} side={DoubleSide} depthWrite={false} />
-        </mesh>
-      ))}
-      <TickDial radius={2.72} count={72} color={color} opacity={0.2} length={0.06} />
-      <group ref={sweep}>
-        <mesh>
-          <ringGeometry args={[0.05, 2.6, 64, 1, 0, Math.PI / 7]} />
-          <meshBasicMaterial color={color} transparent opacity={0.16} side={DoubleSide} depthWrite={false} toneMapped={false} />
-        </mesh>
-      </group>
-      {blips.map(({ a, r }, i) => (
-        <group key={i} position={[Math.cos(a) * r, Math.sin(a) * r, 0.01]}>
-          <mesh>
-            <circleGeometry args={[0.035, 12]} />
-            <meshBasicMaterial color={accent} transparent opacity={0.85} toneMapped={false} />
-          </mesh>
-          <mesh
-            visible={false}
-            userData={{
-              viz: {
-                label: `CONTACT ${String(i + 1).padStart(2, "0")}`,
-                detail: `BRG ${Math.round(((a * 180) / Math.PI + 360) % 360)}°`,
-              },
-            }}
-          >
-            <circleGeometry args={[0.16, 12]} />
-          </mesh>
-        </group>
-      ))}
-    </group>
-  );
-}
-
 /** §6 audio → reactive waveform, large and front-facing. */
 export function Waveform({ color, accent }: VizProps) {
   const ref = useMaterialize(0.5);

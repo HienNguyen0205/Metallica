@@ -5,15 +5,12 @@ supply the data it renders:
 
 - radial_gauge — one or more percentages (CPU, memory, disk usage)
 - health_core — a single overall status or score
-- radar — scanning, threat or contact detection
 - waveform — audio, signal or frequency
 - line_3d — a trend or time series (use `series`)
 - bar_3d — comparing discrete magnitudes (use `series`, one entry)
 - timeline — an ordered sequence of events (use `events`, `at` from 0 to 1)
 - network — topology, dependencies, service graphs (use `nodes` and `links`)
 - globe — geography, regions, edge locations (use `points`)
-- particle_flow — traffic, throughput, streaming volume
-- heatmap_3d — density, hotspots, correlation grids (use `series`, two or more entries)
 
 Rules:
 - Fill only the data fields the chosen type reads. Omit the rest.

@@ -10,7 +10,7 @@ import type { VisualizationType } from "@/lib/visualization/types";
 
 const Scene = dynamic(() => import("@/components/friday/Scene"), { ssr: false });
 
-const KNOWN: VisualizationType[] = ["radial_gauge","health_core","radar","waveform","network","line_3d","bar_3d","particle_flow","globe","timeline","heatmap_3d","funnel_3d","sankey_flow"];
+const KNOWN: VisualizationType[] = ["radial_gauge","health_core","waveform","network","line_3d","bar_3d","globe","timeline","funnel_3d","sankey_flow"];
 
 function VizDeepLink() {
   const params = useSearchParams();

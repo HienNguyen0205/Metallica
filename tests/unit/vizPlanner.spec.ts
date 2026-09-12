@@ -4,33 +4,31 @@ import type { VisualizationType } from "@/lib/store";
 
 /**
  * §16 — the planner is the only place that maps meaning to a hologram, and
- * rule ordering has bitten twice ("network topology" swallowed by the traffic
- * rule, "per service" swallowed by a bare /service/). This table locks it.
+ * rule ordering has bitten ("per service" swallowed by a bare /service/).
+ * This table locks it.
  */
 
 const ALL_TYPES: VisualizationType[] = [
   "radial_gauge",
   "health_core",
-  "radar",
   "waveform",
   "network",
   "line_3d",
   "bar_3d",
-  "particle_flow",
   "globe",
   "timeline",
-  "heatmap_3d",
   "funnel_3d",
   "sankey_flow",
 ];
 
 const CASES: Array<[string, VisualizationType]> = [
-  // topology beats traffic — the regression that shipped once
   ["show me the network topology", "network"],
   ["what does the service graph look like", "network"],
   ["are there broken dependencies", "network"],
-  ["how is network traffic", "particle_flow"],
-  ["current throughput", "particle_flow"],
+  // traffic/throughput lost their particle_flow rule: unmapped numbers fall
+  // back to the multi-metric gauges rather than a bespoke flow renderer
+  ["how is network traffic", "radial_gauge"],
+  ["current throughput", "radial_gauge"],
   ["where are my users", "globe"],
   ["global latency by region", "globe"],
   ["cpu trend over the last hour", "line_3d"],
@@ -39,8 +37,9 @@ const CASES: Array<[string, VisualizationType]> = [
   ["compare requests per service", "bar_3d"],
   ["give me a breakdown", "bar_3d"],
   ["show the incident timeline", "timeline"],
-  ["scan for threats", "radar"],
-  ["search the perimeter", "radar"],
+  // scan lost its radar rule with it: unmatched → default gauges
+  ["scan for threats", "radial_gauge"],
+  ["search the perimeter", "radial_gauge"],
   ["how is system health", "health_core"],
   ["overall integrity", "health_core"],
   ["open the audio channel", "waveform"],
@@ -82,7 +81,6 @@ test("data-driven types ship non-empty data", () => {
   expect(sampleSpec("network").data?.nodes?.length).toBeGreaterThan(0);
   expect(sampleSpec("line_3d").data?.series?.length).toBeGreaterThan(0);
   expect(sampleSpec("bar_3d").data?.series?.[0].points.length).toBeGreaterThan(0);
-  expect(sampleSpec("heatmap_3d").data?.series?.length).toBeGreaterThan(0);
 });
 
 test("gauge values are percentages the ring can actually fill", () => {
