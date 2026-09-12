@@ -6,7 +6,6 @@ import { devRailsEnabled } from "./devRails";
 
 const VIZ_OPTIONS: VisualizationType[] = [
   "radial_gauge",
-  "health_core",
   "radar",
   "waveform",
   "line_3d",

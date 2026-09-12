@@ -10,7 +10,6 @@
       "type": "string",
       "enum": [
         "radial_gauge",
-        "health_core",
         "radar",
         "waveform",
         "network",

@@ -70,7 +70,6 @@ test("every viz type renders something different from idle", async ({ page }) =>
   const baseline = await shot(page);
   const types = [
     "RADIAL GAUGE",
-    "HEALTH CORE",
     "RADAR",
     "WAVEFORM",
     "LINE 3D",
@@ -137,7 +136,7 @@ test("every viz type mounts and unmounts cleanly", async ({ page }) => {
 
   const buttons = page.locator("#viz-rail button");
   const n = await buttons.count();
-  expect(n).toBe(10);
+  expect(n).toBe(9);
 
   for (let i = 0; i < n; i++) {
     await buttons.nth(i).click();

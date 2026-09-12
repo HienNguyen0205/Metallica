@@ -123,16 +123,6 @@ const RULES: Rule[] = [
     }),
   },
   {
-    type: "health_core",
-    match: /health|status|overall|integrity/i,
-    build: () => ({
-      type: "health_core",
-      title: "SYSTEM INTEGRITY",
-      animation: "pulse",
-      data: { metrics: [{ label: "HEALTH", value: 87, unit: "%" }] },
-    }),
-  },
-  {
     type: "waveform",
     match: /voice|audio|sound|listen|speak/i,
     build: () => ({ type: "waveform", title: "AUDIO STREAM", animation: "materialize" }),
@@ -183,7 +173,6 @@ const RULE_BY_TYPE: Record<Exclude<VisualizationType, "radial_gauge">, Rule> = O
 ) as Record<Exclude<VisualizationType, "radial_gauge">, Rule>;
 const SAMPLES: Record<VisualizationType, () => VisualizationSpec> = {
   radial_gauge: () => DEFAULT_SPEC,
-  health_core: () => RULE_BY_TYPE.health_core.build(),
   radar: () => RULE_BY_TYPE.radar.build(),
   waveform: () => RULE_BY_TYPE.waveform.build(),
   line_3d: () => RULE_BY_TYPE.line_3d.build(),
@@ -213,8 +202,6 @@ export function summarize(spec: VisualizationSpec): string {
       return "One alert logged since the last sync.";
     case "radar":
       return "Sweep complete. Three contacts, none hostile.";
-    case "health_core":
-      return "System integrity at 87 percent.";
     case "waveform":
       return "Audio channel open.";
     case "sankey_flow":

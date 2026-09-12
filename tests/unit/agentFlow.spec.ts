@@ -72,8 +72,8 @@ test("an unreachable orchestrator falls back to the offline planner", async () =
 
   const s = useFridayStore.getState();
   expect(s.visualizations).toHaveLength(1);
-  // offline planner answers with health_core for that phrasing
-  expect(s.visualizations[0]?.spec.type).toBe("health_core");
+  // offline planner answers with radial gauges for that phrasing
+  expect(s.visualizations[0]?.spec.type).toBe("radial_gauge");
   expect(s.answer).toBeTruthy();
   expect(s.state).toBe("idle");
 });

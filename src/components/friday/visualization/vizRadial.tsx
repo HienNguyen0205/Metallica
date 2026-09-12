@@ -27,8 +27,15 @@ const FAN_SPAN = 2.2;
 /** Past this many gauges a single row collides; alternate rows instead. */
 const STAGGER_FROM = 6;
 
-function fanPosition(index: number, count: number): [number, number, number] {
-  const t = count < 2 ? 0.5 : index / (count - 1);
+/**
+ * Node scale from metric count: full size up to a rowful, then shrinking so
+ * N gauges always fit instead of colliding — count-driven, never fixed slots.
+ */
+export function gaugeNodeScale(count: number): number {
+  return count > STAGGER_FROM ? Math.max(0.45, STAGGER_FROM / count) : 1;
+}
+
+function fanPosition(index: number, count: number): [number, number, number] {  const t = count < 2 ? 0.5 : index / (count - 1);
   const a = (t - 0.5) * FAN_SPAN;
   const stagger = count >= STAGGER_FROM && index % 2 === 1 ? -0.62 : 0;
   return [
@@ -53,6 +60,9 @@ function MetricNode({
   color: string;
 }) {
   const [x, y, z] = fanPosition(index, count);
+  // Dynamic density: past a rowful the nodes shrink instead of colliding —
+  // the count comes from the data, never from a fixed slot plan.
+  const s = gaugeNodeScale(count);
 
   const groupRef = useMaterialize(0.7, true, index * 0.18);
   const bobRef = useRef<Group>(null);
@@ -66,7 +76,7 @@ function MetricNode({
   return (
     <group>
       <Connector to={[x, y, z]} color={color} opacity={0.18} />
-      <group position={[x, y, z]}>
+      <group position={[x, y, z]} scale={s}>
         <group ref={groupRef}>
           <group ref={bobRef}>
             <Billboard>
@@ -121,37 +131,6 @@ export function RadialGauge({ metrics = [], color }: VizProps) {
       {metrics.map((m, i) => (
         <MetricNode key={m.label} index={i} count={metrics.length} metric={m} color={color} />
       ))}
-    </group>
-  );
-}
-
-/** §6 status → one dominant health ring wrapped around the core. */
-export function HealthCore({ metrics = [], color, accent }: VizProps) {
-  const ref = useMaterialize(0.9);
-  const health = metrics.find((m) => /health|score|overall/i.test(m.label)) ?? metrics[0];
-  const pct = health ? Math.max(0, Math.min(1, health.value / 100)) : 0;
-  const spin = useRef<Group>(null);
-
-  useFrame((_, delta) => {
-    if (spin.current) spin.current.rotation.z -= delta * 0.08;
-  });
-
-  return (
-    <group ref={ref}>
-      <group ref={spin} rotation={[0, 0, 0]}>
-        <ArcSegments radius={2.45} count={90} thickness={0.05} gap={0.3} color={color} opacity={0.75} fraction={pct} start={Math.PI / 2} span={-Math.PI * 2} />
-        <ArcSegments radius={2.6} count={90} thickness={0.018} gap={0.3} color={accent} opacity={0.25} />
-      </group>
-      {health && (
-        <>
-          <TechLabel position={[0, 2.85, 0]} color={color} size={0.1} decode>
-            {`${health.label} ${Math.round(health.value)}${health.unit ?? ""}`}
-          </TechLabel>
-          <TechLabel position={[0, 2.68, 0]} color="#e5f6ff" size={0.05} opacity={0.45} decode>
-            INTEGRITY NOMINAL
-          </TechLabel>
-        </>
-      )}
     </group>
   );
 }

@@ -10,7 +10,7 @@ import type { VisualizationType } from "@/lib/store";
 
 const ALL_TYPES: VisualizationType[] = [
   "radial_gauge",
-  "health_core",
+  
   "radar",
   "waveform",
   "network",
@@ -39,8 +39,8 @@ const CASES: Array<[string, VisualizationType]> = [
   ["show the incident timeline", "timeline"],
   ["scan for threats", "radar"],
   ["search the perimeter", "radar"],
-  ["how is system health", "health_core"],
-  ["overall integrity", "health_core"],
+  ["how is system health", "radial_gauge"],
+  ["overall integrity", "radial_gauge"],
   ["open the audio channel", "waveform"],
   // no rule matches → the default multi-metric view
   ["hello friday", "radial_gauge"],
@@ -55,7 +55,7 @@ for (const [query, expected] of CASES) {
 
 test("planner is case insensitive", () => {
   expect(planVisualization("NETWORK TOPOLOGY").type).toBe("network");
-  expect(planVisualization("System Health").type).toBe("health_core");
+  expect(planVisualization("System Health").type).toBe("radial_gauge");
 });
 
 test("every spec carries a title and a known animation", () => {
@@ -76,7 +76,6 @@ test("every visualization type has renderable sample data", () => {
 
 test("data-driven types ship non-empty data", () => {
   expect(sampleSpec("radial_gauge").data?.metrics?.length).toBeGreaterThan(0);
-  expect(sampleSpec("health_core").data?.metrics?.length).toBeGreaterThan(0);
   expect(sampleSpec("network").data?.nodes?.length).toBeGreaterThan(0);
   expect(sampleSpec("line_3d").data?.series?.length).toBeGreaterThan(0);
   expect(sampleSpec("bar_3d").data?.series?.[0].points.length).toBeGreaterThan(0);

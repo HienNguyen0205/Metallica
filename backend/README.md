@@ -426,7 +426,7 @@ until it timed out.
 ## Why the model never draws
 
 Per §25, Claude does not emit rendering code. It returns a `VisualizationPlan`
-(`friday/schema.py`) naming one of ten components the frontend already knows,
+(`friday/schema.py`) naming one of nine components the frontend already knows,
 plus the data that component reads. The schema is enforced by structured
 outputs, so a malformed plan is a validation error rather than a broken scene.
 

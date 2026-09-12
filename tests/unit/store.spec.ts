@@ -82,8 +82,8 @@ test("setState is unguarded so the dev rail can preview any look", () => {
 
 test("reset clears the answer and the visualization together", () => {
   api.getState().setState("speaking");
-  api.getState().setAnswer("System integrity at 87 percent.");
-  api.getState().setVisualizations([{ type: "health_core" }]);
+  api.getState().setAnswer("System performance is normal.");
+  api.getState().setVisualizations([{ type: "radial_gauge" }]);
 
   api.getState().reset();
 
