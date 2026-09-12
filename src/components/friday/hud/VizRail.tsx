@@ -28,7 +28,7 @@ export function VizRail() {
 
   return (
     <div
-      className="pointer-events-auto absolute left-8 top-28 hidden flex-col items-start gap-1 font-mono text-[9px] tracking-[0.22em] md:flex"
+      className="pointer-events-auto absolute left-8 top-28 hidden flex-col items-start gap-1.5 font-mono text-[10px] tracking-[0.16em] md:flex"
       id="viz-rail"
     >
       {VIZ_OPTIONS.map((t) => (
@@ -41,7 +41,7 @@ export function VizRail() {
             setState("visualizing");
           }}
           className={`transition-colors ${
-            activeType === t ? "text-cyan-200" : "text-cyan-300/60 hover:text-cyan-200"
+            activeType === t ? "text-cyan-200" : "text-cyan-300/75 hover:text-cyan-200"
           }`}
         >
           {activeType === t ? "▸ " : ""}

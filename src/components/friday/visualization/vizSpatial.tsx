@@ -26,7 +26,9 @@ const DEFAULT_NODES: NodeDatum[] = [
 
 /** Golden-angle distribution — even spread on a sphere with no layout pass. */
 function spherePosition(i: number, total: number, radius: number): [number, number, number] {
-  const y = 1 - (i / Math.max(1, total - 1)) * 2;
+  // half-step offset keeps node 0 off the pole, where perspective stacked it
+  // onto its nearest neighbour (GATEWAY sat on top of API)
+  const y = 1 - ((i + 0.5) / total) * 2;
   const r = Math.sqrt(Math.max(0, 1 - y * y));
   const theta = i * 2.399963;
   return [Math.cos(theta) * r * radius, y * radius * 0.75, Math.sin(theta) * r * radius];
@@ -59,8 +61,8 @@ export function Network3D({ nodes = DEFAULT_NODES, links, color, accent }: Spati
             key={i}
             points={[positions[a] ?? [0, 0, 0], positions[b] ?? [0, 0, 0]]}
             color={color}
-            opacity={0.22}
-            lineWidth={1}
+            opacity={0.45}
+            lineWidth={1.5}
           />
         ))}
         {positions.map((p, i) => (
@@ -106,7 +108,9 @@ export function Globe3D({ points = DEFAULT_GEO, color, accent }: SpatialProps) {
   const ref = useMaterialize(1);
   const spin = useRef<Group>(null);
   const data = points.length ? points : DEFAULT_GEO;
-  const R = 1.9;
+  // Smaller and lifted (see the group position below): at 1.9 on the centre
+  // line the south pole ran into the answer text under the stage.
+  const R = 1.8;
 
   useFrame((_, delta) => {
     if (spin.current) spin.current.rotation.y += delta * 0.16;
@@ -130,7 +134,7 @@ export function Globe3D({ points = DEFAULT_GEO, color, accent }: SpatialProps) {
   );
 
   return (
-    <group ref={ref} position={[0, 0, -0.6]}>
+    <group ref={ref} position={[0, 0.2, -0.6]}>
       <group ref={spin}>
         <mesh>
           <sphereGeometry args={[R, 24, 14]} />

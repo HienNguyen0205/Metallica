@@ -24,7 +24,7 @@ export function StateRail() {
 
   return (
     <div
-      className="pointer-events-auto absolute right-8 top-28 hidden flex-col items-end gap-1 font-mono text-[9px] tracking-[0.22em] md:flex"
+      className="pointer-events-auto absolute right-8 top-28 hidden flex-col items-end gap-1.5 font-mono text-[10px] tracking-[0.16em] md:flex"
       id="state-rail"
     >
       {STATE_OPTIONS.map((s) => (
@@ -32,7 +32,7 @@ export function StateRail() {
           key={s}
           onClick={() => setState(s)}
           className={`transition-colors ${
-            state === s ? "text-cyan-200" : "text-cyan-300/60 hover:text-cyan-200"
+            state === s ? "text-cyan-200" : "text-cyan-300/75 hover:text-cyan-200"
           }`}
         >
           {state === s ? "▸ " : ""}

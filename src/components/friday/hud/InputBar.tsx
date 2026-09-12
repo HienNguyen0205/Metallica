@@ -132,7 +132,9 @@ export default function InputBar() {
 
   return (
     <div className="pointer-events-auto absolute inset-x-0 bottom-10 flex flex-col items-center gap-2 px-8">
-      <div className="flex w-full max-w-md items-center gap-3">
+      {/* soft dark halo: the spatial tick dial passes right behind this row
+          and used to cut through the placeholder */}
+      <div className="flex w-full max-w-md items-center gap-3 bg-[radial-gradient(closest-side,rgba(2,5,10,0.9),transparent)] py-3">
         <button
           onClick={toggleMic}
           disabled={!micReady || busy}
@@ -157,7 +159,7 @@ export default function InputBar() {
           aria-label={`Recognition language: ${lang === "vi-VN" ? "Vietnamese" : "English"}. Activate for ${lang === "vi-VN" ? "English" : "Vietnamese"}`}
           aria-pressed={lang === "vi-VN"}
           title={listening ? "Available after the current phrase" : undefined}
-          className="shrink-0 -m-2 p-2 font-mono text-[9px] tracking-[0.2em] text-cyan-300/50 transition-colors hover:text-cyan-200 disabled:opacity-30"
+          className="shrink-0 -m-2 p-2 font-mono text-[10px] tracking-[0.16em] text-cyan-300/70 transition-colors hover:text-cyan-200 disabled:opacity-40"
         >
           {lang === "vi-VN" ? "VI" : "EN"}
         </button>
@@ -167,17 +169,16 @@ export default function InputBar() {
           onKeyDown={(e) => e.key === "Enter" && !busy && ask(value, false)}
           disabled={busy}
           aria-label="Ask FRIDAY"
-          // Stays empty mid-turn: `disabled:opacity-30` below would render any
-          // hint here at roughly a fifth of the contrast the rest of the HUD
-          // holds. The cancel affordance is announced from `LiveIndicator`,
-          // which is already on screen for the whole turn and already legible.
-          placeholder={busy ? "" : listening ? "LISTENING" : "ASK FRIDAY"}
-          className="flex-1 bg-transparent text-center font-mono text-[11px] uppercase tracking-[0.3em] text-cyan-100 placeholder:text-cyan-300/60 focus:outline-none disabled:opacity-30"
+          // Mid-turn the bar says how to get out instead of going blank — an
+          // empty row at 30% opacity read as "the input vanished". No disabled
+          // opacity, so the hint keeps the placeholder's contrast.
+          placeholder={busy ? "ESC · CANCEL" : listening ? "LISTENING" : "ASK FRIDAY"}
+          className="flex-1 bg-transparent text-center font-mono text-[11px] uppercase tracking-[0.3em] text-cyan-100 placeholder:text-cyan-300/60 focus:outline-none disabled:cursor-not-allowed"
         />
         <span aria-hidden="true" className="h-1.5 w-1.5 shrink-0 rounded-full bg-cyan-300/25" />
       </div>
       {/* a hairline, not an input box */}
-      <div className="h-px w-full max-w-md bg-gradient-to-r from-transparent via-cyan-300/30 to-transparent" />
+      <div className="h-px w-full max-w-md bg-gradient-to-r from-transparent via-cyan-300/45 to-transparent" />
     </div>
   );
 }

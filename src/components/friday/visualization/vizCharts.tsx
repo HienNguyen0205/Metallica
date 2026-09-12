@@ -93,6 +93,8 @@ export function LineChart3D({ series = DEFAULT_SERIES, color, accent }: ChartPro
           -H / 2 + (p / max) * H,
           si * -0.4,
         ]);
+        const peak = s.points.indexOf(Math.max(...s.points));
+        const last = pts.length - 1;
         return (
           <group key={s.label}>
             <HairLine points={pts} color={si === 0 ? color : accent} opacity={0.9} lineWidth={2} />
@@ -102,12 +104,19 @@ export function LineChart3D({ series = DEFAULT_SERIES, color, accent }: ChartPro
                   <sphereGeometry args={[0.028, 8, 8]} />
                   <meshBasicMaterial color={si === 0 ? color : accent} toneMapped={false} />
                 </mesh>
-                {/* the value itself — previously reachable only by clicking.
-                    Series alternate above/below so two lines that cross do not
-                    stack their numbers on top of each other. */}
-                <TechLabel position={[0, si % 2 === 0 ? 0.14 : -0.14, 0]} color="#e5f6ff" size={0.062} opacity={0.75}>
-                  {String(s.points[i])}
-                </TechLabel>
+                {/* Values at the ends and the peak only: labelling every point
+                    stacked numbers wherever two series crossed, even alternating
+                    above/below. The rest stay reachable through the hit mesh. */}
+                {(i === 0 || i === last || i === peak) && (
+                  <TechLabel
+                    position={[0, si % 2 === 0 ? 0.14 : -0.14, 0]}
+                    color={i === peak ? (si === 0 ? color : accent) : "#e5f6ff"}
+                    size={0.07}
+                    opacity={0.9}
+                  >
+                    {String(s.points[i])}
+                  </TechLabel>
+                )}
                 <mesh
                   visible={false}
                   userData={{

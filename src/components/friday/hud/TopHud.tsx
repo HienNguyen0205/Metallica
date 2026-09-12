@@ -21,7 +21,8 @@ const STATE_TONE: Record<FridayState, string> = {
 function useClock() {
   const [time, setTime] = useState<string | null>(null);
   useEffect(() => {
-    const tick = () => setTime(new Date().toISOString().slice(11, 19));
+    // local wall time — toISOString() is UTC, seven hours off in Hanoi
+    const tick = () => setTime(new Date().toLocaleTimeString("en-GB", { hour12: false }));
     tick();
     const id = setInterval(tick, 1000);
     return () => clearInterval(id);

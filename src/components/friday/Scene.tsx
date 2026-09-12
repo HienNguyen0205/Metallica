@@ -229,15 +229,43 @@ export default function Scene() {
         setGpuClass(software ? "software" : "hardware");
         let remountQueued = false;
         let timer: ReturnType<typeof setTimeout> | null = null;
-        const onLost = (e: Event) => {
-          e.preventDefault();
-          // Ignore the intentional context loss from unmounting
+        // A fresh Canvas is the one recovery that always works: new renderer,
+        // new device, new render targets.
+        const remount = () => {
+          // Ignore the intentional loss from unmounting
           // (React StrictMode disposes the first mount in dev).
           if (!gl.domElement.isConnected || remountQueued) return;
           remountQueued = true;
           timer = setTimeout(() => setCtxKey((k) => k + 1), 50);
         };
+        const onLost = (e: Event) => {
+          e.preventDefault();
+          remount();
+        };
         gl.domElement.addEventListener("webglcontextlost", onLost);
+        /* WebGPU never fires `webglcontextlost`, so its failures need their own
+         * hooks. The one seen in practice: a resize landing right as the post
+         * chain is rebuilt on a cold load (gpuClass unknown → hardware) leaves a
+         * bind group inside three pointing at the pre-resize render target.
+         * Every frame after that fails "Destroyed texture … used in a submit"
+         * and the canvas stays black until reload. It is timing-dependent (2 of
+         * ~9 cold loads reproduced it), so recover rather than bet on the window
+         * never lining up. Device loss gets the same treatment; three already
+         * filters out the intentional `destroyed` loss on unmount. */
+        const hooks = gl as unknown as {
+          onError?: (info: { message?: string }) => void;
+          onDeviceLost?: (info: unknown) => void;
+        };
+        const logError = hooks.onError?.bind(gl);
+        const logLost = hooks.onDeviceLost?.bind(gl);
+        hooks.onError = (info) => {
+          logError?.(info);
+          if (info.message?.includes("Destroyed texture")) remount();
+        };
+        hooks.onDeviceLost = (info) => {
+          logLost?.(info);
+          remount();
+        };
         // Cleanup on unmount: no orphan listeners or queued remounts.
         return () => {
           gl.domElement.removeEventListener("webglcontextlost", onLost);
