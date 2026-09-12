@@ -1,8 +1,8 @@
 "use client";
 
 import { useRef } from "react";
-import { useFrame, useThree } from "@react-three/fiber";
-import { DoubleSide, type Group, type Mesh } from "three";
+import { useFrame } from "@react-three/fiber";
+import { type Group } from "three";
 import { useFridayStore } from "@/lib/store";
 import { STATE_LOOK } from "@/lib/stateLook";
 import { useTelemetry } from "@/lib/telemetry";
@@ -40,98 +40,6 @@ function OuterFrame({ color, speed, dim = 1 }: { color: string; speed: number; d
   );
 }
 
-/** A slim vertical progress column — telemetry furniture, not a card. */
-function LevelColumn({
-  position,
-  label,
-  value,
-  color,
-}: {
-  position: [number, number, number];
-  label: string;
-  value: number;
-  color: string;
-}) {
-  const fillRef = useRef<Mesh>(null);
-  useFrame(() => {
-    if (!fillRef.current) return;
-    const target = Math.max(0.02, value / 100);
-    fillRef.current.scale.y += (target - fillRef.current.scale.y) * 0.08;
-    fillRef.current.position.y = -0.5 + fillRef.current.scale.y / 2;
-  });
-
-  return (
-    <group position={position}>
-      <mesh>
-        <planeGeometry args={[0.035, 1]} />
-        <meshBasicMaterial color={color} transparent opacity={0.12} side={DoubleSide} depthWrite={false} />
-      </mesh>
-      <mesh ref={fillRef} scale={[1, 0.02, 1]}>
-        <planeGeometry args={[0.035, 1]} />
-        <meshBasicMaterial color={color} transparent opacity={0.7} side={DoubleSide} toneMapped={false} depthWrite={false} />
-      </mesh>
-      <TechLabel position={[0, 0.62, 0]} color="#e5f6ff" size={0.05} opacity={0.7} capacity={3}>
-        {String(value)}
-      </TechLabel>
-      <TechLabel position={[0, -0.62, 0]} color={color} size={0.05} opacity={0.6} capacity={3}>
-        {label}
-      </TechLabel>
-    </group>
-  );
-}
-
-/** Pitch wide enough that neighbouring 3-glyph labels never touch. */
-const COLUMN_PITCH = 0.3;
-
-/** Narrower than this (world units) and the columns crowd the core. */
-const MIN_FRAME_WIDTH = 7.4;
-
-/**
- * Level columns are ambient furniture: anchored to the frame edge rather than
- * a fixed world X (which collided with the radial gauge's outer nodes and fell
- * off-screen on narrow frames), and they stand down entirely while a
- * visualization is on screen so nothing can overlap the actual data.
- */
-const COLUMN_PLANE_Z = 0.3;
-/** Clear of the frame edge, with room for the widest label glyphs. */
-const COLUMN_INSET = 0.5;
-
-function LevelColumns({ color, accent }: { color: string; accent: string }) {
-  const viewportWidth = useThree((s) => s.viewport.width);
-  const hasViz = useFridayStore((s) => s.visualizations.length > 0);
-  const groupRef = useRef<Group>(null);
-  const t = useTelemetry();
-
-  /**
-   * Re-anchored every frame rather than computed once from viewport.width.
-   * That width is measured at z=0, but these sit nearer the camera where the
-   * frustum is narrower, and the camera drifts horizontally — using the z=0
-   * width pushed the first column off the left edge whenever the rig dollied in.
-   */
-  useFrame((state) => {
-    if (!groupRef.current) return;
-    const { camera, viewport } = state;
-    const distance = camera.position.z;
-    const halfAtPlane = (viewport.width / 2) * ((distance - COLUMN_PLANE_Z) / distance);
-    groupRef.current.position.x = camera.position.x - halfAtPlane + COLUMN_INSET;
-  });
-
-  if (hasViz || viewportWidth < MIN_FRAME_WIDTH) return null;
-
-  // real where a real source exists; NET falls back to a link estimate
-  const pwr = Math.min(100, (t.fps / 60) * 100);
-  const mem = t.heapRatio > 0 ? t.heapRatio * 100 : 54;
-  const net = t.downlink > 0 ? Math.min(100, t.downlink * 10) : 91;
-
-  return (
-    <group ref={groupRef} position={[0, 0, COLUMN_PLANE_Z]}>
-      <LevelColumn position={[0, 0, 0]} label="PWR" value={Math.round(pwr)} color={color} />
-      <LevelColumn position={[COLUMN_PITCH, 0, 0]} label="MEM" value={Math.round(mem)} color={color} />
-      <LevelColumn position={[COLUMN_PITCH * 2, 0, 0]} label="NET" value={Math.round(net)} color={accent} />
-    </group>
-  );
-}
-
 /** Measured refresh rate — was hardcoded 60HZ, which contradicted reality. */
 function SyncReadout({ color }: { color: string }) {
   const t = useTelemetry();
@@ -142,19 +50,9 @@ function SyncReadout({ color }: { color: string }) {
   );
 }
 
-/** Live camera coordinates — the readout the reticles imply. */
-function CoordReadout({ color }: { color: string }) {
-  const t = useTelemetry();
-  return (
-    <TechLabel position={[-2.55, 1.86, 0.2]} color={color} size={0.05} opacity={0.35} anchorX="left" capacity={35}>
-      {`X ${t.camera[0].toFixed(3)} · Y ${t.camera[1].toFixed(3)} · Z ${t.camera[2].toFixed(3)}`}
-    </TechLabel>
-  );
-}
-
 /**
  * §3 — the spatial HUD wrapped around the core: background grid, big framing
- * arcs, reticles, coordinates and level columns at three different depths.
+ * arcs, reticles and readouts at three different depths.
  */
 export default function SpatialHud({ reduced = false }: { reduced?: boolean }) {
   const state = useFridayStore((s) => s.state);
@@ -175,9 +73,11 @@ export default function SpatialHud({ reduced = false }: { reduced?: boolean }) {
 
   return (
     <group>
-      {!reduced && (
+      {/* Frame arcs stand down while a viz owns the stage — centered chrome
+          over centered data reads as noise, not framing. */}
+      {!reduced && !hasViz && (
         <group ref={drift}>
-          <OuterFrame color={look.color} speed={look.ringSpeed} dim={hasViz ? 0.45 : 1} />
+          <OuterFrame color={look.color} speed={look.ringSpeed} dim={1} />
         </group>
       )}
 
@@ -192,16 +92,9 @@ export default function SpatialHud({ reduced = false }: { reduced?: boolean }) {
         </>
       )}
 
-      {/* §5 spatial telemetry — coordinates and readouts floating in depth */}
-      <TechLabel position={[-2.55, 2.02, 0.2]} color={look.color} size={0.062} opacity={0.55} anchorX="left">
-        SECTOR 07 · ORBIT LOCK
-      </TechLabel>
-      <CoordReadout color={look.color} />
-      <SyncReadout color={look.color} />
-
-      {!reduced && (
-        <LevelColumns color={look.color} accent={look.accent} />
-      )}
+      {/* §5 spatial telemetry — sync readout stands down with the frame arcs
+          while a viz owns the stage */}
+      {!hasViz && <SyncReadout color={look.color} />}
     </group>
   );
 }

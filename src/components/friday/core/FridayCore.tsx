@@ -2,9 +2,9 @@
 
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
-import { type Group, type Mesh } from "three";
+import { PerspectiveCamera, type Group, type Mesh } from "three";
 import { useFridayStore } from "@/lib/store";
-import { CORE_DOCK_OFFSET, shouldDockCore } from "@/lib/visualization/layoutResolver";
+import { dockPosition, shouldDockCore } from "@/lib/visualization/layoutResolver";
 import { STATE_LOOK } from "@/lib/stateLook";
 import { readMicLevels, utteranceEnvelope } from "@/lib/audioBus";
 import { speakProgress, ttsLevels } from "@/lib/voice";
@@ -18,7 +18,7 @@ import { createCoreMaterial, createHologramMaterial } from "../effects/materials
 /** How far the core withdraws behind an active visualization. */
 const VIZ_SCALE = 0.4;
 
-/** Undocked home of the core group. */
+/** Undocked home of the core group: dead center. */
 const ORIGIN: [number, number, number] = [0, 0, 0];
 
 /**
@@ -46,6 +46,13 @@ export default function FridayCore({
   // shrunken core glowing directly behind centered holograms (globe, network).
   const docked = useFridayStore((s) => shouldDockCore(s.visualizations));
   const recede = useRef(1);
+  /**
+   * Dock target in world units, recomputed from the live camera every frame:
+   * visible half-extents at the origin plane from fov + distance + pixel
+   * aspect (all measured, none assumed), then one receded assembly plus one
+   * margin inside the bottom-left corner. A ref, not state — no re-renders.
+   */
+  const dockTarget = useRef<[number, number, number]>([0, 0, 0]);
   const dockPos = useRef<[number, number, number]>([0, 0, 0]);
   // scale alone is not enough: bloom on the emissive core bleeds well past its
   // silhouette, so the glow has to come down with it.
@@ -100,7 +107,7 @@ export default function FridayCore({
     return ttsCache.current.levels?.[bin] ?? null;
   };
 
-  useFrame((_, delta) => {
+  useFrame((state, delta) => {
     const t = performance.now() * 0.001;
 
     coreMat.apply(look.color, look.glow, look.coreDistort, look.coreSpeed);
@@ -120,12 +127,20 @@ export default function FridayCore({
     }
 
     if (groupRef.current) {
+      // Corner-anchored dock from measured camera geometry (see dockTarget).
+      const { camera, size } = state;
+      if (camera instanceof PerspectiveCamera && size.width > 0 && size.height > 0) {
+        const dist = Math.max(0.001, camera.position.length());
+        const halfH = Math.tan((camera.fov * Math.PI) / 360) * dist;
+        const halfW = halfH * (size.width / size.height);
+        dockTarget.current = dockPosition(halfW, halfH, VIZ_SCALE);
+      }
       // eased, so handing the stage over reads as a move, not a cut
       const k = Math.min(1, delta * 2.2);
       recede.current += ((hasViz ? VIZ_SCALE : 1) - recede.current) * k;
       groupRef.current.scale.setScalar(recede.current);
 
-      const target = docked ? CORE_DOCK_OFFSET : ORIGIN;
+      const target = docked ? dockTarget.current : ORIGIN;
       dockPos.current[0] += (target[0] - dockPos.current[0]) * k;
       dockPos.current[1] += (target[1] - dockPos.current[1]) * k;
       dockPos.current[2] += (target[2] - dockPos.current[2]) * k;

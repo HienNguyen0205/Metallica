@@ -441,7 +441,7 @@ src/
 │   │   ├── devRails.ts         # Dev-rails gate shared by both rails
 │   │   ├── InputBar.tsx        # ASK FRIDAY input (typed + voice turns)
 │   │   ├── ConfirmPrompt.tsx   # High-risk tool approval dialog
-│   │   └── SpatialHud.tsx      # In-scene 3D HUD (readouts, level columns)
+│   │   └── SpatialHud.tsx      # In-scene 3D HUD (coord/sync readouts)
 │   └── visualization/
 │       ├── FridayVisualization.tsx  # Spec → REGISTRY dispatch + DrillDown
 │       ├── vizRadial.tsx        # Gauge, HealthCore, Radar, Waveform

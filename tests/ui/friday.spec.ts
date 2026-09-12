@@ -66,8 +66,9 @@ test("all HUD text meets WCAG AA against the dark background", async ({ page }) 
     ["brand", { selector: "span", text: "METALLICA" }],
     ["subtitle", { selector: "span", text: "HOLOGRAPHIC INTERFACE" }],
     ["state label", "[data-testid='hud-state']"],
-    // live values, so match the stable label prefix only
-    ["edge telemetry", { selector: "span", text: "UPLINK" }],
+    // live values, so match the stable label prefix only (FOCUS is always
+    // mounted; the UPLINK/FRAME/MEMORY trio only shows mid-turn)
+    ["edge telemetry", { selector: "span", text: "FOCUS" }],
     ["edge right", { selector: "span", text: "SECURITY" }],
     ["audio toggle", { selector: "button", text: "AUDIO ·" }],
     ["state rail (inactive)", "#state-rail button:nth-child(4)"],

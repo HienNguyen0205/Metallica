@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 import {
-  CORE_DOCK_OFFSET,
+  dockPosition,
   shouldDockCore,
 } from "@/lib/visualization/layoutResolver";
 import type { VisualizationSpec } from "@/lib/visualization/types";
@@ -41,6 +41,21 @@ test("multi-viz fan decides by the latest entry", () => {
   expect(shouldDockCore(column)).toBe(true);
 });
 
-test("dock offset is a fixed, in-frame lower-left anchor", () => {
-  expect(CORE_DOCK_OFFSET).toEqual([-2.9, -1.1, 0]);
+test("dock target hugs the screen corner inside both edges", () => {
+  // receded scale 0.4 on desktop 9.0 x 5.6: extent 1.1, margin 0.35
+  const [x, y, z] = dockPosition(4.5, 2.8, 0.4);
+  expect(x).toBeCloseTo(-3.05, 5);
+  expect(y).toBeCloseTo(-1.35, 5);
+  expect(z).toBe(0);
+});
+
+test("ultrawide viewports dock further out", () => {
+  const [x] = dockPosition(8, 2.8, 0.4);
+  expect(x).toBeLessThan(-3.05);
+});
+
+test("too-small frames center instead of clipping", () => {
+  expect(dockPosition(1.3, 2.8, 0.4)).toEqual([0, 0, 0]);
+  expect(dockPosition(4.5, 1.0, 0.4)).toEqual([0, 0, 0]);
+  expect(dockPosition(NaN, 2.8, 0.4)).toEqual([0, 0, 0]);
 });

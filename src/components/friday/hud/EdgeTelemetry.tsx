@@ -14,6 +14,10 @@ export function EdgeTelemetry() {
   const quality = useFridayStore((s) => s.quality);
   const setQuality = useFridayStore((s) => s.setQuality);
   const t = useTelemetry();
+  const liveMode = useFridayStore((s) => s.liveMode);
+  // Link telemetry only shows while a turn is in flight — once the backend
+  // finishes, the frame belongs to the core again, not to numbers.
+  const busy = liveMode !== "idle";
 
   const uplink = t.downlink > 0 ? `${t.downlink.toFixed(1)}MB/S` : "STABLE";
   const memory =
@@ -25,12 +29,13 @@ export function EdgeTelemetry() {
         style={depth}
         className="pointer-events-none absolute bottom-28 left-8 hidden flex-col gap-1 font-mono text-[9px] tracking-[0.22em] text-cyan-300/60 md:flex"
       >
-        <span>UPLINK · {uplink}</span>
-        <span>FRAME · {t.frameMs > 0 ? `${t.frameMs.toFixed(1)}MS` : "—"}</span>
-        <span>MEMORY · {memory}</span>
-        <span>
-          VECTOR · {t.camera[0].toFixed(3)} / {t.camera[1].toFixed(3)}
-        </span>
+        {busy && (
+          <>
+            <span>UPLINK · {uplink}</span>
+            <span>FRAME · {t.frameMs > 0 ? `${t.frameMs.toFixed(1)}MS` : "—"}</span>
+            <span>MEMORY · {memory}</span>
+          </>
+        )}
       </div>
       <div className="absolute bottom-28 right-8 hidden flex-col items-end gap-1 font-mono text-[9px] tracking-[0.22em] text-cyan-300/60 md:flex">
         <span data-testid="hud-focus" className={focus ? "text-cyan-200" : undefined}>
