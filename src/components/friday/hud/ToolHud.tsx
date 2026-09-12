@@ -20,7 +20,10 @@ export function ToolHud() {
   const isDenied = !!denied && !activity;
 
   return (
-    <div className="pointer-events-none absolute left-1/2 top-20 flex -translate-x-1/2 flex-col items-center gap-1 font-mono text-[10px] tracking-[0.24em]">
+    // Top-right status lane: the central column belongs to the chart, its
+    // 3D title (top-center) and the docked core — never to status text.
+    // (StateRail also lives right, but dev-only; production is clear.)
+    <div className="pointer-events-none absolute right-8 top-20 flex flex-col items-end gap-1 font-mono text-[10px] tracking-[0.24em]">
       <span className="text-[9px] tracking-[0.32em] text-cyan-300/50">SYSTEM CORE</span>
       <span aria-hidden="true" className="text-cyan-300/30">↓</span>
       <span
