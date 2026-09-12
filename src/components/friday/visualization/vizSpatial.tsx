@@ -3,13 +3,12 @@
 import { useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
 import { DoubleSide, type Group } from "three";
-import type { GeoPoint, NodeDatum } from "@/lib/store";
+import type { NodeDatum } from "@/lib/store";
 import { HairLine, TechLabel, useMaterialize } from "../primitives";
 
 export interface SpatialProps {
   nodes?: NodeDatum[];
   links?: [number, number][];
-  points?: GeoPoint[];
   color: string;
   accent: string;
 }
@@ -96,76 +95,4 @@ export function Network3D({ nodes = DEFAULT_NODES, links, color, accent }: Spati
   );
 }
 
-const DEFAULT_GEO: GeoPoint[] = [
-  { lat: 21.03, lon: 105.85, label: "HAN" },
-  { lat: 1.35, lon: 103.82, label: "SIN" },
-  { lat: 37.77, lon: -122.42, label: "SFO" },
-  { lat: 50.11, lon: 8.68, label: "FRA" },
-];
 
-/** §6 location → holographic globe with surface markers. */
-export function Globe3D({ points = DEFAULT_GEO, color, accent }: SpatialProps) {
-  const ref = useMaterialize(1);
-  const spin = useRef<Group>(null);
-  const data = points.length ? points : DEFAULT_GEO;
-  // Smaller and lifted (see the group position below): at 1.9 on the centre
-  // line the south pole ran into the answer text under the stage.
-  const R = 1.8;
-
-  useFrame((_, delta) => {
-    if (spin.current) spin.current.rotation.y += delta * 0.16;
-  });
-
-  const markers = useMemo(
-    () =>
-      data.map((p) => {
-        const phi = (90 - p.lat) * (Math.PI / 180);
-        const theta = (p.lon + 180) * (Math.PI / 180);
-        return {
-          label: p.label ?? "",
-          pos: [
-            -R * Math.sin(phi) * Math.cos(theta),
-            R * Math.cos(phi),
-            R * Math.sin(phi) * Math.sin(theta),
-          ] as [number, number, number],
-        };
-      }),
-    [data],
-  );
-
-  return (
-    <group ref={ref} position={[0, 0.2, -0.6]}>
-      <group ref={spin}>
-        <mesh>
-          <sphereGeometry args={[R, 24, 14]} />
-          <meshBasicMaterial color={color} wireframe transparent opacity={0.22} toneMapped={false} />
-        </mesh>
-        {/* Keyed with the index alongside the label, the way Timeline3D already
-            is: `GeoPoint.label` is optional and becomes "" when absent, so two
-            unlabelled points off the wire would otherwise collide on one key. */}
-        {markers.map((m, i) => (
-          <group key={`${m.label}-${i}`} position={m.pos}>
-            <mesh
-              visible={false}
-              userData={{ viz: { label: m.label.toUpperCase() || "EDGE", detail: "EDGE REGION" } }}
-            >
-              <sphereGeometry args={[0.17, 10, 10]} />
-            </mesh>
-            <mesh>
-              <sphereGeometry args={[0.07, 10, 10]} />
-              <meshBasicMaterial color={accent} toneMapped={false} />
-            </mesh>
-            <TechLabel position={[0, 0.2, 0]} color={accent} size={0.08} opacity={1} decode>
-              {m.label}
-            </TechLabel>
-          </group>
-        ))}
-      </group>
-      {/* equatorial guide ring stays fixed while the globe turns */}
-      <mesh rotation={[Math.PI / 2, 0, 0]}>
-        <ringGeometry args={[R + 0.22, R + 0.235, 96]} />
-        <meshBasicMaterial color={color} transparent opacity={0.3} side={DoubleSide} depthWrite={false} />
-      </mesh>
-    </group>
-  );
-}

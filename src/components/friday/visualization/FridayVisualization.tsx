@@ -17,7 +17,8 @@ import { Connector, Reticle, TechLabel } from "../primitives";
 import { RadialGauge, Radar, Waveform } from "./vizRadial";
 import { BarChart3D, LineChart3D, Timeline3D } from "./vizCharts";
 import { SankeyFlow } from "./vizFlow";
-import { Globe3D, Network3D } from "./vizSpatial";
+import { Network3D } from "./vizSpatial";
+import { Globe3D } from "./globe/GlobeVisualization";
 
 interface RendererProps {
   data: VizData;
@@ -37,7 +38,7 @@ const REGISTRY: Record<VisualizationType, ComponentType<RendererProps>> = {
   bar_3d: ({ data, ...rest }) => <BarChart3D series={data.series} {...rest} />,
   timeline: ({ data, ...rest }) => <Timeline3D events={data.events} {...rest} />,
   network: ({ data, ...rest }) => <Network3D nodes={data.nodes} links={data.links} {...rest} />,
-  globe: ({ data, ...rest }) => <Globe3D points={data.points} {...rest} />,
+  globe: ({ data, ...rest }) => <Globe3D points={data.points} routes={data.routes} {...rest} />,
   sankey_flow: ({ data, ...rest }) => <SankeyFlow nodes={data.nodes} links={data.links} {...rest} />,
 };
 

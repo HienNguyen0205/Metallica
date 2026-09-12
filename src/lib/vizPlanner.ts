@@ -63,10 +63,18 @@ const RULES: Rule[] = [
       animation: "materialize",
       data: {
         points: [
-          { lat: 50.1, lon: 8.7, label: "FRA" },
-          { lat: 37.8, lon: -122.4, label: "SFO" },
-          { lat: 35.7, lon: 139.7, label: "TYO" },
-          { lat: -33.9, lon: 151.2, label: "SYD" },
+          { id: "SFO", lat: 37.8, lon: -122.4, label: "SFO", value: 12400, status: "healthy", metadata: { region: "US-WEST", latencyMs: 31, requestsPerSecond: 12400 } },
+          { id: "FRA", lat: 50.1, lon: 8.7, label: "FRA", value: 9800, status: "healthy", metadata: { region: "EU-CENTRAL", latencyMs: 48, requestsPerSecond: 9800 } },
+          { id: "SIN", lat: 1.35, lon: 103.8, label: "SIN", value: 15400, status: "healthy", metadata: { region: "AP-SOUTHEAST", latencyMs: 72, requestsPerSecond: 15400 } },
+          { id: "TYO", lat: 35.7, lon: 139.7, label: "TYO", value: 11100, status: "warning", metadata: { region: "AP-NORTHEAST", latencyMs: 121, requestsPerSecond: 11100 } },
+          { id: "SYD", lat: -33.9, lon: 151.2, label: "SYD", value: 6200, status: "healthy", metadata: { region: "AP-SOUTH", latencyMs: 37, requestsPerSecond: 6200 } },
+          { id: "LON", lat: 51.5, lon: -0.1, label: "LON", value: 8700, status: "healthy", metadata: { region: "EU-WEST", latencyMs: 44, requestsPerSecond: 8700 } },
+        ],
+        routes: [
+          { id: "r-sfo-fra", from: "SFO", to: "FRA", value: 8200, latencyMs: 142 },
+          { id: "r-sfo-tyo", from: "SFO", to: "TYO", value: 6400, latencyMs: 118, status: "warning" },
+          { id: "r-sin-syd", from: "SIN", to: "SYD", value: 4100, latencyMs: 96 },
+          { id: "r-fra-sin", from: "FRA", to: "SIN", value: 7300, latencyMs: 156 },
         ],
       },
     }),
@@ -154,7 +162,8 @@ function cloneSpec(spec: VisualizationSpec): VisualizationSpec {
           series: spec.data.series?.map((s) => ({ ...s, points: [...s.points] })),
           nodes: spec.data.nodes?.map((n) => ({ ...n })),
           links: spec.data.links?.map((l) => [...l] as [number, number]),
-          points: spec.data.points?.map((p) => ({ ...p })),
+          points: spec.data.points?.map((p) => ({ ...p, metadata: p.metadata ? { ...p.metadata } : undefined })),
+          routes: spec.data.routes?.map((r) => ({ ...r })),
           events: spec.data.events?.map((e) => ({ ...e })),
         }
       : undefined,
@@ -192,8 +201,17 @@ export function summarize(spec: VisualizationSpec): string {
   switch (spec.type) {
     case "network":
       return "Six services online. No broken dependencies.";
-    case "globe":
-      return "Four edge regions responding. Frankfurt is slowest.";
+    case "globe": {
+      const pts = spec.data?.points ?? [];
+      if (pts.length === 0) return "Global edge map has no active nodes.";
+      const worst = [...pts].sort(
+        (a, b) => (b.metadata?.latencyMs as number ?? 0) - (a.metadata?.latencyMs as number ?? 0),
+      )[0];
+      const degraded = pts.filter((p) => p.status === "warning" || p.status === "critical" || p.status === "offline");
+      const worstBit = worst?.label ? ` ${worst.label} is slowest${typeof worst.metadata?.latencyMs === "number" ? ` at ${worst.metadata.latencyMs} ms` : ""}.` : "";
+      const healthBit = degraded.length > 0 ? ` ${degraded.length} region${degraded.length > 1 ? "s" : ""} degraded.` : " All regions healthy.";
+      return `${pts.length} edge regions responding.${worstBit}${healthBit}`;
+    }
     case "line_3d":
       return "Load has climbed steadily over the last nine hours.";
     case "bar_3d":

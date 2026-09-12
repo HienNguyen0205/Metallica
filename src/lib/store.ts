@@ -8,6 +8,7 @@ import { resolveLang, type SupportedLang } from "@/lib/audioBus";
 import type { CurrentStep } from "@/lib/agent/events";
 import type {
   GeoPoint,
+  GlobeRoute,
   MetricDatum,
   NodeDatum,
   SeriesDatum,
@@ -24,6 +25,7 @@ export type { FridayState };
 export type { CurrentStep };
 export type {
   GeoPoint,
+  GlobeRoute,
   MetricDatum,
   NodeDatum,
   SeriesDatum,

@@ -83,7 +83,32 @@ function sanitizeData(data: VisualizationSpec["data"]): VizData {
       return { ...n, id: sanitizeLabel(n?.id) ?? `node-${i}`, ...(label === undefined ? { label: undefined } : { label }) };
     });
   else out.nodes = undefined;
-  if (Array.isArray(out.points)) out.points = out.points.map((p) => ({ ...p, label: sanitizeLabel(p?.label) }));
+  if (Array.isArray(out.points))
+    out.points = out.points.map((p, i) => {
+      const label = sanitizeLabel(p?.label);
+      // Length is preserved with clamped coordinates — `routes` can index
+      // into this array, so dropping a point would rewire every later route
+      // (same reason `nodes` keeps its length above).
+      const lat = typeof p?.lat === "number" && Number.isFinite(p.lat) ? Math.max(-90, Math.min(90, p.lat)) : 0;
+      const lonRaw = typeof p?.lon === "number" && Number.isFinite(p.lon) ? p.lon : 0;
+      const lon = ((lonRaw + 540) % 360) - 180;
+      const status = p?.status === "warning" || p?.status === "critical" || p?.status === "offline" ? p.status : "healthy";
+      const value = typeof p?.value === "number" && Number.isFinite(p.value) && p.value >= 0 ? p.value : undefined;
+      const color = sanitizeColor(p?.color);
+      const out_p: NonNullable<VizData["points"]>[number] = {
+        ...p,
+        lat,
+        lon,
+        id: sanitizeLabel(p?.id) ?? label ?? `point-${i}`,
+        status,
+      };
+      if (label === undefined) delete out_p.label;
+      else out_p.label = label;
+      if (value !== undefined) out_p.value = value;
+      if (color) out_p.color = color;
+      if (p?.metadata && typeof p.metadata === "object" && !Array.isArray(p.metadata)) out_p.metadata = { ...p.metadata };
+      return out_p;
+    });
   else out.points = undefined;
   if (Array.isArray(out.events))
     out.events = out.events.flatMap((e) => {
@@ -108,6 +133,21 @@ function sanitizeData(data: VisualizationSpec["data"]): VizData {
             (pair[1] as number) < out.nodes!.length,
         )
       : undefined;
+
+  // Globe routes reference `points` by id/label/index. Shape is validated
+  // here; endpoint resolution lives in globe/geo.ts (pure + unit-tested) so
+  // unresolvable routes are dropped at render, never drawn to the origin.
+  out.routes = Array.isArray(out.routes)
+    ? out.routes.flatMap((r, i) => {
+        if (!r || (typeof r.from !== "string" && typeof r.from !== "number") || (typeof r.to !== "string" && typeof r.to !== "number")) return [];
+        if (typeof r.from === "string" && r.from.length === 0) return [];
+        if (typeof r.to === "string" && r.to.length === 0) return [];
+        const status = r.status === "warning" || r.status === "critical" ? r.status : "healthy";
+        const value = typeof r.value === "number" && Number.isFinite(r.value) && r.value >= 0 ? r.value : undefined;
+        const latencyMs = typeof r.latencyMs === "number" && Number.isFinite(r.latencyMs) && r.latencyMs >= 0 ? r.latencyMs : undefined;
+        return [{ ...r, id: sanitizeLabel(r.id) ?? `route-${i}`, status, ...(value !== undefined ? { value } : {}), ...(latencyMs !== undefined ? { latencyMs } : {}) }];
+      })
+    : undefined;
 
   if (typeof out.rate !== "number" || !Number.isFinite(out.rate) || out.rate < 0) out.rate = undefined;
 

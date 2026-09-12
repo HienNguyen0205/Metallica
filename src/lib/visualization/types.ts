@@ -36,6 +36,34 @@ export interface GeoPoint {
   lat: number;
   lon: number;
   label?: string;
+  /** Stable reference for routes (`GlobeRoute.from/to`). Falls back to label. */
+  id?: string;
+  /** Traffic / request volume / node importance — drives marker size. */
+  value?: number;
+  /** Health state — drives marker color. Defaults to "healthy". */
+  status?: "healthy" | "warning" | "critical" | "offline";
+  /** Explicit marker tint (hex). Overrides the status color. */
+  color?: string;
+  /** Live/simulated telemetry shown on focus (latencyMs, requestsPerSecond…). */
+  metadata?: {
+    region?: string;
+    latencyMs?: number;
+    requestsPerSecond?: number;
+    uptime?: number;
+    [key: string]: unknown;
+  };
+}
+/** Curved data connection between two globe markers (§18-19 of the globe guide). */
+export interface GlobeRoute {
+  id: string;
+  /** Marker id/label (string) or index into `points` (number). */
+  from: string | number;
+  /** Marker id/label (string) or index into `points` (number). */
+  to: string | number;
+  /** Traffic volume — drives arc thickness + particle count. */
+  value?: number;
+  latencyMs?: number;
+  status?: "healthy" | "warning" | "critical";
 }
 export interface TimelineEvent {
   label: string;
@@ -48,6 +76,8 @@ export interface VizData {
   nodes?: NodeDatum[];
   links?: [number, number][];
   points?: GeoPoint[];
+  /** Globe arcs — `from`/`to` reference `points` by id/label/index. */
+  routes?: GlobeRoute[];
   events?: TimelineEvent[];
   rate?: number;
 }
