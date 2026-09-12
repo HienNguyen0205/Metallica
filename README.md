@@ -5,7 +5,7 @@
 **A holographic AI interface, rendered in real-time on WebGPU.**
 
 A sci-fi style "FRIDAY" assistant hologram — pulsing AI core, orbital rings,
-GPU particle fields, spatial HUD and ten types of 3D data visualizations —
+GPU particle fields, spatial HUD and nine types of 3D data visualizations —
 built with Next.js 16, React Three Fiber and a spec-driven rendering architecture.
 
 <!-- Via shields.io rather than GitHub's own badge endpoint: that one ships no
@@ -71,7 +71,7 @@ to the current state.
 - 🎨 **3 TSL node materials** — fresnel hologram, GPU-animated particle field,
   noise-displaced energy core; one node graph each, compiled to WGSL or GLSL by
   whichever backend loaded.
-- 📊 **10 visualization types** — gauges, health rings, radar sweep, waveform,
+- 📊 **9 visualization types** — gauges, radar sweep, waveform,
   network graph, 3D line/bar charts, globe, timeline,
   sankey flow — selected by a rules-based query planner via a typed `VisualizationSpec`.
 - 🖱️ **Drill-down interaction** — click any metric node / chart element to lock
@@ -116,7 +116,7 @@ npm run dev
 ```
 
 Open <http://localhost:3000>. Type something into `ASK FRIDAY`, or use the
-left/right dev rails to preview any of the 10 visualization types or 10 agent
+left/right dev rails to preview any of the 9 visualization types or 10 agent
 states directly.
 
 The live pipeline needs the orchestrator too (same repo, `backend/`):
@@ -358,7 +358,6 @@ cosmetic level meter is not worth a second microphone path.
 | Type | Trigger examples | Renderer |
 |---|---|---|
 | `radial_gauge` *(fallback)* | any unmatched query | Metrics orbiting the core with segmented fill arcs |
-| `health_core` | *"system health"*, *"status"* | Dominant health ring pair around the core |
 | `radar` | *"scan"*, *"threat"* | Flat sweep with positioned contact blips |
 | `waveform` | *"voice"*, *"audio"* | Large 128-bar audio-reactive ring |
 | `network` | *"topology"*, *"dependencies"* | Golden-angle sphere graph with edges |
@@ -441,7 +440,7 @@ src/
 │   │   └── SpatialHud.tsx      # In-scene 3D HUD (coord/sync readouts)
 │   └── visualization/
 │       ├── FridayVisualization.tsx  # Spec → REGISTRY dispatch + DrillDown
-│       ├── vizRadial.tsx        # Gauge, HealthCore, Radar, Waveform
+│       ├── vizRadial.tsx        # Gauge, Radar, Waveform
 │       ├── vizCharts.tsx        # LineChart3D, BarChart3D, Timeline3D
 │       └── vizSpatial.tsx       # Network3D, Globe3D, ParticleFlow
 └── lib/

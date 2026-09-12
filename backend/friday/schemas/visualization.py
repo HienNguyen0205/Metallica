@@ -6,7 +6,6 @@ from pydantic import BaseModel, Field
 
 VisualizationType = Literal[
     "radial_gauge",
-    "health_core",
     "radar",
     "waveform",
     "network",

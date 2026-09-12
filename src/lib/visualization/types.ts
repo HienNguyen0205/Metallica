@@ -10,7 +10,6 @@
 /** §16 — visualization kinds the renderer can materialize. */
 export type VisualizationType =
   | "radial_gauge"
-  | "health_core"
   | "radar"
   | "waveform"
   | "network"

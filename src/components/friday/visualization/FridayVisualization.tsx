@@ -14,7 +14,7 @@ import {
 import { STATE_LOOK } from "@/lib/stateLook";
 import { resolveVisualizationLayout } from "@/lib/visualization/layoutResolver";
 import { Connector, Reticle, TechLabel } from "../primitives";
-import { HealthCore, RadialGauge, Radar, Waveform } from "./vizRadial";
+import { RadialGauge, Radar, Waveform } from "./vizRadial";
 import { BarChart3D, LineChart3D, Timeline3D } from "./vizCharts";
 import { SankeyFlow } from "./vizFlow";
 import { Globe3D, Network3D } from "./vizSpatial";
@@ -31,7 +31,6 @@ interface RendererProps {
  */
 const REGISTRY: Record<VisualizationType, ComponentType<RendererProps>> = {
   radial_gauge: ({ data, ...rest }) => <RadialGauge metrics={data.metrics} {...rest} />,
-  health_core: ({ data, ...rest }) => <HealthCore metrics={data.metrics} {...rest} />,
   radar: ({ data, ...rest }) => <Radar metrics={data.metrics} {...rest} />,
   waveform: ({ ...rest }) => <Waveform {...rest} />,
   line_3d: ({ data, ...rest }) => <LineChart3D series={data.series} {...rest} />,
