@@ -135,6 +135,12 @@ export function RadialGauge({ metrics = [], color }: VizProps) {
   );
 }
 
+/** Disc tilt shared by the flat circular vizzes: near-horizontal discs go
+ * edge-on from the low camera (≈3° elevation) and read as a flat line, so
+ * both rest at 60° with a guaranteed visible ellipse.
+ */
+const DISC_TILT = Math.PI / 3;
+
 /** §6 search / scan → radar sweep with concentric rings and blips. */
 export function Radar({ metrics = [], color, accent }: VizProps) {
   const sweep = useRef<Group>(null);
@@ -149,7 +155,7 @@ export function Radar({ metrics = [], color, accent }: VizProps) {
     : [0.4, 1.9, 3.3, 5.1].map((a, i) => ({ a, r: 0.8 + i * 0.4 }));
 
   return (
-    <group ref={ref} rotation={[Math.PI / 2.15, 0, 0]}>
+    <group ref={ref} rotation={[DISC_TILT, 0, 0]}>
       {[0.9, 1.5, 2.1, 2.6].map((r) => (
         <mesh key={r}>
           <ringGeometry args={[r, r + 0.004, 96]} />
@@ -186,11 +192,11 @@ export function Radar({ metrics = [], color, accent }: VizProps) {
   );
 }
 
-/** §6 audio → reactive waveform, large and front-facing. */
+/** §6 audio → reactive waveform, tilted so it never reads edge-on. */
 export function Waveform({ color, accent }: VizProps) {
   const ref = useMaterialize(0.5);
   return (
-    <group ref={ref} rotation={[Math.PI / 2.15, 0, 0]}>
+    <group ref={ref} rotation={[DISC_TILT, 0, 0]}>
       <WaveformRing radius={2.5} bars={128} color={color} activity={1} />
       <mesh>
         <ringGeometry args={[2.46, 2.47, 128]} />
