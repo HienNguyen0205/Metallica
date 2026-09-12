@@ -11,13 +11,13 @@
 export type VisualizationType =
   | "radial_gauge"
   | "health_core"
+  | "radar"
   | "waveform"
   | "network"
   | "line_3d"
   | "bar_3d"
   | "globe"
   | "timeline"
-  | "funnel_3d"
   | "sankey_flow";
 
 export interface MetricDatum {

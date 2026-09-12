@@ -170,13 +170,13 @@ schema: `contracts/events.v1.json`.
 const REGISTRY: Record<VisualizationType, ComponentType<VizProps>> = {
   radial_gauge: RadialGauge,
   health_core: HealthCore,
+  radar: Radar,
   waveform: Waveform,
   network: Network3D,
   line_3d: LineChart3D,
   bar_3d: BarChart3D,
   globe: Globe3D,
   timeline: Timeline3D,
-  funnel_3d: Funnel3D,
   sankey_flow: SankeyFlow, // 10 types total
 };
 ```

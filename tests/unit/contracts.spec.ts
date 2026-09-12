@@ -1,7 +1,7 @@
 // STEP 1 (P0.1) — canonical contract parity: shared schemas <-> producers/consumers.
 // events.v1.json conformance itself lives in eventContract.spec.ts; this spec
 // locks the four NEW canonical schemas and the FE/BE visualization drift fix
-// (funnel_3d, sankey_flow). No validator dep by policy: assertions below mirror
+// (sankey_flow). No validator dep by policy: assertions below mirror
 // the JSON schemas field by field; any schema change must update them.
 import { readFileSync } from "node:fs";
 import { test, expect } from "@playwright/test";
@@ -25,9 +25,9 @@ test("events schema covers the full producer event universe incl. step", () => {
   }
 });
 
-test("visualization schema type universe matches the FE parser (incl. funnel/sankey)", () => {
+test("visualization schema type universe matches the FE parser", () => {
   const types: string[] = viz.properties.type.enum;
-  for (const t of ["radial_gauge", "health_core", "waveform", "network", "line_3d", "bar_3d", "globe", "timeline", "funnel_3d", "sankey_flow"]) {
+  for (const t of ["radial_gauge", "health_core", "radar", "waveform", "network", "line_3d", "bar_3d", "globe", "timeline", "sankey_flow"]) {
     expect(types).toContain(t);
   }
   // tolerant reader: only `type` is required

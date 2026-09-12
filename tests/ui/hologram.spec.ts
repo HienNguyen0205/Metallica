@@ -71,13 +71,13 @@ test("every viz type renders something different from idle", async ({ page }) =>
   const types = [
     "RADIAL GAUGE",
     "HEALTH CORE",
+    "RADAR",
     "WAVEFORM",
     "LINE 3D",
     "BAR 3D",
     "TIMELINE",
     "NETWORK",
     "GLOBE",
-    "FUNNEL 3D",
     "SANKEY FLOW",
   ];
   for (const label of types) {

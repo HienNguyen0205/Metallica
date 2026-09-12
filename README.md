@@ -71,9 +71,9 @@ to the current state.
 - 🎨 **3 TSL node materials** — fresnel hologram, GPU-animated particle field,
   noise-displaced energy core; one node graph each, compiled to WGSL or GLSL by
   whichever backend loaded.
-- 📊 **10 visualization types** — gauges, health rings, waveform,
+- 📊 **10 visualization types** — gauges, health rings, radar sweep, waveform,
   network graph, 3D line/bar charts, globe, timeline,
-  conversion funnel, sankey flow — selected by a rules-based query planner via a typed `VisualizationSpec`.
+  sankey flow — selected by a rules-based query planner via a typed `VisualizationSpec`.
 - 🖱️ **Drill-down interaction** — click any metric node / chart element to lock
   a focus reticle onto it in 3D space.
 - 🎥 **Cinematic post-processing** — Bloom, volumetric god rays, radial
@@ -359,13 +359,13 @@ cosmetic level meter is not worth a second microphone path.
 |---|---|---|
 | `radial_gauge` *(fallback)* | any unmatched query | Metrics orbiting the core with segmented fill arcs |
 | `health_core` | *"system health"*, *"status"* | Dominant health ring pair around the core |
+| `radar` | *"scan"*, *"threat"* | Flat sweep with positioned contact blips |
 | `waveform` | *"voice"*, *"audio"* | Large 128-bar audio-reactive ring |
 | `network` | *"topology"*, *"dependencies"* | Golden-angle sphere graph with edges |
 | `globe` | *"where"*, *"region"* | Wireframe globe with lat/lon markers |
 | `line_3d` | *"trend"*, *"over time"* | Depth-layered series over a hairline floor |
 | `bar_3d` | *"compare"*, *"distribution"* | Instanced boxes growing along an arc |
 | `timeline` | *"events"*, *"incident log"* | Horizontal axis with event ticks |
-| `funnel_3d` | *"funnel"*, *"conversion"*, *"drop-off"* | Staged conversion bars with % of top |
 | `sankey_flow` | *"sankey"*, *"flow between"*, *"budget flow"* | Column flow map with animated dots |
 
 All visualizations support optional drill-down focus unless

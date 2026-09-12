@@ -21,13 +21,13 @@ const KNOWN_RISKS: ReadonlySet<string> = new Set(["low", "medium", "high"]);
 const KNOWN_VIZ: ReadonlySet<string> = new Set([
   "radial_gauge",
   "health_core",
+  "radar",
   "waveform",
   "network",
   "line_3d",
   "bar_3d",
   "globe",
   "timeline",
-  "funnel_3d",
   "sankey_flow",
 ]);
 

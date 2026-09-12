@@ -5,6 +5,7 @@ supply the data it renders:
 
 - radial_gauge — one or more percentages (CPU, memory, disk usage)
 - health_core — a single overall status or score
+- radar — scanning, threat or contact detection
 - waveform — audio, signal or frequency
 - line_3d — a trend or time series (use `series`)
 - bar_3d — comparing discrete magnitudes (use `series`, one entry)

@@ -15,23 +15,6 @@ interface Rule {
 // Order matters: the most specific rule wins.
 const RULES: Rule[] = [
   {
-    type: "funnel_3d",
-    match: /funnel|conversion|pipeline stages|drop.?off|signup flow/i,
-    build: () => ({
-      type: "funnel_3d",
-      title: "CONVERSION FUNNEL",
-      animation: "materialize",
-      data: {
-        metrics: [
-          { label: "VISIT", value: 100 },
-          { label: "SIGNUP", value: 62 },
-          { label: "ACTIVATE", value: 44 },
-          { label: "PAY", value: 27 },
-        ],
-      },
-    }),
-  },
-  {
     type: "sankey_flow",
     match: /sankey|flow between|from .* to .* through|energy flow|budget flow/i,
     build: () => ({
@@ -130,6 +113,16 @@ const RULES: Rule[] = [
     }),
   },
   {
+    type: "radar",
+    match: /scan|search|find|look for|detect|threat/i,
+    build: () => ({
+      type: "radar",
+      title: "SCAN SWEEP",
+      animation: "materialize",
+      data: { metrics: [{ label: "N", value: 40 }, { label: "E", value: 72 }, { label: "S", value: 55 }] },
+    }),
+  },
+  {
     type: "health_core",
     match: /health|status|overall|integrity/i,
     build: () => ({
@@ -191,13 +184,13 @@ const RULE_BY_TYPE: Record<Exclude<VisualizationType, "radial_gauge">, Rule> = O
 const SAMPLES: Record<VisualizationType, () => VisualizationSpec> = {
   radial_gauge: () => DEFAULT_SPEC,
   health_core: () => RULE_BY_TYPE.health_core.build(),
+  radar: () => RULE_BY_TYPE.radar.build(),
   waveform: () => RULE_BY_TYPE.waveform.build(),
   line_3d: () => RULE_BY_TYPE.line_3d.build(),
   bar_3d: () => RULE_BY_TYPE.bar_3d.build(),
   timeline: () => RULE_BY_TYPE.timeline.build(),
   network: () => RULE_BY_TYPE.network.build(),
   globe: () => RULE_BY_TYPE.globe.build(),
-  funnel_3d: () => RULE_BY_TYPE.funnel_3d.build(),
   sankey_flow: () => RULE_BY_TYPE.sankey_flow.build(),
 };
 
@@ -218,12 +211,12 @@ export function summarize(spec: VisualizationSpec): string {
       return "Traffic is concentrated on two services.";
     case "timeline":
       return "One alert logged since the last sync.";
+    case "radar":
+      return "Sweep complete. Three contacts, none hostile.";
     case "health_core":
       return "System integrity at 87 percent.";
     case "waveform":
       return "Audio channel open.";
-    case "funnel_3d":
-      return "Funnel drops hardest at activate — 44 of 100 visits remain.";
     case "sankey_flow":
       return "Three flows live. The largest runs ads to signup.";
     default:
