@@ -135,12 +135,6 @@ export function RadialGauge({ metrics = [], color }: VizProps) {
   );
 }
 
-/** Disc tilt shared by the flat circular vizzes: near-horizontal discs go
- * edge-on from the low camera (≈3° elevation) and read as a flat line, so
- * both rest at 60° with a guaranteed visible ellipse.
- */
-const DISC_TILT = Math.PI / 3;
-
 /** §6 search / scan → radar sweep with concentric rings and blips. */
 export function Radar({ metrics = [], color, accent }: VizProps) {
   const sweep = useRef<Group>(null);
@@ -155,7 +149,10 @@ export function Radar({ metrics = [], color, accent }: VizProps) {
     : [0.4, 1.9, 3.3, 5.1].map((a, i) => ({ a, r: 0.8 + i * 0.4 }));
 
   return (
-    <group ref={ref} rotation={[DISC_TILT, 0, 0]}>
+    // Billboard, not tilted: a tilted disc is an ellipse from most angles
+    // and a line edge-on — face-locked it is a true circle everywhere.
+    <group ref={ref}>
+      <Billboard>
       {[0.9, 1.5, 2.1, 2.6].map((r) => (
         <mesh key={r}>
           <ringGeometry args={[r, r + 0.004, 96]} />
@@ -188,20 +185,23 @@ export function Radar({ metrics = [], color, accent }: VizProps) {
           </mesh>
         </group>
       ))}
+      </Billboard>
     </group>
   );
 }
 
-/** §6 audio → reactive waveform, tilted so it never reads edge-on. */
+/** §6 audio → reactive waveform, face-locked so it reads as a circle. */
 export function Waveform({ color, accent }: VizProps) {
   const ref = useMaterialize(0.5);
   return (
-    <group ref={ref} rotation={[DISC_TILT, 0, 0]}>
+    <group ref={ref}>
+      <Billboard>
       <WaveformRing radius={2.5} bars={128} color={color} activity={1} />
       <mesh>
         <ringGeometry args={[2.46, 2.47, 128]} />
         <meshBasicMaterial color={accent} transparent opacity={0.25} side={DoubleSide} depthWrite={false} />
       </mesh>
+      </Billboard>
     </group>
   );
 }
