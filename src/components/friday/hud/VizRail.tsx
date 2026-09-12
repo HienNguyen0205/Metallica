@@ -11,12 +11,9 @@ const VIZ_OPTIONS: VisualizationType[] = [
   "waveform",
   "line_3d",
   "bar_3d",
-  "heatmap_3d",
   "timeline",
   "network",
   "globe",
-  "particle_flow",
-  "funnel_3d",
   "sankey_flow",
 ];
 

@@ -15,9 +15,9 @@ import { STATE_LOOK } from "@/lib/stateLook";
 import { resolveVisualizationLayout } from "@/lib/visualization/layoutResolver";
 import { Connector, Reticle, TechLabel } from "../primitives";
 import { HealthCore, RadialGauge, Radar, Waveform } from "./vizRadial";
-import { BarChart3D, Heatmap3D, LineChart3D, Timeline3D } from "./vizCharts";
-import { Funnel3D, SankeyFlow } from "./vizFlow";
-import { Globe3D, Network3D, ParticleFlow } from "./vizSpatial";
+import { BarChart3D, LineChart3D, Timeline3D } from "./vizCharts";
+import { SankeyFlow } from "./vizFlow";
+import { Globe3D, Network3D } from "./vizSpatial";
 
 interface RendererProps {
   data: VizData;
@@ -36,12 +36,9 @@ const REGISTRY: Record<VisualizationType, ComponentType<RendererProps>> = {
   waveform: ({ ...rest }) => <Waveform {...rest} />,
   line_3d: ({ data, ...rest }) => <LineChart3D series={data.series} {...rest} />,
   bar_3d: ({ data, ...rest }) => <BarChart3D series={data.series} {...rest} />,
-  heatmap_3d: ({ data, ...rest }) => <Heatmap3D series={data.series} {...rest} />,
   timeline: ({ data, ...rest }) => <Timeline3D events={data.events} {...rest} />,
   network: ({ data, ...rest }) => <Network3D nodes={data.nodes} links={data.links} {...rest} />,
   globe: ({ data, ...rest }) => <Globe3D points={data.points} {...rest} />,
-  particle_flow: ({ ...rest }) => <ParticleFlow {...rest} />,
-  funnel_3d: ({ data, ...rest }) => <Funnel3D metrics={data.metrics} {...rest} />,
   sankey_flow: ({ data, ...rest }) => <SankeyFlow nodes={data.nodes} links={data.links} {...rest} />,
 };
 

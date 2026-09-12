@@ -28,10 +28,10 @@ test("normalize coerces non-finite metrics and drops bad series entries", () => 
 });
 
 test("normalize sanitizes theme colors and clamps scale", () => {
-  expect(normalizeVisualization({ type: "radar", theme: { color: "javascript:alert(1)" } }).theme?.color).toBeUndefined();
-  expect(normalizeVisualization({ type: "radar", theme: { color: "#38E8FF" } }).theme?.color).toBe("#38E8FF");
-  expect(normalizeVisualization({ type: "radar", scale: 99 }).scale).toBe(4);
-  expect(normalizeVisualization({ type: "radar", scale: -1 }).scale).toBe(0.25);
+  expect(normalizeVisualization({ type: "bar_3d", theme: { color: "javascript:alert(1)" } }).theme?.color).toBeUndefined();
+  expect(normalizeVisualization({ type: "bar_3d", theme: { color: "#38E8FF" } }).theme?.color).toBe("#38E8FF");
+  expect(normalizeVisualization({ type: "bar_3d", scale: 99 }).scale).toBe(4);
+  expect(normalizeVisualization({ type: "bar_3d", scale: -1 }).scale).toBe(0.25);
 });
 
 test("normalize drops out-of-range network links", () => {

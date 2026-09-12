@@ -20,23 +20,23 @@ test("keeps at most 3 visualizations, dropping the oldest", () => {
 test("new entry starts materializing while previous settle to active", () => {
   api.getState().addVisualization({ type: "radial_gauge", title: "A" });
   expect(api.getState().visualizations[0].lifecycle).toBe("materializing");
-  api.getState().addVisualization({ type: "radar", title: "B" });
+  api.getState().addVisualization({ type: "bar_3d", title: "B" });
   const vizs = api.getState().visualizations;
   expect(vizs[1].lifecycle).toBe("materializing");
   expect(vizs[0].lifecycle).toBe("active");
 });
 
 test("settleVisualization flips materializing to active", () => {
-  api.getState().addVisualization({ type: "radar", title: "B" });
+  api.getState().addVisualization({ type: "bar_3d", title: "B" });
   const id = api.getState().visualizations[0].id;
   api.getState().settleVisualization(id);
   expect(api.getState().visualizations[0].lifecycle).toBe("active");
 });
 
 test("a real viz replaces earlier previews instead of appending", () => {
-  api.getState().addVisualization({ type: "radar", title: "PREVIEW" }, { preview: true });
+  api.getState().addVisualization({ type: "bar_3d", title: "PREVIEW" }, { preview: true });
   expect(api.getState().visualizations.length).toBe(1);
-  api.getState().addVisualization({ type: "radar", title: "REAL" });
+  api.getState().addVisualization({ type: "bar_3d", title: "REAL" });
   const vizs = api.getState().visualizations;
   expect(vizs.length).toBe(1);
   expect(vizs[0].spec.title).toBe("REAL");
@@ -45,7 +45,7 @@ test("a real viz replaces earlier previews instead of appending", () => {
 
 test("a newer preview replaces the older one without evicting real entries", () => {
   api.getState().addVisualization({ type: "radial_gauge", title: "A" });
-  api.getState().addVisualization({ type: "radar", title: "B" });
+  api.getState().addVisualization({ type: "bar_3d", title: "B" });
   api.getState().addVisualization({ type: "globe", title: "P1" }, { preview: true });
   api.getState().addVisualization({ type: "timeline", title: "P2" }, { preview: true });
   const titles = api.getState().visualizations.map((e) => e.spec.title);
@@ -54,7 +54,7 @@ test("a newer preview replaces the older one without evicting real entries", () 
 
 test("settle by stable id survives cap eviction (stale index must not settle the wrong entry)", () => {
   api.getState().addVisualization({ type: "radial_gauge", title: "A" });
-  api.getState().addVisualization({ type: "radar", title: "B" });
+  api.getState().addVisualization({ type: "bar_3d", title: "B" });
   api.getState().addVisualization({ type: "globe", title: "C" });
   const idB = api.getState().visualizations.find((e) => e.spec.title === "B")!.id;
   const idC = api.getState().visualizations.find((e) => e.spec.title === "C")!.id;

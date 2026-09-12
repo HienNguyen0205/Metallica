@@ -5,7 +5,6 @@ import { useFrame } from "@react-three/fiber";
 import { DoubleSide, type Group } from "three";
 import type { GeoPoint, NodeDatum } from "@/lib/store";
 import { HairLine, TechLabel, useMaterialize } from "../primitives";
-import CoreParticles from "../core/CoreParticles";
 
 export interface SpatialProps {
   nodes?: NodeDatum[];
@@ -162,19 +161,6 @@ export function Globe3D({ points = DEFAULT_GEO, color, accent }: SpatialProps) {
       <mesh rotation={[Math.PI / 2, 0, 0]}>
         <ringGeometry args={[R + 0.22, R + 0.235, 96]} />
         <meshBasicMaterial color={color} transparent opacity={0.3} side={DoubleSide} depthWrite={false} />
-      </mesh>
-    </group>
-  );
-}
-
-/** §6 traffic → particle flow streaming outward from the core. */
-export function ParticleFlow({ color, accent }: SpatialProps) {
-  return (
-    <group>
-      <CoreParticles count={1400} color={accent} intensity={2.2} mode="flow" innerRadius={0} span={3.4} />
-      <mesh rotation={[Math.PI / 2.15, 0, 0]}>
-        <ringGeometry args={[3.35, 3.37, 96]} />
-        <meshBasicMaterial color={color} transparent opacity={0.25} side={DoubleSide} depthWrite={false} />
       </mesh>
     </group>
   );

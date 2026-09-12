@@ -31,13 +31,13 @@ test("explicitly near-center position still docks (boundary inclusive)", () => {
 test("multi-viz fan decides by the latest entry", () => {
   // latest fans out to x≈-2.25 — off-center, core stays for the fan composition
   const fanned = [
-    entry({ type: "radar" }),
-    entry({ type: "radar" }),
-    entry({ type: "radar" }),
+    entry({ type: "network" }),
+    entry({ type: "network" }),
+    entry({ type: "network" }),
   ];
   expect(shouldDockCore(fanned)).toBe(false);
   // latest fans to the top/bottom of the center column — core still yields
-  const column = [entry({ type: "radar" }), entry({ type: "radar" })];
+  const column = [entry({ type: "network" }), entry({ type: "network" })];
   expect(shouldDockCore(column)).toBe(true);
 });
 

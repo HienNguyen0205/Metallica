@@ -159,8 +159,8 @@ schema: `contracts/events.v1.json`.
 `vizPlanner.ts` is pure and deterministic:
 
 - `planVisualization(query)` — ordered rule table, most specific first.
-  Example ordering trap covered by tests: *"show me the network topology"* must
-  yield `network`, but *"how is network traffic"* must yield `particle_flow`.
+  Example ordering trap covered by tests: *"compare requests per service"*
+  must yield `bar_3d` (distribution), never the `network` topology rule.
 - `sampleSpec(type)` — canonical demo spec per type (used by the dev VizRail).
 - `summarize(spec)` — one canned sentence per type for the speaking phase.
 
@@ -175,12 +175,9 @@ const REGISTRY: Record<VisualizationType, ComponentType<VizProps>> = {
   network: Network3D,
   line_3d: LineChart3D,
   bar_3d: BarChart3D,
-  particle_flow: ParticleFlow,
   globe: Globe3D,
   timeline: Timeline3D,
-  heatmap_3d: Heatmap3D,
-  funnel_3d: Funnel3D,
-  sankey_flow: SankeyFlow, // 13 types total
+  sankey_flow: SankeyFlow, // 10 types total
 };
 ```
 

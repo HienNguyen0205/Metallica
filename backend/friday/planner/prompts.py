@@ -12,8 +12,6 @@ supply the data it renders:
 - timeline — an ordered sequence of events (use `events`, `at` from 0 to 1)
 - network — topology, dependencies, service graphs (use `nodes` and `links`)
 - globe — geography, regions, edge locations (use `points`)
-- particle_flow — traffic, throughput, streaming volume
-- heatmap_3d — density, hotspots, correlation grids (use `series`, two or more entries)
 
 Rules:
 - Fill only the data fields the chosen type reads. Omit the rest.

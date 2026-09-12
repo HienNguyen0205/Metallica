@@ -12,26 +12,8 @@ interface Rule {
  * An LLM planner can later be layered in front of these rules; the output
  * contract (VisualizationSpec) stays the same.
  */
-// Order matters: the most specific rule wins, so "network topology" reaches
-// the graph rule instead of being swallowed by the traffic rule.
+// Order matters: the most specific rule wins.
 const RULES: Rule[] = [
-  {
-    type: "funnel_3d",
-    match: /funnel|conversion|pipeline stages|drop.?off|signup flow/i,
-    build: () => ({
-      type: "funnel_3d",
-      title: "CONVERSION FUNNEL",
-      animation: "materialize",
-      data: {
-        metrics: [
-          { label: "VISIT", value: 100 },
-          { label: "SIGNUP", value: 62 },
-          { label: "ACTIVATE", value: 44 },
-          { label: "PAY", value: 27 },
-        ],
-      },
-    }),
-  },
   {
     type: "sankey_flow",
     match: /sankey|flow between|from .* to .* through|energy flow|budget flow/i,
@@ -72,36 +54,8 @@ const RULES: Rule[] = [
     }),
   },
   {
-    type: "particle_flow",
-    match: /traffic|throughput|bandwidth|packet|network flow|data flow|\bflow\b|\bnetwork\b/i,
-    build: () => ({
-      type: "particle_flow",
-      title: "NETWORK FLOW",
-      animation: "materialize",
-      data: { rate: 820 },
-    }),
-  },
-  {
-    type: "heatmap_3d",
-    // before globe: "heatmap" contains the substring "map"
-    match: /heatmap|hotspot|density|correlation/i,
-    build: () => ({
-      type: "heatmap_3d",
-      title: "DENSITY HEATMAP",
-      animation: "materialize",
-      data: {
-        series: [
-          { label: "A", points: [34, 58, 22, 71, 47, 63, 39] },
-          { label: "B", points: [12, 44, 66, 28, 81, 52, 37] },
-          { label: "C", points: [61, 25, 48, 73, 33, 57, 69] },
-        ],
-      },
-    }),
-  },
-  {
     type: "globe",
-    // "map" is word-boundaried: without it "heatmap" matches the globe rule.
-    // The heatmap rule above still wins on order; this is the second lock.
+    // "map" is word-boundaried so "heatmap" (now unmapped) cannot reach it.
     match: /where|region|location|global|\bmap\b|globe|country|latency by/i,
     build: () => ({
       type: "globe",
@@ -237,9 +191,6 @@ const SAMPLES: Record<VisualizationType, () => VisualizationSpec> = {
   timeline: () => RULE_BY_TYPE.timeline.build(),
   network: () => RULE_BY_TYPE.network.build(),
   globe: () => RULE_BY_TYPE.globe.build(),
-  particle_flow: () => RULE_BY_TYPE.particle_flow.build(),
-  heatmap_3d: () => RULE_BY_TYPE.heatmap_3d.build(),
-  funnel_3d: () => RULE_BY_TYPE.funnel_3d.build(),
   sankey_flow: () => RULE_BY_TYPE.sankey_flow.build(),
 };
 
@@ -250,8 +201,6 @@ export function sampleSpec(type: VisualizationType): VisualizationSpec {
 /** Short spoken-style answer to accompany the hologram (§10 — secondary). */
 export function summarize(spec: VisualizationSpec): string {
   switch (spec.type) {
-    case "particle_flow":
-      return "Network throughput steady at 820 megabits.";
     case "network":
       return "Six services online. No broken dependencies.";
     case "globe":
@@ -268,10 +217,6 @@ export function summarize(spec: VisualizationSpec): string {
       return "System integrity at 87 percent.";
     case "waveform":
       return "Audio channel open.";
-    case "heatmap_3d":
-      return "Hotspots concentrated in two zones.";
-    case "funnel_3d":
-      return "Funnel drops hardest at activate — 44 of 100 visits remain.";
     case "sankey_flow":
       return "Three flows live. The largest runs ads to signup.";
     default:

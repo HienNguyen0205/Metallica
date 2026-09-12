@@ -75,10 +75,11 @@ def test_visualization_types_match_canonical_schema() -> None:
     assert schema["required"] == ["type"]
     be_types = set(get_args(VisualizationType))
     assert be_types <= set(schema["properties"]["type"]["enum"]), be_types
-    # FE/BE drift fix: the funnel/sankey renderers exist in the FE registry,
-    # so the canonical schema and BE model must both cover them.
-    assert {"funnel_3d", "sankey_flow"} <= be_types
-    assert {"funnel_3d", "sankey_flow"} <= set(schema["properties"]["type"]["enum"])
+    # radar was restored to the registry while funnel_3d was removed: both
+    # sides must agree exactly on the trimmed universe.
+    assert "radar" in be_types and "funnel_3d" not in be_types
+    assert "radar" in schema["properties"]["type"]["enum"]
+    assert "funnel_3d" not in schema["properties"]["type"]["enum"]
 
 
 def test_run_status_matches_canonical_schema() -> None:
