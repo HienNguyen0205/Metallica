@@ -1,6 +1,10 @@
 import { test, expect } from "@playwright/test";
 import {
-  dockPosition,
+  CORE_ANCHOR_NDC,
+  CORE_ANCHOR_DISTANCE,
+  CORE_HIDE_NEAR,
+  CORE_HIDE_RELEASE,
+  decideCoreHidden,
   shouldDockCore,
 } from "@/lib/visualization/layoutResolver";
 import type { VisualizationSpec } from "@/lib/visualization/types";
@@ -41,21 +45,36 @@ test("multi-viz fan decides by the latest entry", () => {
   expect(shouldDockCore(column)).toBe(true);
 });
 
-test("dock target hugs the screen corner inside both edges", () => {
-  // receded scale 0.4 on desktop 9.0 x 5.6: extent 1.1, margin 0.35
-  const [x, y, z] = dockPosition(4.5, 2.8, 0.4);
-  expect(x).toBeCloseTo(-3.05, 5);
-  expect(y).toBeCloseTo(-1.35, 5);
-  expect(z).toBe(0);
+test("anchor NDC is in the bottom-left quadrant", () => {
+  // Unprojecting this NDC each frame pins the core to a fixed pixel corner, so
+  // it no longer drifts when the camera dollies/tilts (the zoom bug).
+  expect(CORE_ANCHOR_NDC[0]).toBeLessThan(0);
+  expect(CORE_ANCHOR_NDC[1]).toBeLessThan(0);
+  // Inside the frustum, with margin from the very edge.
+  expect(CORE_ANCHOR_NDC[0]).toBeGreaterThan(-1);
+  expect(CORE_ANCHOR_NDC[1]).toBeGreaterThan(-1);
 });
 
-test("ultrawide viewports dock further out", () => {
-  const [x] = dockPosition(8, 2.8, 0.4);
-  expect(x).toBeLessThan(-3.05);
+test("anchor sits a finite positive distance in front of the camera", () => {
+  expect(CORE_ANCHOR_DISTANCE).toBeGreaterThan(0);
+  expect(Number.isFinite(CORE_ANCHOR_DISTANCE)).toBe(true);
 });
 
-test("too-small frames center instead of clipping", () => {
-  expect(dockPosition(1.3, 2.8, 0.4)).toEqual([0, 0, 0]);
-  expect(dockPosition(4.5, 1.0, 0.4)).toEqual([0, 0, 0]);
-  expect(dockPosition(NaN, 2.8, 0.4)).toEqual([0, 0, 0]);
+test("core hides near the viz and releases only past a wider distance (hysteresis)", () => {
+  // Idle framing keeps it visible; a zoom-in close to the content hides it so
+  // the corner widget never overlaps the hologram being inspected.
+  expect(decideCoreHidden(7.2, false)).toBe(false);
+  expect(decideCoreHidden(5.5, false)).toBe(true); // crossed the near gate
+  // Once hidden, it must not flick back until past the release gate.
+  expect(decideCoreHidden(5.9, true)).toBe(true);
+  expect(decideCoreHidden(CORE_HIDE_RELEASE + 0.1, true)).toBe(false);
+});
+
+test("hide gate is strictly inside the release gate", () => {
+  expect(CORE_HIDE_NEAR).toBeLessThan(CORE_HIDE_RELEASE);
+});
+
+test("decideCoreHidden is stable on a non-finite distance", () => {
+  expect(decideCoreHidden(NaN, false)).toBe(false);
+  expect(decideCoreHidden(NaN, true)).toBe(true);
 });

@@ -2,9 +2,15 @@
 
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
-import { PerspectiveCamera, type Group, type Mesh } from "three";
+import { Vector3, type Group, type Mesh } from "three";
 import { useFridayStore } from "@/lib/store";
-import { dockPosition, shouldDockCore } from "@/lib/visualization/layoutResolver";
+import {
+  CORE_ANCHOR_NDC,
+  CORE_ANCHOR_DISTANCE,
+  decideCoreHidden,
+  shouldDockCore,
+} from "@/lib/visualization/layoutResolver";
+import { GLOBE_CENTER } from "../visualization/globe/useGlobeInteraction";
 import { STATE_LOOK } from "@/lib/stateLook";
 import { readMicLevels, utteranceEnvelope } from "@/lib/audioBus";
 import { speakProgress, ttsLevels } from "@/lib/voice";
@@ -15,11 +21,14 @@ import { TechLabel } from "../primitives";
 import { createCoreMaterial, createHologramMaterial } from "../effects/materials";
 
 
-/** How far the core withdraws behind an active visualization. */
-const VIZ_SCALE = 0.4;
+/** How far the core withdraws behind an active visualization (docked corner size). */
+const VIZ_SCALE = 0.3;
 
 /** Undocked home of the core group: dead center. */
 const ORIGIN: [number, number, number] = [0, 0, 0];
+const ORIGIN_V = new Vector3(0, 0, 0);
+/** Scratch vector for the per-frame unproject — never allocated in the loop. */
+const anchorTmp = new Vector3();
 
 /**
  * §2 — the central hologram. Eight stacked layers so it reads as a complex
@@ -54,6 +63,8 @@ export default function FridayCore({
    */
   const dockTarget = useRef<[number, number, number]>([0, 0, 0]);
   const dockPos = useRef<[number, number, number]>([0, 0, 0]);
+  // Whether the core is currently auto-hidden (camera too close to the viz).
+  const hidden = useRef(false);
   // scale alone is not enough: bloom on the emissive core bleeds well past its
   // silhouette, so the glow has to come down with it.
   const look = hasViz
@@ -127,21 +138,36 @@ export default function FridayCore({
     }
 
     if (groupRef.current) {
-      // Corner-anchored dock from measured camera geometry (see dockTarget).
-      const { camera: cam, size: sz } = state;
-      if (cam instanceof PerspectiveCamera && sz.width > 0 && sz.height > 0) {
-        const dist = Math.max(0.001, cam.position.length());
-        const halfH = Math.tan((cam.fov * Math.PI) / 360) * dist;
-        const halfW = halfH * (sz.width / sz.height);
-        dockTarget.current = dockPosition(halfW, halfH, VIZ_SCALE);
-        // Push the docked core in front of the globe's front hemisphere
-        // (center −0.6z + radius 1.8 ≈ 1.2z) so the planet never occludes it.
-        if (docked) dockTarget.current[2] = 1.5;
+      const { camera: cam } = state;
+      // Pixel-lock the docked core: unproject the fixed bottom-left NDC and
+      // step out a constant distance, so it stays glued to that corner through
+      // any camera dolly/tilt (the old world-unit estimate drifted on zoom).
+      if (docked) {
+        anchorTmp
+          .set(CORE_ANCHOR_NDC[0], CORE_ANCHOR_NDC[1], 0.5)
+          .unproject(cam)
+          .sub(cam.position)
+          .normalize()
+          .multiplyScalar(CORE_ANCHOR_DISTANCE)
+          .add(cam.position);
+        dockTarget.current = [anchorTmp.x, anchorTmp.y, anchorTmp.z];
+      } else {
+        dockTarget.current = ORIGIN;
       }
+
+      // Auto-hide when the camera is close to whatever it orbits (globe center
+      // or origin) — that's when the corner widget would overlap the hologram.
+      const center =
+        useFridayStore.getState().globeCameraHolders > 0 ? GLOBE_CENTER : ORIGIN_V;
+      hidden.current = decideCoreHidden(cam.position.distanceTo(center), hidden.current);
+
       // eased, so handing the stage over reads as a move, not a cut
       const k = Math.min(1, delta * 2.2);
-      recede.current += ((hasViz ? VIZ_SCALE : 1) - recede.current) * k;
-      groupRef.current.scale.setScalar(recede.current);
+      const targetScale = docked && hidden.current ? 0 : hasViz ? VIZ_SCALE : 1;
+      recede.current += (targetScale - recede.current) * k;
+      const shown = recede.current > 0.02;
+      groupRef.current.visible = shown;
+      if (shown) groupRef.current.scale.setScalar(recede.current);
 
       const target = docked ? dockTarget.current : ORIGIN;
       dockPos.current[0] += (target[0] - dockPos.current[0]) * k;

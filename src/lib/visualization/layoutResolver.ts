@@ -61,32 +61,37 @@ export function resolveVisualizationLayout(
 }
 
 /**
- * World half-extent of the core assembly (outer arcs) at scale 1.
+ * The docked core is anchored in *screen* space, not world space: each frame
+ * the corner is found by unprojecting this NDC (bottom-left, with margin) and
+ * stepping a fixed distance in front of the camera. World-unit math
+ * (`tan(fov) * distance`) drifts when the camera dollies or tilts — the globe
+ * zoom bug — whereas a pixel anchor stays put through any camera move, and the
+ * fixed distance keeps the core's apparent size constant, HUD-like.
  */
-export const CORE_EXTENT = 2.75;
+export const CORE_ANCHOR_NDC: readonly [number, number] = [-0.8, -0.62];
+export const CORE_ANCHOR_DISTANCE = 7.2;
 
 /**
- * Dock target for a receded core, anchored to the screen's bottom-left
- * corner — not a fixed offset: halfW/halfH are the viewport half-extents
- * (useThree viewport.width/2, viewport.height/2), `scale` is the core's
- * receded scale (extent = CORE_EXTENT * scale), and the dock sits one
- * assembly plus one margin inside both edges. Too small a frame centers
- * instead of clipping.
+ * Auto-hide the core once the camera is close enough that the corner widget
+ * would overlap the hologram being inspected, and only bring it back once the
+ * camera has clearly pulled away (hysteresis → no edge flicker). Thresholds sit
+ * between the globe's focus dolly (≈4.9) / min (4.4) and every state's idle
+ * framing (≥6.15), so normal viewing never trips it.
  */
-export function dockPosition(
-  halfW: number,
-  halfH: number,
-  scale: number,
-  margin = 0.35,
-): [number, number, number] {
-  if (!Number.isFinite(halfW) || !Number.isFinite(halfH) || halfW <= 0 || halfH <= 0) {
-    return [0, 0, 0];
-  }
-  const e = CORE_EXTENT * scale;
-  const x = halfW - e - margin;
-  const y = halfH - e - margin;
-  if (x <= 0 || y <= 0) return [0, 0, 0];
-  return [-x, -y, 0];
+export const CORE_HIDE_NEAR = 5.6;
+export const CORE_HIDE_RELEASE = 6.2;
+
+export function decideCoreHidden(
+  distance: number,
+  currentlyHidden: boolean,
+  near = CORE_HIDE_NEAR,
+  release = CORE_HIDE_RELEASE,
+): boolean {
+  if (!Number.isFinite(distance)) return currentlyHidden;
+  // Not yet hidden → cross the near gate to hide. Already hidden → stay hidden
+  // until clearly past the (wider) release gate. The gap between the two is the
+  // hysteresis band that stops the edge from flickering.
+  return currentlyHidden ? distance <= release : distance < near;
 }
 
 /** Half-extent of the center-stage box: a viz inside it owns the center. */
