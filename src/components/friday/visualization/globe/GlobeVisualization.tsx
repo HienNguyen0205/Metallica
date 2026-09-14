@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { DoubleSide } from "three";
 import { useFridayStore, type GeoPoint, type GlobeRoute } from "@/lib/store";
+import { GLOBE_DEMO_POINTS, GLOBE_DEMO_ROUTES } from "@/lib/visualization/globeDemo";
 import { STATE_LOOK } from "@/lib/stateLook";
 import { TechLabel, useMaterialize } from "../../primitives";
 import { GlobeEarth } from "./GlobeEarth";
@@ -18,13 +19,6 @@ export interface GlobeProps {
   accent: string;
 }
 
-const DEFAULT_GEO: GeoPoint[] = [
-  { id: "HAN", lat: 21.03, lon: 105.85, label: "HAN" },
-  { id: "SIN", lat: 1.35, lon: 103.82, label: "SIN" },
-  { id: "SFO", lat: 37.77, lon: -122.42, label: "SFO" },
-  { id: "FRA", lat: 50.11, lon: 8.68, label: "FRA" },
-];
-
 const R = 1.8;
 
 /**
@@ -35,10 +29,12 @@ const R = 1.8;
  * Rotation/zoom/focus turn the planet group itself — the camera rig keeps
  * sole ownership of the camera, so the two never fight (§60).
  */
-export function Globe3D({ points, routes = [], color }: GlobeProps) {
+export function Globe3D({ points, routes, color }: GlobeProps) {
   // An explicitly empty point list is a real empty state (§72) — the demo
-  // fallback only applies when no data was provided at all.
-  const data = points ?? DEFAULT_GEO;
+  // fallback only applies when no data was provided at all. Demo content is
+  // single-sourced in `lib/visualization/globeDemo` (shared with the planner).
+  const data = points ?? GLOBE_DEMO_POINTS;
+  const inputRoutes = routes ?? GLOBE_DEMO_ROUTES;
   const [reduced, setReduced] = useState(false);
   const qualityPref = useFridayStore((s) => s.quality);
   const focus = useFridayStore((s) => s.focus);
@@ -88,7 +84,7 @@ export function Globe3D({ points, routes = [], color }: GlobeProps) {
   const matSurface = useMaterialize(0.8, true, 0.25);
   const matData = useMaterialize(0.8, true, 0.85);
 
-  const resolvedRoutes = routes.filter((r) => r && (typeof r.from === "string" || typeof r.from === "number"));
+  const resolvedRoutes = inputRoutes.filter((r) => r && (typeof r.from === "string" || typeof r.from === "number"));
 
   return (
     <group position={GLOBE_CENTER}>

@@ -13,6 +13,7 @@ import {
   markerKey,
   markerLabel,
   markerRadius,
+  markerWhy,
   normalizeMetric,
   statusOf,
 } from "./geo";
@@ -55,12 +56,24 @@ function MarkerNode({
     () => latLonToVector3(point.lat, point.lon, radius + 0.015),
     [point.lat, point.lon, radius],
   );
+  // Labels are lifted off the surface along the outward radial direction
+  // (not world ±Y): a ±Y offset drove front-hemisphere markers' text back
+  // into the sphere, where depth-test clipped it — the "sinking into Earth"
+  // look. Pushing along the surface normal clears the limb; the ±Y term only
+  // separates the two lines on screen (the spin frame's Y is the rotation
+  // axis, always vertical to the camera). Held outside the pulse/scale group
+  // so labels neither wobble nor re-enter the surface when a marker grows.
+  const labelBase = useMemo(() => {
+    const d = new Vector3(pos[0], pos[1], pos[2]).normalize().multiplyScalar(0.28);
+    return [d.x, d.y, d.z] as const;
+  }, [pos]);
   const label = markerLabel(point, index);
   const status = statusOf(point);
   const tint = point.color ?? STATUS_COLORS[status];
   const core = Math.max(0.011, markerRadius(normalizeMetric(point.value ?? 0)));
   const alert = status === "warning" || status === "critical";
   const detail = useMemo(() => markerDetail(point), [point]);
+  const why = useMemo(() => markerWhy(point), [point]);
   const opacity = dimmed ? 0.25 : 1;
 
   useFrame(({ clock }) => {
@@ -142,18 +155,28 @@ function MarkerNode({
             toneMapped={false}
           />
         </mesh>
-        {(showLabel || hovered || selected) && (
-          <TechLabel
-            position={[0, core + 0.16, 0]}
-            color={selected ? "#eafcff" : tint}
-            size={0.07}
-            opacity={opacity}
-            decode
-          >
-            {label}
-          </TechLabel>
-        )}
       </group>
+      {(showLabel || hovered || selected) && (
+        <TechLabel
+          position={[labelBase[0], labelBase[1] + core + 0.16, labelBase[2]]}
+          color={selected ? "#eafcff" : tint}
+          size={0.07}
+          opacity={opacity}
+          decode
+        >
+          {label}
+        </TechLabel>
+      )}
+      {(hovered || selected) && why && (
+        <TechLabel
+          position={[labelBase[0], labelBase[1] - (core + 0.16), labelBase[2]]}
+          color={tint}
+          size={0.05}
+          opacity={opacity}
+        >
+          {why}
+        </TechLabel>
+      )}
     </group>
   );
 }

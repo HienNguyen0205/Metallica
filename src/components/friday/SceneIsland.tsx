@@ -5,6 +5,7 @@ import dynamic from "next/dynamic";
 import { useSearchParams } from "next/navigation";
 import { useFridayStore } from "@/lib/store";
 import { sampleSpec } from "@/lib/vizPlanner";
+import { toAccessibleSummary } from "@/components/friday/visualization/globe/geo";
 import { getApiBase } from "@/lib/api/session";
 import type { VisualizationType } from "@/lib/visualization/types";
 
@@ -26,6 +27,17 @@ function VizDeepLink() {
   return null;
 }
 
+/** Screen-reader mirror of the canvas globe — WebGL is never parsed by AT. */
+function GlobeA11y() {
+  const globeData = useFridayStore((s) => s.visualizations.find((e) => e.spec.type === "globe")?.spec.data);
+  if (!globeData) return null;
+  return (
+    <p className="sr-only" role="status">
+      {toAccessibleSummary(globeData)}
+    </p>
+  );
+}
+
 export default function SceneIsland() {
   useEffect(() => {
     let cancelled = false;
@@ -41,6 +53,7 @@ export default function SceneIsland() {
       <Suspense fallback={null}>
         <VizDeepLink />
       </Suspense>
+      <GlobeA11y />
       <Scene />
     </>
   );
