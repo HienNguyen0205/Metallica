@@ -1,11 +1,11 @@
 "use client";
 
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import { useFrame } from "@react-three/fiber";
 import { Billboard } from "@react-three/drei";
 import { DoubleSide, type Group } from "three";
-import type { MetricDatum } from "@/lib/store";
-import { ArcSegments, Connector, TechLabel, TickDial, useMaterialize } from "../primitives";
+import { useFridayStore, type MetricDatum } from "@/lib/store";
+import { ArcSegments, TechLabel, TickDial, useMaterialize } from "../primitives";
 import WaveformRing from "../core/WaveformRing";
 
 export interface VizProps {
@@ -35,6 +35,34 @@ export function gaugeNodeScale(count: number): number {
   return count > STAGGER_FROM ? Math.max(0.45, STAGGER_FROM / count) : 1;
 }
 
+export interface GaugeVisual {
+  /** scale multiplier applied on top of the count-driven node size. */
+  emphasis: number;
+  /** sibling fades when another gauge holds focus. */
+  dimmed: boolean;
+  /** hover or selection: brighten + enlarge. */
+  highlighted: boolean;
+}
+
+/**
+ * Pure style decision for one gauge node, kept out of the frame loop so it is
+ * testable. Mirrors the globe-marker language: hover *or* selection enlarges +
+ * highlights; only a *selection* dims the unselected siblings (a bare hover must
+ * not fade the rest of the row).
+ */
+export function gaugeVisual({
+  hovered = false,
+  selected = false,
+  anySelected = false,
+}: {
+  hovered?: boolean;
+  selected?: boolean;
+  anySelected?: boolean;
+} = {}): GaugeVisual {
+  const highlighted = selected || hovered;
+  return { emphasis: highlighted ? 1.15 : 1, dimmed: anySelected && !selected, highlighted };
+}
+
 function fanPosition(index: number, count: number): [number, number, number] {  const t = count < 2 ? 0.5 : index / (count - 1);
   const a = (t - 0.5) * FAN_SPAN;
   const stagger = count >= STAGGER_FROM && index % 2 === 1 ? -0.62 : 0;
@@ -47,47 +75,69 @@ function fanPosition(index: number, count: number): [number, number, number] {  
   ];
 }
 
-/** One metric as a segmented gauge node orbiting the core, wired back to it. */
+/** One metric as a segmented gauge node fanned across the frame. */
 function MetricNode({
   index,
   count,
   metric,
   color,
+  selected,
+  anySelected,
 }: {
   index: number;
   count: number;
   metric: MetricDatum;
   color: string;
+  selected: boolean;
+  anySelected: boolean;
 }) {
   const [x, y, z] = fanPosition(index, count);
   // Dynamic density: past a rowful the nodes shrink instead of colliding —
   // the count comes from the data, never from a fixed slot plan.
   const s = gaugeNodeScale(count);
+  const [hovered, setHovered] = useState(false);
+  const vis = gaugeVisual({ hovered, selected, anySelected });
 
   const groupRef = useMaterialize(0.7, true, index * 0.18);
   const bobRef = useRef<Group>(null);
+  const emphasis = useRef(1);
   const pct = Math.max(0, Math.min(1, metric.value / 100));
 
-  useFrame(() => {
-    if (!bobRef.current) return;
-    bobRef.current.position.y = Math.sin(performance.now() * 0.001 + index) * 0.05;
+  useFrame((_, delta) => {
+    const bob = bobRef.current;
+    if (!bob) return;
+    bob.position.y = Math.sin(performance.now() * 0.001 + index) * 0.05;
+    emphasis.current += (vis.emphasis - emphasis.current) * Math.min(1, delta * 8);
+    bob.scale.setScalar(emphasis.current);
   });
+
+  const tint = vis.highlighted ? "#eafcff" : color;
+  const opacity = vis.dimmed ? 0.28 : 1;
 
   return (
     <group>
-      <Connector to={[x, y, z]} color={color} opacity={0.18} />
       <group position={[x, y, z]} scale={s}>
         <group ref={groupRef}>
           <group ref={bobRef}>
             <Billboard>
-              {/* drill-down hit area — invisible but raycastable */}
+              {/* drill-down hit area — invisible but raycastable; drives hover
+                  (local) and focus (shared DrillDown → store). */}
               <mesh
                 visible={false}
                 userData={{
                   viz: {
                     label: metric.label.toUpperCase(),
                     detail: `${Math.round(metric.value)}${metric.unit ?? ""}`,
+                    noHoverLabel: true,
                   },
+                }}
+                onPointerOver={() => {
+                  setHovered(true);
+                  document.body.style.cursor = "pointer";
+                }}
+                onPointerOut={() => {
+                  setHovered(false);
+                  document.body.style.cursor = "auto";
                 }}
               >
                 <circleGeometry args={[0.58, 20]} />
@@ -95,7 +145,7 @@ function MetricNode({
               {/* track */}
               <mesh>
                 <ringGeometry args={[0.34, 0.36, 64]} />
-                <meshBasicMaterial color={color} transparent opacity={0.14} side={DoubleSide} depthWrite={false} />
+                <meshBasicMaterial color={color} transparent opacity={vis.dimmed ? 0.05 : 0.14} side={DoubleSide} depthWrite={false} />
               </mesh>
               {/* segmented fill */}
               <ArcSegments
@@ -103,17 +153,17 @@ function MetricNode({
                 count={40}
                 thickness={0.026}
                 gap={0.35}
-                color={color}
-                opacity={0.9}
+                color={tint}
+                opacity={vis.dimmed ? 0.3 : 0.9}
                 fraction={pct}
                 start={Math.PI / 2}
                 span={-Math.PI * 2}
               />
-              <TickDial radius={0.46} count={36} color={color} opacity={0.25} length={0.032} />
-              <TechLabel position={[0, 0, 0]} size={0.15} color="#e5f6ff">
+              <TickDial radius={0.46} count={36} color={color} opacity={vis.dimmed ? 0.1 : 0.25} length={0.032} />
+              <TechLabel position={[0, 0, 0]} size={vis.highlighted ? 0.18 : 0.15} color={tint}>
                 {`${Math.round(metric.value)}${metric.unit ?? ""}`}
               </TechLabel>
-              <TechLabel position={[0, -0.62, 0]} size={0.082} color={color}>
+              <TechLabel position={[0, -0.62, 0]} size={0.082} color={color} opacity={opacity}>
                 {metric.label}
               </TechLabel>
             </Billboard>
@@ -126,10 +176,24 @@ function MetricNode({
 
 /** §6 percentage / multiple metrics → orbiting radial gauges. */
 export function RadialGauge({ metrics = [], color }: VizProps) {
+  // Focus is set by the shared DrillDown on click; match it back to these
+  // metrics by label so the selected node highlights and its siblings dim.
+  const focus = useFridayStore((s) => s.focus);
+  const focusedLabel = focus?.label ?? null;
+  const anySelected =
+    !!focusedLabel && metrics.some((m) => m.label.toUpperCase() === focusedLabel);
   return (
     <group>
       {metrics.map((m, i) => (
-        <MetricNode key={m.label} index={i} count={metrics.length} metric={m} color={color} />
+        <MetricNode
+          key={m.label}
+          index={i}
+          count={metrics.length}
+          metric={m}
+          color={color}
+          selected={focusedLabel === m.label.toUpperCase()}
+          anySelected={anySelected}
+        />
       ))}
     </group>
   );

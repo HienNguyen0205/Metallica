@@ -260,6 +260,8 @@ export interface GlobeTag {
   label: string;
   detail: string;
   globe?: boolean;
+  /** Element renders its own hover readout → suppress the generic hover label. */
+  noHoverLabel?: boolean;
 }
 
 /** True when the tag comes from a globe marker — never match on label strings. */

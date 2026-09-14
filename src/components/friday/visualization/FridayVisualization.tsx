@@ -47,6 +47,8 @@ export interface VizTag {
   label: string;
   detail: string;
   globe?: boolean;
+  /** Element renders its own hover readout → suppress the generic hover label. */
+  noHoverLabel?: boolean;
 }
 
 /**
@@ -140,7 +142,9 @@ function DrillDown({ enabled, children }: { enabled: boolean; children: ReactNod
     if (!enabled) return;
     const hit = resolveTag(e);
     if (hit) {
-      setHover(hit);
+      // Some elements (radial gauges) surface their own readout on hover —
+      // skip the generic one so they don't stack two labels.
+      if (!hit.tag.noHoverLabel) setHover(hit);
       document.body.style.cursor = "pointer";
     }
   };
