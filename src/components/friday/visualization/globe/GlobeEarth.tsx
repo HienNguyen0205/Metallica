@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo } from "react";
+import { useThree } from "@react-three/fiber";
 import { AdditiveBlending, BackSide, Color, Vector3 } from "three";
 import { MeshBasicNodeMaterial, MeshStandardNodeMaterial } from "three/webgpu";
 import {
@@ -198,8 +199,25 @@ export function GlobeEarth({
   detail: boolean;
 }) {
   // Real imagery when available, procedural while loading or on asset
-  // failure — the globe always renders something believable.
-  const textures = useEarthTextures(detail);
+  // failure — the globe always renders something believable. Anisotropy comes
+  // from the live renderer so near-limb albedo stays crisp on hardware that
+  // supports more than the old hard-coded 4 — but the API differs per backend:
+  // WebGPURenderer exposes `getMaxAnisotropy()` while WebGLRenderer exposes
+  // `capabilities.getMaxAnisotropy()`. Read whichever exists and default to 1
+  // (never a value above any device's sampler limit — WebGPU does NOT clamp
+  // maxAnisotropy, so over-requesting throws at sampler creation).
+  const maxAnisotropy = useThree((s) => {
+    const gl = s.gl as unknown as {
+      getMaxAnisotropy?: () => number;
+      capabilities?: { getMaxAnisotropy?: () => number };
+    };
+    try {
+      return gl.getMaxAnisotropy?.() ?? gl.capabilities?.getMaxAnisotropy?.() ?? 1;
+    } catch {
+      return 1;
+    }
+  });
+  const textures = useEarthTextures(detail, maxAnisotropy);
   return (
     <group>
       {textures ? (

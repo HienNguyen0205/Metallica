@@ -13,25 +13,25 @@ export interface EarthTextureSet {
 }
 
 const FILES = {
-  day: "/assets/globe/earth-day.jpg",
-  night: "/assets/globe/earth-night.jpg",
-  topology: "/assets/globe/earth-topology.png",
-  water: "/assets/globe/earth-water.png",
+  day: "/assets/globe/earth-day.webp",
+  night: "/assets/globe/earth-night.webp",
+  topology: "/assets/globe/earth-topology.webp",
+  water: "/assets/globe/earth-water.webp",
 } as const;
 
 // Module-level cache: GLOBE → BAR → GLOBE remounts reuse GPU uploads instead
 // of refetching. Shared textures are never disposed by individual mounts —
-/// max 4 entries, memory-stable by construction.
+// max 4 entries, memory-stable by construction.
 const textureCache = new Map<string, Texture>();
 const inflight = new Map<string, Promise<Texture>>();
 
-function loadUncached(url: string, srgb: boolean): Promise<Texture> {
+function loadUncached(url: string, srgb: boolean, anisotropy: number): Promise<Texture> {
   return new Promise((resolve, reject) => {
     new TextureLoader().load(
       url,
       (texture) => {
         if (srgb) texture.colorSpace = SRGBColorSpace;
-        texture.anisotropy = 4;
+        texture.anisotropy = anisotropy;
         resolve(texture);
       },
       undefined,
@@ -40,12 +40,12 @@ function loadUncached(url: string, srgb: boolean): Promise<Texture> {
   });
 }
 
-function cachedLoad(key: string, url: string, srgb: boolean): Promise<Texture> {
+function cachedLoad(key: string, url: string, srgb: boolean, anisotropy: number): Promise<Texture> {
   const hit = textureCache.get(key);
   if (hit) return Promise.resolve(hit);
   const pending = inflight.get(key);
   if (pending) return pending;
-  const p = loadUncached(url, srgb).then(
+  const p = loadUncached(url, srgb, anisotropy).then(
     (t) => {
       textureCache.set(key, t);
       inflight.delete(key);
@@ -69,8 +69,11 @@ function cachedLoad(key: string, url: string, srgb: boolean): Promise<Texture> {
  * missing topology/water still renders day/night; only a missing day falls
  * back to fully procedural (§71 of the globe guide).
  */
-export function useEarthTextures(detail: boolean): EarthTextureSet | null {
+export function useEarthTextures(detail: boolean, maxAnisotropy = 4): EarthTextureSet | null {
   const [set, setSet] = useState<EarthTextureSet | null>(null);
+  // Cap at 8: the perceptual gain from 16x near the limb is negligible while
+  // it multiplies texture sampling memory, and every GPU here supports ≥8.
+  const anisotropy = Math.min(8, Math.max(1, Math.floor(maxAnisotropy) || 1));
 
   useEffect(() => {
     let live = true;
@@ -86,7 +89,7 @@ export function useEarthTextures(detail: boolean): EarthTextureSet | null {
     ];
     // Shared cache makes remounts cheap: cached entries resolve
     // synchronously through the settled path below — no fetch, no flash.
-    Promise.allSettled(want.map(([key, srgb]) => cachedLoad(key, FILES[key], srgb))).then(
+    Promise.allSettled(want.map(([key, srgb]) => cachedLoad(key, FILES[key], srgb, anisotropy))).then(
       (results) => {
         if (!live) return;
         const byKey = new Map<string, Texture>();
@@ -117,7 +120,7 @@ export function useEarthTextures(detail: boolean): EarthTextureSet | null {
       // Clearing local state is unnecessary (unmount discards it); on
       // `detail` change the next effect sets the tier-appropriate set.
     };
-  }, [detail]);
+  }, [detail, anisotropy]);
 
   return set;
 }
