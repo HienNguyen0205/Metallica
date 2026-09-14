@@ -1,8 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useRef } from "react";
-import { useFrame } from "@react-three/fiber";
-import { AdditiveBlending, BackSide, Color, type Group } from "three";
+import { useEffect, useMemo } from "react";
+import { AdditiveBlending, BackSide, Color, Vector3 } from "three";
 import { MeshBasicNodeMaterial, MeshStandardNodeMaterial } from "three/webgpu";
 import {
   abs,
@@ -10,23 +9,27 @@ import {
   mix,
   mx_noise_float,
   normalView,
+  normalWorld,
   positionLocal,
   positionViewDirection,
   smoothstep,
-  time,
+  texture,
   uniform,
   vec3,
 } from "three/tsl";
+import { useEarthTextures, type EarthTextureSet } from "./earthTextures";
+import { SUN_DIRECTION } from "./geo";
 
 /**
- * Earth seen from space, rendered through FRIDAY's holographic system: blue
- * oceans with a sun glint, green-to-arid land by latitude, brown highlands,
- * sandy waterlines, ice caps, fresnel atmosphere, a thin cloud shell and the
- * legacy wireframe kept as a faint secondary layer (§50).
+ * Earth seen from space, rendered through FRIDAY's holographic system.
+ *
+ * Textured primary (Blue Marble day/night + water roughness + topology bump,
+ * see public/assets/globe/ASSETS.md) with a procedural fallback surface while
+ * loading or when assets fail. Fresnel atmosphere kept faint so the surface
+ * stays the hero; legacy wireframe kept as a faint secondary layer (§50).
  *
  * All materials are TSL node materials, so the WebGPU backend and the WebGL2
- * fallback render the same scene from the same source (§38). No binary
- * texture assets — the surface is procedural (see public/assets/globe/ASSETS.md).
+ * fallback render the same scene from the same source (§38).
  */
 
 /**
@@ -43,7 +46,12 @@ function useDisposable<T extends { dispose: () => void }>(material: T): T {
   return material;
 }
 
-function EarthSurface({ radius, segments }: { radius: number; segments: number }) {
+/**
+ * Procedural fallback surface — renders while the imagery set loads and
+ * stays permanently if any asset fails (§71). Deliberately simple: the
+ * textured surface below is the primary visual.
+ */
+function ProceduralEarthSurface({ radius, segments }: { radius: number; segments: number }) {
   const material = useMemo(() => {
     const mat = new MeshStandardNodeMaterial({ roughness: 0.9, metalness: 0.0 });
     // Unit-sphere coordinate so the continents stick to the surface while the
@@ -98,11 +106,50 @@ function EarthSurface({ radius, segments }: { radius: number; segments: number }
   );
 }
 
+/**
+ * Real Earth imagery surface (gap analysis P0): Blue Marble albedo, water
+ * mask driven roughness (wet ocean glints, land stays matte), topology bump,
+ * and a sun-direction-driven night-light blend on the dark side.
+ */
+function TexturedEarthSurface({
+  radius,
+  segments,
+  textures,
+}: {
+  radius: number;
+  segments: number;
+  textures: EarthTextureSet;
+}) {
+  const material = useMemo(() => {
+    const mat = new MeshStandardNodeMaterial({ roughness: 0.85, metalness: 0.0 });
+    mat.colorNode = texture(textures.day);
+    // Dedicated planetary sun: soft terminator, city lights only past it.
+    const sunDirection = uniform(new Vector3(SUN_DIRECTION[0], SUN_DIRECTION[1], SUN_DIRECTION[2]));
+    const dayAmount = smoothstep(float(-0.08), float(0.25), normalWorld.dot(sunDirection));
+    mat.emissiveNode = texture(textures.night).mul(float(1).sub(dayAmount)).mul(1.15);
+    mat.roughnessNode = textures.water
+      ? mix(float(0.9), float(0.32), texture(textures.water).r)
+      : float(0.8);
+    if (textures.topology) {
+      mat.bumpMap = textures.topology;
+      mat.bumpScale = 0.5;
+    }
+    return mat;
+  }, [textures]);
+  useDisposable(material);
+
+  return (
+    <mesh material={material}>
+      <sphereGeometry args={[radius, segments, segments]} />
+    </mesh>
+  );
+}
+
 function EarthWireframe({ radius, color }: { radius: number; color: string }) {
   return (
     <mesh scale={1.002}>
       <sphereGeometry args={[radius, 36, 24]} />
-      <meshBasicMaterial color={color} wireframe transparent opacity={0.08} depthWrite={false} toneMapped={false} />
+      <meshBasicMaterial color={color} wireframe transparent opacity={0.035} depthWrite={false} toneMapped={false} />
     </mesh>
   );
 }
@@ -121,7 +168,8 @@ function EarthAtmosphere({ radius, color }: { radius: number; color: string }) {
     });
     mat.colorNode = uColor;
     const facing = normalView.dot(positionViewDirection).clamp(0, 1);
-    mat.opacityNode = float(1).sub(facing).pow(3).mul(0.85);
+    // Kept closest to the silhouette — the surface is the hero now (§25).
+    mat.opacityNode = float(1).sub(facing).pow(3.5).mul(0.5);
     return { mat, uColor };
   }, []);
   useDisposable(material.mat);
@@ -137,56 +185,29 @@ function EarthAtmosphere({ radius, color }: { radius: number; color: string }) {
   );
 }
 
-function EarthClouds({ radius, reduced }: { radius: number; reduced: boolean }) {
-  const spin = useRef<Group>(null);
-  const material = useMemo(() => {
-    const mat = new MeshStandardNodeMaterial({
-      transparent: true,
-      roughness: 1,
-      metalness: 0,
-      depthWrite: false,
-    });
-    mat.colorNode = vec3(0.88, 0.92, 0.94);
-    // Drift is baked into the noise coordinate so the shell reads as
-    // atmospheric motion even before its slow rigid rotation is noticed.
-    const drift = reduced ? float(0) : time.mul(0.008);
-    const q = vec3(positionLocal.x.add(drift), positionLocal.y, positionLocal.z).div(radius).mul(3.4);
-    mat.opacityNode = smoothstep(0.58, 0.8, noise01(mx_noise_float(q))).mul(0.36);
-    return mat;
-  }, [radius, reduced]);
-  useDisposable(material);
-
-  useFrame((_, delta) => {
-    if (spin.current && !reduced) spin.current.rotation.y += delta * 0.012;
-  });
-
-  return (
-    <group ref={spin}>
-      <mesh material={material} scale={1.012}>
-        <sphereGeometry args={[radius, 48, 48]} />
-      </mesh>
-    </group>
-  );
-}
-
 export function GlobeEarth({
   radius,
   segments,
   color,
-  showClouds,
-  reduced,
+  detail,
 }: {
   radius: number;
   segments: number;
   color: string;
-  showClouds: boolean;
-  reduced: boolean;
+  /** Relief/specular detail maps — off on the low tier. */
+  detail: boolean;
 }) {
+  // Real imagery when available, procedural while loading or on asset
+  // failure — the globe always renders something believable.
+  const textures = useEarthTextures(detail);
   return (
     <group>
-      <EarthSurface radius={radius} segments={segments} />
+      {textures ? (
+        <TexturedEarthSurface radius={radius} segments={segments} textures={textures} />
+      ) : (
+        <ProceduralEarthSurface radius={radius} segments={segments} />
+      )}
       <EarthWireframe radius={radius} color={color} />
-      {showClouds && <EarthClouds radius={radius} reduced={reduced} />}
       <EarthAtmosphere radius={radius} color={color} />
     </group>
   );

@@ -65,8 +65,8 @@ test("metric normalization is log-scaled and bounded", () => {
   expect(big).toBeGreaterThan(small);
   // Linear would put 100k at 10x the max; log keeps it pinned at 1.
   expect(normalizeMetric(1e9)).toBe(1);
-  expect(markerRadius(0)).toBeCloseTo(0.018, 9);
-  expect(markerRadius(1)).toBeCloseTo(0.055, 9);
+  expect(markerRadius(0)).toBeCloseTo(0.01, 9);
+  expect(markerRadius(1)).toBeCloseTo(0.028, 9);
 });
 
 test("arcs keep endpoints and lift the apex off the surface", () => {
@@ -147,13 +147,13 @@ test("accessible summary covers empty and populated globes", () => {
   expect(s).toContain("TYO warning, 121 ms latency");
 });
 
-test("quality resolver degrades clouds and particles first", () => {
+test("quality resolver degrades particles and post work first", () => {
   const high = resolveGlobeQuality({ preference: "high", systemReduced: false });
   expect(high.quality).toBe("high");
-  expect(high.clouds).toBe(true);
+  expect(high.postBloom).toBe(true);
   const low = resolveGlobeQuality({ preference: "low", systemReduced: false });
   expect(low.quality).toBe("low");
-  expect(low.clouds).toBe(false);
+  expect(low.postBloom).toBe(false);
   expect(low.particleScale).toBeLessThan(high.particleScale);
   const reduced = resolveGlobeQuality({ preference: "high", systemReduced: true });
   expect(reduced.quality).toBe("low");

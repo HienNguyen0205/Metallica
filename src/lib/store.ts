@@ -138,6 +138,15 @@ export interface FridayStore {
   setRenderBackend: (backend: RenderBackend) => void;
   quality: RenderQuality;
   setQuality: (quality: RenderQuality) => void;
+  /**
+   * Camera ownership (§60/§16 of the globe docs). The cinematic CameraRig owns
+   * the camera for normal visualizations; an active GLOBE takes over for
+   * geographic navigation (orbit distance/tilt/focus dolly). Ref-counted so
+   * two globes on stage cannot hand the camera back early.
+   */
+  globeCameraHolders: number;
+  acquireGlobeCamera: () => void;
+  releaseGlobeCamera: () => void;
   /** Speech-recognition language. Hydrated from localStorage in the initializer, survives reset. */
   lang: SupportedLang;
   setLang: (lang: SupportedLang) => void;
@@ -226,6 +235,10 @@ export const useFridayStore = create<FridayStore>((set, get) => ({
   setRenderBackend: (renderBackend) => set({ renderBackend }),
   quality: "auto",
   setQuality: (quality) => set({ quality }),
+  globeCameraHolders: 0,
+  acquireGlobeCamera: () => set((s) => ({ globeCameraHolders: s.globeCameraHolders + 1 })),
+  releaseGlobeCamera: () =>
+    set((s) => ({ globeCameraHolders: Math.max(0, s.globeCameraHolders - 1) })),
   lang: initialLang(),
   setLang: (lang) => {
     try {
@@ -265,5 +278,6 @@ export const useFridayStore = create<FridayStore>((set, get) => ({
       sessionError: null,
       memories: [],
       currentStep: null,
+      globeCameraHolders: 0,
     }),
 }));

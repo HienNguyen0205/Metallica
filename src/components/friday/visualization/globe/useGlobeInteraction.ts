@@ -2,8 +2,11 @@
 
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useFrame, type ThreeEvent } from "@react-three/fiber";
+import { Vector3 } from "three";
 import type { Group } from "three";
 import { useFridayStore } from "@/lib/store";
+import { reportCamera } from "@/lib/telemetry";
+import { computeGlobeFocusAngles } from "./geo";
 
 /** Rotation speed (rad/s) per FRIDAY state — motion carries meaning (§42). */
 const STATE_SPIN: Record<string, number> = {
@@ -19,16 +22,22 @@ const STATE_SPIN: Record<string, number> = {
   error: 0.02,
 };
 
-const MIN_ZOOM = 0.75;
-const MAX_ZOOM = 1.6;
-const MAX_TILT = 0.5;
+const MIN_DIST = 4.4;
+const MAX_DIST = 9.5;
+const HOME_DIST = 7.2;
+const FOCUS_DIST = 4.9;
+const MAX_TILT = 0.85;
 const IDLE_RESUME_MS = 4000;
 
-function wrapDelta(angle: number): number {
-  while (angle > Math.PI) angle -= Math.PI * 2;
-  while (angle < -Math.PI) angle += Math.PI * 2;
-  return angle;
-}
+/** Scene position of the globe group — the camera orbits this point. */
+export const GLOBE_CENTER = new Vector3(0, 0.2, -0.6);
+
+const tmpDir = new Vector3();
+
+// Single camera owner across mounted globes: last mount wins, cleared on
+// unmount so a remaining globe can claim. Non-owners still spin their own
+// group but never rewrite the shared camera.
+let globeCameraOwner: symbol | null = null;
 
 export interface GlobeFocusTarget {
   lat: number;
@@ -38,8 +47,6 @@ export interface GlobeFocusTarget {
 export interface GlobeInteraction {
   /** Inner group — yaw/pitch rotation. Sits inside the entrance wrapper. */
   spinRef: React.RefObject<Group | null>;
-  /** Outer group — zoom scale. */
-  zoomRef: React.RefObject<Group | null>;
   handlers: {
     onPointerDown: (e: ThreeEvent<PointerEvent>) => void;
     onPointerMove: (e: ThreeEvent<PointerEvent>) => void;
@@ -52,11 +59,13 @@ export interface GlobeInteraction {
 }
 
 /**
- * Drag/zoom/focus controller for the globe.
+ * Drag/orbit/dolly/focus controller for the globe.
  *
- * Owns the spin group's rotation directly in refs — no React state per frame
- * (§36). Camera ownership stays with `CameraRig`; this controller only turns
- * the planet and scales the globe group, so the two never fight (§60).
+ * Owns the spin group's rotation and the camera's orbit distance directly in
+ * refs — no React state per frame (§36). Zoom moves the camera (dolly),
+ * never the planet's scale, so it reads as flying toward Earth (§13). While
+ * a globe is mounted it holds camera ownership and the cinematic CameraRig
+ * yields (§16).
  */
 export function useGlobeInteraction({
   autoRotate = true,
@@ -67,14 +76,23 @@ export function useGlobeInteraction({
   getFocusTarget?: () => GlobeFocusTarget | null;
 } = {}): GlobeInteraction {
   const spinRef = useRef<Group | null>(null);
-  const zoomRef = useRef<Group | null>(null);
+  const instanceId = useMemo(() => Symbol("globe"), []);
+
+  // Claim camera ownership on mount (last mount wins); release on unmount.
+  useEffect(() => {
+    globeCameraOwner = instanceId;
+    return () => {
+      if (globeCameraOwner === instanceId) globeCameraOwner = null;
+    };
+  }, [instanceId]);
 
   const yaw = useRef(0);
   const pitch = useRef(0.12);
   const velYaw = useRef(0);
   const velPitch = useRef(0);
-  const zoom = useRef(1);
-  const zoomTarget = useRef(1);
+  // Camera orbit distance from the globe center — zoom dollies the camera.
+  const dist = useRef(HOME_DIST);
+  const distTarget = useRef(HOME_DIST);
   const dragging = useRef(false);
   const lastPointer = useRef<[number, number]>([0, 0]);
   const pinch = useRef(new Map<number, [number, number]>());
@@ -83,6 +101,7 @@ export function useGlobeInteraction({
   const focusAnim = useRef<{ yaw: number; pitch: number } | null>(null);
   const autoPaused = useRef(false);
   const reduced = useRef(false);
+  const didInitDist = useRef(false);
 
   useEffect(() => {
     const mq = window.matchMedia("(prefers-reduced-motion: reduce)");
@@ -101,20 +120,22 @@ export function useGlobeInteraction({
 
   const focusOn = useCallback(
     (target: GlobeFocusTarget) => {
-      // Local marker position at rest yaw/pitch, from the canonical mapping.
-      const phi = ((90 - target.lat) * Math.PI) / 180;
-      const theta = ((target.lon + 180) * Math.PI) / 180;
-      const x = -Math.sin(phi) * Math.cos(theta);
-      const z = Math.sin(phi) * Math.sin(theta);
-      const targetYaw = yaw.current + wrapDelta(Math.atan2(-x, z) - yaw.current);
-      const targetPitch = Math.max(
-        -MAX_TILT,
-        Math.min(MAX_TILT, (target.lat * Math.PI) / 180),
+      // Yaw aligns longitude, pitch aligns latitude (clamped — high-latitude
+      // nodes never fully center, by design). Shared pure helper in geo.ts.
+      const { yaw: targetYaw, pitch: targetPitch } = computeGlobeFocusAngles(
+        target.lat,
+        target.lon,
+        yaw.current,
+        MAX_TILT,
       );
       touch();
+      // Fly the camera in as well as turning the planet — focus should feel
+      // like approaching the node (§14).
+      distTarget.current = FOCUS_DIST;
       if (reduced.current) {
         yaw.current = targetYaw;
         pitch.current = targetPitch;
+        dist.current = FOCUS_DIST;
         return;
       }
       focusAnim.current = { yaw: targetYaw, pitch: targetPitch };
@@ -124,12 +145,13 @@ export function useGlobeInteraction({
 
   const reset = useCallback(() => {
     touch();
-    zoomTarget.current = 1;
+    distTarget.current = HOME_DIST;
     if (reduced.current) {
       yaw.current = 0;
       pitch.current = 0.12;
       velYaw.current = 0;
       velPitch.current = 0;
+      dist.current = HOME_DIST;
       return;
     }
     focusAnim.current = { yaw: 0, pitch: 0.12 };
@@ -162,12 +184,12 @@ export function useGlobeInteraction({
         case "+":
         case "=":
           touch();
-          zoomTarget.current = Math.min(MAX_ZOOM, zoomTarget.current * 1.12);
+          distTarget.current = Math.max(MIN_DIST, distTarget.current / 1.12);
           break;
         case "-":
         case "_":
           touch();
-          zoomTarget.current = Math.max(MIN_ZOOM, zoomTarget.current / 1.12);
+          distTarget.current = Math.min(MAX_DIST, distTarget.current * 1.12);
           break;
         case "r":
         case "R":
@@ -195,11 +217,14 @@ export function useGlobeInteraction({
     return () => window.removeEventListener("keydown", onKey);
   }, [focusOn, getFocusTarget, reset, touch]);
 
-  useFrame((_, rawDelta) => {
+  useFrame(({ camera }, rawDelta) => {
     const spin = spinRef.current;
-    const zoomGroup = zoomRef.current;
     const delta = Math.min(rawDelta, 0.05);
     const state = useFridayStore.getState().state;
+
+    // Claim ownership lazily if the previous owner unmounted.
+    if (globeCameraOwner === null) globeCameraOwner = instanceId;
+    const ownsCamera = globeCameraOwner === instanceId;
 
     if (focusAnim.current) {
       // easeInOutCubic toward the focus orientation (§25).
@@ -228,16 +253,39 @@ export function useGlobeInteraction({
       if (Math.abs(velPitch.current) < 0.0005) velPitch.current = 0;
     }
 
-    const z = zoom.current + (zoomTarget.current - zoom.current) * Math.min(1, delta * 6);
-    zoom.current = z;
-
     if (spin) spin.rotation.set(pitch.current, yaw.current, 0);
-    if (zoomGroup) zoomGroup.scale.setScalar(z);
+
+    // Only the owning globe drives the shared camera; the others still spin
+    // their own group. Init from the live camera distance to avoid a snap
+    // when the rig hands over (Scene starts at z=6.8, HOME is 7.2).
+    if (!ownsCamera) return;
+    if (!didInitDist.current) {
+      didInitDist.current = true;
+      const live = camera.position.distanceTo(GLOBE_CENTER);
+      if (Number.isFinite(live)) {
+        const clamped = Math.max(MIN_DIST, Math.min(MAX_DIST, live));
+        dist.current = clamped;
+        if (distTarget.current === HOME_DIST) distTarget.current = clamped;
+      }
+    }
+    // Camera-based zoom: dolly along the current view direction toward the
+    // globe center — the camera flies, the planet never rescales (§13).
+    dist.current += (distTarget.current - dist.current) * Math.min(1, delta * 5);
+    tmpDir.copy(camera.position).sub(GLOBE_CENTER);
+    if (tmpDir.lengthSq() < 1e-6) tmpDir.set(0, 0, 1);
+    tmpDir.normalize();
+    camera.position.copy(GLOBE_CENTER).addScaledVector(tmpDir, dist.current);
+    camera.lookAt(GLOBE_CENTER);
+    reportCamera(camera.position.x, camera.position.y, camera.position.z);
   });
 
   const handlers = useMemo<GlobeInteraction["handlers"]>(
     () => ({
       onPointerDown: (e) => {
+        // Let marker clicks handle their own focus — don't steal the pointer
+        // or start a drag when the ray hits a marker's hitbox.
+        const isMarker = !!(e.object as unknown as { userData?: { viz?: unknown } })?.userData?.viz;
+        if (isMarker) return;
         (e.target as Element).setPointerCapture?.(e.pointerId);
         pinch.current.set(e.pointerId, [e.nativeEvent.clientX, e.nativeEvent.clientY]);
         if (pinch.current.size === 2) {
@@ -258,14 +306,15 @@ export function useGlobeInteraction({
         if (prev) pinch.current.set(e.pointerId, [e.nativeEvent.clientX, e.nativeEvent.clientY]);
         if (pinch.current.size === 2) {
           const [a, b] = [...pinch.current.values()];
-          const dist = Math.hypot(a[0] - b[0], a[1] - b[1]);
-          if (pinchDist.current > 0 && dist > 0) {
-            zoomTarget.current = Math.max(
-              MIN_ZOOM,
-              Math.min(MAX_ZOOM, zoomTarget.current * (dist / pinchDist.current)),
+          const pinchNow = Math.hypot(a[0] - b[0], a[1] - b[1]);
+          if (pinchDist.current > 0 && pinchNow > 0) {
+            // Spread fingers → fly closer (distance shrinks).
+            distTarget.current = Math.max(
+              MIN_DIST,
+              Math.min(MAX_DIST, distTarget.current * (pinchDist.current / pinchNow)),
             );
           }
-          pinchDist.current = dist;
+          pinchDist.current = pinchNow;
           touch();
           return;
         }
@@ -288,9 +337,10 @@ export function useGlobeInteraction({
         touch();
       },
       onWheel: (e) => {
-        zoomTarget.current = Math.max(
-          MIN_ZOOM,
-          Math.min(MAX_ZOOM, zoomTarget.current * (1 + e.nativeEvent.deltaY * 0.001)),
+        // Wheel up (negative deltaY) flies the camera in.
+        distTarget.current = Math.max(
+          MIN_DIST,
+          Math.min(MAX_DIST, distTarget.current * (1 + e.nativeEvent.deltaY * 0.001)),
         );
         touch();
       },
@@ -302,5 +352,5 @@ export function useGlobeInteraction({
     [touch, reset],
   );
 
-  return { spinRef, zoomRef, handlers, focusOn, reset };
+  return { spinRef, handlers, focusOn, reset };
 }

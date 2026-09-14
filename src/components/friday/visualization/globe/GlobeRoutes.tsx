@@ -139,7 +139,8 @@ export function GlobeRoutes({
         const tint = status === "healthy" ? color : STATUS_COLORS[status];
         const touchesSelection =
           selectedLabel === null || selectedLabel === fromLabel || selectedLabel === toLabel;
-        const opacity = touchesSelection ? 0.75 : 0.15;
+        // Lines stay quiet over real imagery — particles carry the meaning.
+        const opacity = touchesSelection ? 0.6 : 0.12;
         const count = Math.max(
           0,
           Math.min(3, Math.round(particleCountFor(route.value) * particleScale)),

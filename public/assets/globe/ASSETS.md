@@ -1,32 +1,28 @@
 # Globe assets — provenance record (§70 of the globe guide)
 
-The realistic Earth is **fully procedural**: continents, clouds, night-side
-city speckle and the atmospheric rim are generated at render time by TSL
-noise nodes (`src/components/friday/visualization/globe/GlobeEarth.tsx`).
-There are deliberately **no binary texture assets** in this directory.
+Real Earth imagery set (gap analysis P0). All files below are committed to
+the repo (~3.0 MB total) so the globe renders offline with no fetch
+duplication across visualization switches (§46-47).
 
-| Asset            | Source              | License | Resolution | Purpose              |
-|------------------|---------------------|---------|------------|----------------------|
-| (none — procedural) | TSL `mx_noise_float` fields in `GlobeEarth.tsx` | N/A (code, repo license) | N/A (resolution-independent) | Earth surface continents/detail |
-| (none — procedural) | TSL noise shell in `GlobeEarth.tsx` | N/A | N/A | Cloud layer alpha |
-| (none — procedural) | High-frequency TSL speckle × land mask | N/A | N/A | Night-side city lights |
-| (none — procedural) | `latLonToVector3` + Markov-free GeoPoint data | N/A | N/A | Marker/arc placement |
+| Asset | Source | License | Resolution | Purpose |
+|---|---|---|---|---|
+| `earth-day.jpg` | three-globe example `earth-blue-marble.jpg` (NASA Blue Marble Next Generation) | Public domain (NASA); MIT (three-globe packager) | 2048×1024 | Day-side albedo |
+| `earth-night.jpg` | three-globe example (NASA city lights) | Public domain (NASA); MIT (three-globe packager) | 2048×1024 | Night-side city lights |
+| `earth-topology.png` | three-globe example | MIT (three-globe packager) | 1024×512 | Bump relief |
+| `earth-water.png` | three-globe example (ocean mask) | MIT (three-globe packager) | 1024×512 | Roughness: ocean glints, land matte |
 
-## Why procedural instead of texture maps
+Upstream URLs (do not hotlink at runtime — vendored above):
 
-1. **License safety** — no third-party Earth imagery to attribute or clear
-   (§45.2, §45.7 of the guide).
-2. **Palette control** — texture maps are photorealistic blue/green and fight
-   the black-space + cyan/teal Metallica identity; the procedural surface is
-   authored in-palette (§48).
-3. **Zero async loading** — no `INITIALIZING SURFACE` waterfall, no LFS, no
-   fetch duplication across GLOBE → BAR → GLOBE switches (§46-47).
-4. **Both backends from one source** — TSL compiles to WGSL on WebGPU and
-   GLSL on the WebGL2 fallback (§38).
+- `https://unpkg.com/three-globe@2.41.12/example/img/`
 
-## If real textures are ever wanted
+## Fallback
 
-Drop them here as `earth-color.webp` (≤2048), `earth-night.webp`,
-`earth-clouds.webp` (≤1024), record source/license/resolution in the table
-above, and gate every layer behind a load-failure fallback that keeps the
-procedural surface (§71).
+If any asset fails to load, `GlobeEarth.tsx` renders the procedural TSL
+fallback surface instead — the globe never breaks on asset failure (§71).
+The low quality tier skips `earth-topology` / `earth-water` (fewer samplers)
+but keeps day/night imagery.
+
+## Removed
+
+- Cloud layer (procedural + `earth-clouds.png`) removed per operator request —
+  the surface stays unobstructed.

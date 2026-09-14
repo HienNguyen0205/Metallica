@@ -19,6 +19,7 @@ import { BarChart3D, LineChart3D, Timeline3D } from "./vizCharts";
 import { SankeyFlow } from "./vizFlow";
 import { Network3D } from "./vizSpatial";
 import { Globe3D } from "./globe/GlobeVisualization";
+import { isGlobeTag } from "./globe/geo";
 
 interface RendererProps {
   data: VizData;
@@ -45,6 +46,7 @@ const REGISTRY: Record<VisualizationType, ComponentType<RendererProps>> = {
 export interface VizTag {
   label: string;
   detail: string;
+  globe?: boolean;
 }
 
 /**
@@ -126,6 +128,10 @@ function DrillDown({ enabled, children }: { enabled: boolean; children: ReactNod
     }
     const hit = resolveTag(e);
     if (!hit) return;
+    // Globe markers handle camera focus + store focus themselves and suppress
+    // the shared reticle — don't create a second DrillDown focus for them.
+    // Data-driven flag, never a hardcoded label list.
+    if (isGlobeTag(hit.tag)) return;
     setHover(null);
     setFocus(nextFocus(focus, hit.tag, hit.position));
   };
@@ -169,6 +175,9 @@ function DrillDown({ enabled, children }: { enabled: boolean; children: ReactNod
 function FocusMarker() {
   const focus = useFridayStore((s) => s.focus);
   const state = useFridayStore((s) => s.state);
+  // Globe-originated focus renders its own selected state on the marker;
+  // the shared reticle would pile a second target UI on top. Scoped to the
+  // focus origin — an unrelated globe must not hide reticles for bar/network.
   const look = STATE_LOOK[state];
   const ref = useRef<Group>(null);
 
@@ -179,6 +188,7 @@ function FocusMarker() {
   });
 
   if (!focus) return null;
+  if (focus.globe) return null;
 
   return (
     <>

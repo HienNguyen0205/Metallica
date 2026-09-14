@@ -75,6 +75,10 @@ function CameraRig({ reduced }: { reduced: boolean }) {
   }, [gl, reduced]);
 
   useFrame((state, delta) => {
+    // A mounted GLOBE owns the camera for geographic navigation (orbit
+    // distance/tilt/focus dolly) — the rig must not write behind it (§16).
+    // The globe controller feeds the HUD readout itself while it owns it.
+    if (useFridayStore.getState().globeCameraHolders > 0) return;
     base.current += delta;
     const { camera, pointer } = state;
     // Reduced motion: freeze drift/swing/parallax, keep only the eased dolly.

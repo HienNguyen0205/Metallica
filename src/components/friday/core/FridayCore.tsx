@@ -128,12 +128,15 @@ export default function FridayCore({
 
     if (groupRef.current) {
       // Corner-anchored dock from measured camera geometry (see dockTarget).
-      const { camera, size } = state;
-      if (camera instanceof PerspectiveCamera && size.width > 0 && size.height > 0) {
-        const dist = Math.max(0.001, camera.position.length());
-        const halfH = Math.tan((camera.fov * Math.PI) / 360) * dist;
-        const halfW = halfH * (size.width / size.height);
+      const { camera: cam, size: sz } = state;
+      if (cam instanceof PerspectiveCamera && sz.width > 0 && sz.height > 0) {
+        const dist = Math.max(0.001, cam.position.length());
+        const halfH = Math.tan((cam.fov * Math.PI) / 360) * dist;
+        const halfW = halfH * (sz.width / sz.height);
         dockTarget.current = dockPosition(halfW, halfH, VIZ_SCALE);
+        // Push the docked core in front of the globe's front hemisphere
+        // (center −0.6z + radius 1.8 ≈ 1.2z) so the planet never occludes it.
+        if (docked) dockTarget.current[2] = 1.5;
       }
       // eased, so handing the stage over reads as a move, not a cut
       const k = Math.min(1, delta * 2.2);

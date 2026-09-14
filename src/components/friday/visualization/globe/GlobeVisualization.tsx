@@ -8,8 +8,8 @@ import { TechLabel, useMaterialize } from "../../primitives";
 import { GlobeEarth } from "./GlobeEarth";
 import { GlobeMarkers } from "./GlobeMarkers";
 import { GlobeRoutes } from "./GlobeRoutes";
-import { useGlobeInteraction } from "./useGlobeInteraction";
-import { SUN_DIRECTION, markerLabel, resolveGlobeQuality } from "./geo";
+import { useGlobeInteraction, GLOBE_CENTER } from "./useGlobeInteraction";
+import { SUN_DIRECTION, globeFocusFor, markerLabel, resolveGlobeQuality } from "./geo";
 
 export interface GlobeProps {
   points?: GeoPoint[];
@@ -35,7 +35,7 @@ const R = 1.8;
  * Rotation/zoom/focus turn the planet group itself — the camera rig keeps
  * sole ownership of the camera, so the two never fight (§60).
  */
-export function Globe3D({ points, routes = [], color, accent }: GlobeProps) {
+export function Globe3D({ points, routes = [], color }: GlobeProps) {
   // An explicitly empty point list is a real empty state (§72) — the demo
   // fallback only applies when no data was provided at all.
   const data = points ?? DEFAULT_GEO;
@@ -57,13 +57,32 @@ export function Globe3D({ points, routes = [], color, accent }: GlobeProps) {
   const look = STATE_LOOK[state];
   const selectedLabel = focus?.label ?? null;
 
+  // While mounted, this visualization owns the camera for geographic
+  // navigation; the cinematic rig yields and resumes on unmount (§16).
+  useEffect(() => {
+    useFridayStore.getState().acquireGlobeCamera();
+    return () => useFridayStore.getState().releaseGlobeCamera();
+  }, []);
+
   const getFocusTarget = useCallback(() => {
     if (!focus) return null;
     const hit = data.find((p, i) => markerLabel(p, i) === focus.label);
     return hit ? { lat: hit.lat, lon: hit.lon } : null;
   }, [data, focus]);
 
-  const { spinRef, zoomRef, handlers, focusOn } = useGlobeInteraction({ getFocusTarget });
+  const { spinRef, handlers, focusOn } = useGlobeInteraction({ getFocusTarget });
+
+  const handleFocusMarker = useCallback(
+    (p: GeoPoint, index: number, worldPos: [number, number, number]) => {
+      // Camera flies AND store focus sets — selection highlight, dimming,
+      // route emphasis and the `F` key all read from the same focus.
+      focusOn({ lat: p.lat, lon: p.lon });
+      useFridayStore.getState().setFocus(globeFocusFor(p, index, worldPos));
+    },
+    [focusOn],
+  );
+
+  // Expose for e2e debugging (only in dev)
 
   // Staggered materialize: surface first, data last (§43 — fast, not theatrical).
   const matSurface = useMaterialize(0.8, true, 0.25);
@@ -72,32 +91,30 @@ export function Globe3D({ points, routes = [], color, accent }: GlobeProps) {
   const resolvedRoutes = routes.filter((r) => r && (typeof r.from === "string" || typeof r.from === "number"));
 
   return (
-    <group position={[0, 0.2, -0.6]}>
+    <group position={GLOBE_CENTER}>
       {/* Fixed sun: the terminator stays put while the planet turns beneath it. */}
       <directionalLight
         position={[SUN_DIRECTION[0] * 8, SUN_DIRECTION[1] * 8, SUN_DIRECTION[2] * 8]}
         intensity={2.2}
         color="#fff1dc"
       />
-      <group ref={zoomRef}>
+      <group>
         <group ref={spinRef} {...handlers}>
           <group ref={matSurface}>
             <GlobeEarth
               radius={R}
               segments={q.segments}
               color={color}
-              showClouds={q.clouds}
-              reduced={reduced}
+              detail={q.quality !== "low"}
             />
           </group>
           <group ref={matData}>
             <GlobeMarkers
               points={data}
               radius={R}
-              accent={accent}
               selectedLabel={selectedLabel}
               reduced={reduced}
-              onFocusMarker={(p) => focusOn({ lat: p.lat, lon: p.lon })}
+              onFocusMarker={handleFocusMarker}
             />
             <GlobeRoutes
               points={data}
@@ -111,10 +128,11 @@ export function Globe3D({ points, routes = [], color, accent }: GlobeProps) {
             />
           </group>
         </group>
-        {/* Equatorial guide ring stays fixed while the globe turns. */}
+        {/* Equatorial guide ring stays fixed while the globe turns — deliberately
+            faint; it is an interaction affordance, not a frame (§11). */}
         <mesh rotation={[Math.PI / 2, 0, 0]}>
           <ringGeometry args={[R + 0.22, R + 0.235, 96]} />
-          <meshBasicMaterial color={color} transparent opacity={0.3} side={DoubleSide} depthWrite={false} />
+          <meshBasicMaterial color={color} transparent opacity={selectedLabel ? 0.3 : 0.12} side={DoubleSide} depthWrite={false} />
         </mesh>
       </group>
       {data.length === 0 ? (

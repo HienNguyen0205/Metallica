@@ -54,10 +54,10 @@ export function normalizeMetric(value: number, max = 20000): number {
   return Math.max(0, Math.min(1, normalized));
 }
 
-/** Marker core radius from a normalized value — deliberately narrow range. */
+/** Marker core radius from a normalized value — tight range so small markers stay legible without dominating. */
 export function markerRadius(normalized: number): number {
   const t = Math.max(0, Math.min(1, normalized));
-  return 0.018 + (0.055 - 0.018) * t;
+  return 0.01 + (0.028 - 0.01) * t;
 }
 
 /** Resolve a route endpoint (id → label → index) to a point index. */
@@ -219,7 +219,6 @@ export const GEO_SEGMENTS: Record<GlobeQuality, number> = {
 export interface GlobeQualityConfig {
   quality: GlobeQuality;
   segments: number;
-  clouds: boolean;
   borders: boolean;
   particleScale: number;
   postBloom: boolean;
@@ -228,7 +227,7 @@ export interface GlobeQualityConfig {
 /**
  * Adaptive quality with hysteresis-friendly inputs: the caller feeds the
  * stored preference + reduced-motion flag, and gets a stable config.
- * `low` (or reduced motion) drops clouds and post work first.
+ * `low` (or reduced motion) drops particles and post work first.
  */
 export function resolveGlobeQuality({
   preference,
@@ -242,7 +241,6 @@ export function resolveGlobeQuality({
   return {
     quality,
     segments: GEO_SEGMENTS[quality],
-    clouds: quality !== "low",
     borders: quality !== "low",
     particleScale: quality === "high" ? 1 : quality === "medium" ? 0.6 : 0.3,
     postBloom: quality === "high",
@@ -254,3 +252,59 @@ export const SUN_DIRECTION: Vec3 = [-0.55, 0.32, 1].map((v) => {
   const len = Math.hypot(-0.55, 0.32, 1);
   return v / len;
 }) as Vec3;
+
+// ---------- globe focus (data-driven, not label denylist) ----------
+
+/** Drill-down tag carried in `userData.viz`. `globe` marks globe markers. */
+export interface GlobeTag {
+  label: string;
+  detail: string;
+  globe?: boolean;
+}
+
+/** True when the tag comes from a globe marker — never match on label strings. */
+export function isGlobeTag(tag: GlobeTag | null | undefined): boolean {
+  return tag?.globe === true;
+}
+
+/** Store focus for a globe marker: camera flies AND selection highlights. */
+export function globeFocusFor(
+  point: GeoPoint,
+  index: number,
+  position: Vec3,
+): { label: string; detail: string; position: Vec3; globe: true } {
+  return {
+    label: markerLabel(point, index),
+    detail: markerDetail(point),
+    position,
+    globe: true,
+  };
+}
+
+function wrapAngleDelta(angle: number): number {
+  while (angle > Math.PI) angle -= Math.PI * 2;
+  while (angle < -Math.PI) angle += Math.PI * 2;
+  return angle;
+}
+
+/**
+ * Yaw/pitch that brings a lat/lon rest position to face +Z (camera direction).
+ * Yaw aligns longitude (wrapped to shortest turn), pitch aligns latitude and
+ * is clamped — high-latitude nodes can never fully center, by design.
+ */
+export function computeGlobeFocusAngles(
+  lat: number,
+  lon: number,
+  currentYaw: number,
+  maxTilt = 0.85,
+): { yaw: number; pitch: number } {
+  const phi = ((90 - lat) * Math.PI) / 180;
+  const theta = ((lon + 180) * Math.PI) / 180;
+  const x = -Math.sin(phi) * Math.cos(theta);
+  const y = Math.cos(phi);
+  const z = Math.sin(phi) * Math.sin(theta);
+  const yaw = currentYaw + wrapAngleDelta(Math.atan2(-x, z) - currentYaw);
+  const rXZ = Math.hypot(x, z);
+  const pitch = Math.max(-maxTilt, Math.min(maxTilt, Math.atan2(y, rXZ)));
+  return { yaw, pitch };
+}

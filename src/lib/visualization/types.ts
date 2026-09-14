@@ -100,6 +100,8 @@ export interface VizFocus {
   label: string;
   detail: string;
   position: [number, number, number];
+  /** True when the focus comes from a globe marker (camera + selection). */
+  globe?: boolean;
 }
 
 export type VizLifecycle = "materializing" | "active" | "updating" | "settling";
