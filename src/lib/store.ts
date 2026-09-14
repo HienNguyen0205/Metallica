@@ -139,6 +139,14 @@ export interface FridayStore {
   quality: RenderQuality;
   setQuality: (quality: RenderQuality) => void;
   /**
+   * Global "freeze the motion" toggle (Space on the globe). Pauses the planet's
+   * auto-rotation AND the terminator's slow sun cycle together, so pausing
+   * reads as stopping the world, not just the spin. A display preference, so it
+   * survives `reset` like `quality`/`lang`.
+   */
+  motionPaused: boolean;
+  toggleMotion: () => void;
+  /**
    * Camera ownership (§60/§16 of the globe docs). The cinematic CameraRig owns
    * the camera for normal visualizations; an active GLOBE takes over for
    * geographic navigation (orbit distance/tilt/focus dolly). Ref-counted so
@@ -235,6 +243,8 @@ export const useFridayStore = create<FridayStore>((set, get) => ({
   setRenderBackend: (renderBackend) => set({ renderBackend }),
   quality: "auto",
   setQuality: (quality) => set({ quality }),
+  motionPaused: false,
+  toggleMotion: () => set((s) => ({ motionPaused: !s.motionPaused })),
   globeCameraHolders: 0,
   acquireGlobeCamera: () => set((s) => ({ globeCameraHolders: s.globeCameraHolders + 1 })),
   releaseGlobeCamera: () =>

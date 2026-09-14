@@ -308,3 +308,55 @@ export function computeGlobeFocusAngles(
   const pitch = Math.max(-maxTilt, Math.min(maxTilt, Math.atan2(y, rXZ)));
   return { yaw, pitch };
 }
+
+// ---------- terminator cycle + graticule ----------
+
+/** Seconds for one full terminator sweep. Slow enough to read as "living", fast enough to notice. */
+export const SUN_CYCLE_SECONDS = 90;
+
+/**
+ * Sun direction at a given phase, for the animated day/night terminator. The
+ * base `SUN_DIRECTION` rotated about the world Y axis (spin axis), so the
+ * terminator's latitude stays fixed while its longitude drifts — the planet
+ * looks lit by a sun that slowly moves, and the effect is independent of the
+ * (user-controlled) planet spin. Pure + unit-preserving.
+ */
+export function sunDirectionAt(phase: number, base: Vec3 = SUN_DIRECTION): Vec3 {
+  const c = Math.cos(phase);
+  const s = Math.sin(phase);
+  return [base[0] * c + base[2] * s, base[1], -base[0] * s + base[2] * c];
+}
+
+/**
+ * Latitude/longitude grid as line-segment pairs for a faint graticule — a
+ * technical-aid affordance that reinforces "globe" without tinting the
+ * photoreal surface. Every vertex lands exactly on the sphere (`latLonToVector3`
+ * is the single canonical mapping). Returns an even-length array where each
+ * consecutive pair is one segment (meridians pole-to-pole, parallels full
+ * circles, poles excluded from parallels).
+ */
+export function buildGraticule(
+  radius: number,
+  meridians = 12,
+  parallels = 6,
+  segments = 32,
+): Vec3[] {
+  const out: Vec3[] = [];
+  const pushLine = (at: (t: number) => Vec3) => {
+    let prev: Vec3 | null = null;
+    for (let i = 0; i <= segments; i++) {
+      const p = at(i / segments);
+      if (prev) out.push(prev, p);
+      prev = p;
+    }
+  };
+  for (let m = 0; m < meridians; m++) {
+    const lon = (m * 360) / meridians;
+    pushLine((t) => latLonToVector3(-90 + t * 180, lon, radius));
+  }
+  for (let p = 0; p < parallels; p++) {
+    const lat = -90 + ((p + 1) * 180) / (parallels + 1);
+    pushLine((t) => latLonToVector3(lat, t * 360, radius));
+  }
+  return out;
+}

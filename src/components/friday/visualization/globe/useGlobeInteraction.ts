@@ -99,7 +99,6 @@ export function useGlobeInteraction({
   const pinchDist = useRef(0);
   const lastInteract = useRef(0);
   const focusAnim = useRef<{ yaw: number; pitch: number } | null>(null);
-  const autoPaused = useRef(false);
   const reduced = useRef(false);
   const didInitDist = useRef(false);
 
@@ -203,7 +202,9 @@ export function useGlobeInteraction({
         }
         case " ":
           e.preventDefault();
-          autoPaused.current = !autoPaused.current;
+          // Freeze the world: pauses auto-rotation AND the terminator cycle
+          // together (shared store flag, read by GlobeEarth too).
+          useFridayStore.getState().toggleMotion();
           touch();
           break;
         case "Escape":
@@ -238,7 +239,10 @@ export function useGlobeInteraction({
     } else if (!dragging.current) {
       const idleMs = performance.now() - lastInteract.current;
       const canAuto =
-        autoRotate && !autoPaused.current && !reduced.current && idleMs > IDLE_RESUME_MS;
+        autoRotate &&
+        !useFridayStore.getState().motionPaused &&
+        !reduced.current &&
+        idleMs > IDLE_RESUME_MS;
       if (canAuto) yaw.current += (STATE_SPIN[state] ?? 0.05) * delta;
       // Inertia with frame-rate independent friction (§22).
       const friction = reduced.current ? 0 : Math.exp(-delta * 3.5);

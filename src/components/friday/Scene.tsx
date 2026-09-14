@@ -11,6 +11,7 @@ import { isSoftwareRenderer, resolveHeavy, resolveReduced } from "@/lib/gpu";
 import FridayCore from "./core/FridayCore";
 import SpatialHud from "./hud/SpatialHud";
 import FridayVisualization from "./visualization/FridayVisualization";
+import { Stars } from "./Stars";
 import PostFX from "./effects/PostFX";
 import { reportCamera } from "@/lib/telemetry";
 
@@ -140,6 +141,8 @@ function SceneBody({
     <>
       <color attach="background" args={["#02050a"]} />
       <fog attach="fog" args={["#02050a", 7, 16]} />
+
+      <Stars count={reduced ? 300 : heavy ? 1600 : 900} />
 
       <StateLights />
       <CameraRig reduced={reduced} />

@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { DoubleSide } from "three";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useFrame } from "@react-three/fiber";
+import { DoubleSide, Vector3, type DirectionalLight } from "three";
 import { useFridayStore, type GeoPoint, type GlobeRoute } from "@/lib/store";
 import { GLOBE_DEMO_POINTS, GLOBE_DEMO_ROUTES } from "@/lib/visualization/globeDemo";
 import { STATE_LOOK } from "@/lib/stateLook";
@@ -10,7 +11,14 @@ import { GlobeEarth } from "./GlobeEarth";
 import { GlobeMarkers } from "./GlobeMarkers";
 import { GlobeRoutes } from "./GlobeRoutes";
 import { useGlobeInteraction, GLOBE_CENTER } from "./useGlobeInteraction";
-import { SUN_DIRECTION, globeFocusFor, markerLabel, resolveGlobeQuality } from "./geo";
+import {
+  SUN_DIRECTION,
+  SUN_CYCLE_SECONDS,
+  globeFocusFor,
+  markerLabel,
+  resolveGlobeQuality,
+  sunDirectionAt,
+} from "./geo";
 
 export interface GlobeProps {
   points?: GeoPoint[];
@@ -80,6 +88,24 @@ export function Globe3D({ points, routes, color }: GlobeProps) {
 
   // Expose for e2e debugging (only in dev)
 
+  // Slow terminator cycle: the sun drifts in world space so day/night keeps
+  // sweeping even when the planet's own spin is idle or focused (the spin
+  // already moves the terminator via world normals; this adds motion that is
+  // independent of it). Paused by reduced-motion and the shared Space motion
+  // flag. `sunDir` is shared with GlobeEarth's terminator uniform; the
+  // directional light tracks the same direction so specular stays coherent.
+  const sunDir = useMemo(() => new Vector3(SUN_DIRECTION[0], SUN_DIRECTION[1], SUN_DIRECTION[2]), []);
+  const sunPhase = useRef(0);
+  const lightRef = useRef<DirectionalLight>(null);
+  useFrame((_, delta) => {
+    if (!(reduced || useFridayStore.getState().motionPaused)) {
+      sunPhase.current += Math.min(delta, 0.05) * ((Math.PI * 2) / SUN_CYCLE_SECONDS);
+      const d = sunDirectionAt(sunPhase.current);
+      sunDir.set(d[0], d[1], d[2]);
+    }
+    if (lightRef.current) lightRef.current.position.copy(sunDir).multiplyScalar(8);
+  });
+
   // Staggered materialize: surface first, data last (§43 — fast, not theatrical).
   const matSurface = useMaterialize(0.8, true, 0.25);
   const matData = useMaterialize(0.8, true, 0.85);
@@ -88,8 +114,10 @@ export function Globe3D({ points, routes, color }: GlobeProps) {
 
   return (
     <group position={GLOBE_CENTER}>
-      {/* Fixed sun: the terminator stays put while the planet turns beneath it. */}
+      {/* Sun fixed in world space; the planet turns beneath it and the sun
+          itself drifts slowly (§ terminator cycle). */}
       <directionalLight
+        ref={lightRef}
         position={[SUN_DIRECTION[0] * 8, SUN_DIRECTION[1] * 8, SUN_DIRECTION[2] * 8]}
         intensity={2.2}
         color="#fff1dc"
@@ -102,6 +130,8 @@ export function Globe3D({ points, routes, color }: GlobeProps) {
               segments={q.segments}
               color={color}
               detail={q.quality !== "low"}
+              reduced={reduced}
+              sunDir={sunDir}
             />
           </group>
           <group ref={matData}>
