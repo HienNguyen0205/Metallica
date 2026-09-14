@@ -63,17 +63,17 @@ export default function InputBar() {
       // The input is disabled mid-turn, so its own onKeyDown never fires here.
       if (e.key === "Escape") cancel();
     };
-    // Lang is hydrated in the store initializer (localStorage → navigator →
-    // en-US). Re-resolve here only if the store still holds the fallback while
-    // a stored choice exists (e.g. SSR first render) — single source stays the store.
+    // Single hydration point: the store seeds `lang` to the SSR-stable
+    // INITIAL_LANG (en-US) so server and first client render match, then this
+    // post-mount effect applies the real preference — stored choice wins, else
+    // the browser locale, else en-US (resolveLang). Runs after hydration, so
+    // switching to a stored vi-VN here is a normal update, not a mismatch.
     try {
       const stored = localStorage.getItem(FRIDAY_LANG_KEY);
-      if (stored) {
-        const next = resolveLang(navigator.language, stored);
-        if (next !== useFridayStore.getState().lang) useFridayStore.getState().setLang(next);
-      }
+      const next = resolveLang(navigator.language, stored);
+      if (next !== useFridayStore.getState().lang) useFridayStore.getState().setLang(next);
     } catch {
-      /* private mode — en-US default stands */
+      /* private mode / no storage — en-US default stands */
     }
     window.addEventListener("keydown", onKey);
     return () => {

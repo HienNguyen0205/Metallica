@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { useFridayStore, type FridayState } from "@/lib/store";
+import { useFridayStore, INITIAL_LANG, type FridayState } from "@/lib/store";
 
 /**
  * §17 — the state machine. `transition` is guarded (it must refuse illegal
@@ -99,6 +99,15 @@ test("recognition language defaults to en-US and survives reset", () => {
   api.getState().reset();
   expect(api.getState().lang).toBe("vi-VN");
   api.getState().setLang("en-US");
+});
+
+test("initial lang is a fixed SSR-stable constant (store never reads storage at init)", () => {
+  // The hydration bug lived in `lang: initialLang()`, which read localStorage
+  // while the store was being created — server (no storage) and client (stored
+  // vi-VN) disagreed at hydration. The seed is now a constant; a stored choice
+  // is applied only after mount by InputBar's hydration effect. In this node
+  // unit env localStorage is undefined, so the guard is the constant itself.
+  expect(INITIAL_LANG).toBe("en-US");
 });
 
 test("audio toggle flips and persists", () => {

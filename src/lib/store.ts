@@ -4,7 +4,7 @@ import type { FridayState } from "@/lib/agent/stateMachine";
 // reportIllegal intentionally NOT used by endTurn: landing idle from a
 // mid-pipeline state (e.g. thinking → idle on missing `done`) is the normal
 // interrupted-turn path, not a bug worth warning about in dev/test.
-import { resolveLang, type SupportedLang } from "@/lib/audioBus";
+import type { SupportedLang } from "@/lib/audioBus";
 import type { CurrentStep } from "@/lib/agent/events";
 import type {
   GeoPoint,
@@ -41,15 +41,15 @@ export type {
 /** localStorage key for the recognition language. Single source — do not duplicate. */
 export const FRIDAY_LANG_KEY = "friday.lang";
 
-function initialLang(): SupportedLang {
-  try {
-    const stored = localStorage.getItem(FRIDAY_LANG_KEY);
-    const nav = typeof navigator !== "undefined" ? navigator.language : undefined;
-    return resolveLang(nav, stored);
-  } catch {
-    return "en-US";
-  }
-}
+/**
+ * SSR-stable seed for the recognition language. Deliberately a constant, NOT
+ * `resolveLang(navigator, localStorage)`: the store is created while the page
+ * renders, and reading `localStorage` there gave the server (no storage) and
+ * the first client render (a stored `vi-VN`) different values — a hydration
+ * mismatch that regenerated the whole tree. A stored choice is applied *after*
+ * mount by InputBar's hydration effect, so server and first client render agree.
+ */
+export const INITIAL_LANG: SupportedLang = "en-US";
 
 /** §13 — active tool instrumentation (secondary to core, not a card). */
 export interface ToolActivity {
@@ -239,7 +239,7 @@ export const useFridayStore = create<FridayStore>((set, get) => ({
   acquireGlobeCamera: () => set((s) => ({ globeCameraHolders: s.globeCameraHolders + 1 })),
   releaseGlobeCamera: () =>
     set((s) => ({ globeCameraHolders: Math.max(0, s.globeCameraHolders - 1) })),
-  lang: initialLang(),
+  lang: INITIAL_LANG,
   setLang: (lang) => {
     try {
       localStorage.setItem(FRIDAY_LANG_KEY, lang);
