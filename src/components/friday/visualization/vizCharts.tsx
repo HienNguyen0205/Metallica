@@ -2,8 +2,11 @@
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useFrame, type ThreeEvent } from "@react-three/fiber";
-import { Color, DoubleSide, Object3D, type InstancedMesh } from "three";
+import { Color, DoubleSide, Object3D, type Group, type InstancedMesh } from "three";
+import { MeshBasicNodeMaterial } from "three/webgpu";
+import { uv } from "three/tsl";
 import { useFridayStore, type SeriesDatum, type TimelineEvent } from "@/lib/store";
+import { STATE_LOOK } from "@/lib/stateLook";
 import { makeFocus, releaseFocus, toggleFocus } from "@/lib/visualization/focus";
 import { useFocusRelease } from "./useFocusRelease";
 import { HairLine, TechLabel, useMaterialize } from "../primitives";
@@ -538,20 +541,53 @@ const DEFAULT_EVENTS: TimelineEvent[] = [
   { label: "NOW", at: 1 },
 ];
 
-/** §6 sequence → horizontal timeline axis with event ticks. */
-function TimelineEventNode({
-  event,
-  x,
-  color,
-  accent,
-  isNow,
-  selected,
-  dimmed,
-  interactive,
-  onSelect,
-}: {
+/**
+ * The time axis is a shallow elliptical arc in the x–z plane (not a flat
+ * line): `at` 0→1 sweeps it left→right, the midpoint bulges toward the
+ * camera. Curving time into depth is what makes it read as a holographic
+ * timeline rather than a 2D ruler, and it matches the bar chart's arc so the
+ * two never look like they belong to different apps.
+ */
+export const TL_SPAN = 2.1;
+export const TL_RADIUS = 2.5;
+/** Depth the far ends recede by; also the ellipse's z semi-axis. */
+export const TL_DEPTH = 0.6;
+/** Midpoint (closest) z, in the timeline group's local space. */
+export const TL_Z0 = 1.15;
+
+/** A point on the time arc for `at` ∈ [0,1]; clamped and NaN-safe. y is 0 (the track). */
+export function timelineArcPoint(at: number): [number, number, number] {
+  const u = Number.isFinite(at) ? Math.min(1, Math.max(0, at)) : 0.5;
+  const a = (u - 0.5) * TL_SPAN;
+  return [Math.sin(a) * TL_RADIUS, 0, TL_Z0 - (1 - Math.cos(a)) * TL_DEPTH];
+}
+
+/** Vertical light column: bright at the base, fading to the tip (uv.y gradient). */
+function Beacon({ height, color, dimmed }: { height: number; color: string; dimmed: boolean }) {
+  const material = useMemo(() => {
+    const mat = new MeshBasicNodeMaterial({
+      transparent: true,
+      depthWrite: false,
+      side: DoubleSide,
+      toneMapped: false,
+    });
+    mat.color = new Color(color);
+    mat.opacityNode = uv().y.oneMinus().mul(0.7).add(0.25).mul(dimmed ? 0.22 : 1);
+    return mat;
+  }, [color, dimmed]);
+  useEffect(() => () => material.dispose(), [material]);
+  return (
+    <mesh position={[0, height / 2, 0]} material={material}>
+      <planeGeometry args={[0.075, height]} />
+    </mesh>
+  );
+}
+
+interface TimelineEventNodeProps {
   event: TimelineEvent;
-  x: number;
+  position: [number, number, number];
+  /** Yaw that turns the (flat) beacon to face down the arc tangent. */
+  rotationY: number;
   color: string;
   accent: string;
   isNow: boolean;
@@ -559,16 +595,47 @@ function TimelineEventNode({
   dimmed: boolean;
   interactive: boolean;
   onSelect: () => void;
-}) {
+}
+
+function TimelineEventNode({
+  event,
+  position,
+  rotationY,
+  color,
+  accent,
+  isNow,
+  selected,
+  dimmed,
+  interactive,
+  onSelect,
+}: TimelineEventNodeProps) {
   const [hovered, setHovered] = useState(false);
   const downAt = useRef<[number, number] | null>(null);
+  const ringRef = useRef<Group>(null);
   const highlighted = selected || hovered;
   const base = isNow ? accent : color;
+  const height = isNow ? 0.6 : 0.4;
+
+  // Now-marker expanding rings: two rings on opposite phases, scaled + faded
+  // each frame. A ref (not state) so no re-render fires from the loop.
+  useFrame(({ clock }) => {
+    if (!ringRef.current || !isNow) return;
+    const t = clock.elapsedTime * (dimmed ? 0.4 : 0.85);
+    const s = 0.12 + (t % 1) * 0.26;
+    const fade = 0.55 * (1 - (t % 1));
+    for (const child of ringRef.current.children) {
+      child.scale.setScalar(s);
+      const m = (child as Object3D & { material?: { opacity: number } }).material;
+      if (m) m.opacity = fade;
+    }
+  });
+
   return (
-    <group position={[x, 0, 0]}>
+    <group position={position} rotation={[0, rotationY, 0]}>
       {interactive && (
         <mesh
           visible={false}
+          position={[0, height / 2, 0.02]}
           onPointerOver={(e: ThreeEvent<PointerEvent>) => {
             e.stopPropagation();
             setHovered(true);
@@ -593,27 +660,82 @@ function TimelineEventNode({
             onSelect();
           }}
         >
-          <planeGeometry args={[0.42, 0.4]} />
+          <planeGeometry args={[0.4, Math.max(0.5, height)]} />
         </mesh>
       )}
-      <mesh scale={[1, highlighted ? 1.6 : 1, 1]}>
-        <planeGeometry args={[0.012, 0.18]} />
-        <meshBasicMaterial
-          color={highlighted ? "#eafcff" : base}
-          transparent
-          opacity={dimmed ? 0.25 : 0.8}
-          side={DoubleSide}
-          toneMapped={false}
-        />
+
+      <Beacon height={highlighted ? height * 1.18 : height} color={highlighted ? "#eafcff" : base} dimmed={dimmed} />
+
+      {/* base tick on the track */}
+      <mesh position={[0, 0, 0]}>
+        <boxGeometry args={[0.03, 0.03, 0.03]} />
+        <meshBasicMaterial color={highlighted ? "#eafcff" : base} transparent opacity={dimmed ? 0.3 : 1} toneMapped={false} />
       </mesh>
-      <TechLabel position={[0, -0.24, 0]} color={base} size={0.075} opacity={dimmed ? 0.3 : 0.85} decode>
+      {/* cap */}
+      <mesh position={[0, height, 0]} rotation={[0, 0, Math.PI / 4]} scale={highlighted ? 1.35 : 1}>
+        <octahedronGeometry args={[0.05, 0]} />
+        <meshBasicMaterial color={highlighted ? "#eafcff" : base} transparent opacity={dimmed ? 0.3 : 0.95} toneMapped={false} />
+      </mesh>
+
+      {/* NOW pulse rings */}
+      {isNow && (
+        <group ref={ringRef} position={[0, height * 0.5, 0]}>
+          {[0, 0.5].map((ph) => (
+            <mesh key={ph}>
+              <ringGeometry args={[0.1, 0.115, 32]} />
+              <meshBasicMaterial color={accent} transparent opacity={0} side={DoubleSide} depthWrite={false} toneMapped={false} />
+            </mesh>
+          ))}
+        </group>
+      )}
+
+      {/* leader to the label */}
+      <HairLine points={[[0, 0, 0], [0, -0.2, 0]]} color={base} opacity={dimmed ? 0.15 : 0.4} lineWidth={1} />
+      <TechLabel position={[0, -0.34, 0]} color={base} size={0.078} opacity={dimmed ? 0.3 : 0.9} decode>
         {event.label}
       </TechLabel>
       {selected && (
-        <TechLabel position={[0, 0.24, 0]} color="#eafcff" size={0.06} opacity={0.9}>
+        <TechLabel position={[0, -0.5, 0]} color="#eafcff" size={0.06} opacity={0.9}>
           {`T+${Math.round(event.at * 100)}%`}
         </TechLabel>
       )}
+    </group>
+  );
+}
+
+/**
+ * Sparks drifting along the arc from past toward NOW — the "time flowing"
+ * motion. Count is fixed; positions come from the same `timelineArcPoint` the
+ * layout uses, so they always sit on the track. Reduced motion → the group is
+ * never mounted, so no per-frame work.
+ */
+function TimeFlow({ accent, speed }: { accent: string; speed: number }) {
+  const refs = useRef<Array<Group | null>>([]);
+  const offsets = useMemo(() => [0, 0.25, 0.5, 0.75], []);
+  useFrame(({ clock }) => {
+    for (let k = 0; k < offsets.length; k++) {
+      const g = refs.current[k];
+      if (!g) continue;
+      const u = (clock.elapsedTime * speed * 0.06 + offsets[k]!) % 1;
+      const [x, , z] = timelineArcPoint(u);
+      g.position.set(x, 0.02 + Math.sin(u * Math.PI) * 0.03, z);
+    }
+  });
+  return (
+    <group>
+      {offsets.map((o, k) => (
+        <group
+          key={o}
+          ref={(g) => {
+            refs.current[k] = g;
+          }}
+        >
+          <mesh>
+            <sphereGeometry args={[0.018, 6, 6]} />
+            <meshBasicMaterial color={accent} transparent opacity={0.8} toneMapped={false} depthWrite={false} />
+          </mesh>
+        </group>
+      ))}
     </group>
   );
 }
@@ -624,8 +746,20 @@ export function Timeline3D({ events = DEFAULT_EVENTS, color, accent, interactive
 
   const focus = useFridayStore((s) => s.focus);
   const setFocus = useFridayStore((s) => s.setFocus);
+  const state = useFridayStore((s) => s.state);
   useFocusRelease("timeline");
   const selectedId = focus && focus.owner === "timeline" ? focus.key : null;
+
+  const reduced = useMemo(
+    () => typeof window !== "undefined" && !!window.matchMedia?.("(prefers-reduced-motion: reduce)").matches,
+    [],
+  );
+
+  const track = useMemo(() => Array.from({ length: 41 }, (_, i) => timelineArcPoint(i / 40)), []);
+  const grid = useMemo(
+    () => Array.from({ length: 11 }, (_, i) => timelineArcPoint(i / 10)),
+    [],
+  );
 
   const handleSelect = (i: number, e: TimelineEvent) => {
     setFocus(
@@ -642,7 +776,7 @@ export function Timeline3D({ events = DEFAULT_EVENTS, color, accent, interactive
     // core withdraws now, so the sequence takes the centre.
     <group
       ref={ref}
-      position={[0, -0.35, 1.1]}
+      position={[0, -0.4, 0]}
       onPointerMissed={
         interactive
           ? () => {
@@ -652,22 +786,39 @@ export function Timeline3D({ events = DEFAULT_EVENTS, color, accent, interactive
           : undefined
       }
     >
-      <HairLine
-        points={[
-          [-W / 2, 0, 0],
-          [W / 2, 0, 0],
-        ]}
-        color={color}
-        opacity={0.45}
-        lineWidth={1.5}
-      />
+      {/* the time track */}
+      <HairLine points={track} color={color} opacity={0.5} lineWidth={1.5} />
+      {/* decile ticks */}
+      {grid.map((p, i) => (
+        <HairLine
+          key={i}
+          points={[p, [p[0], -0.06, p[2]]]}
+          color={color}
+          opacity={i % 5 === 0 ? 0.4 : 0.18}
+          lineWidth={1}
+        />
+      ))}
+      {/* scale anchors at the ends and center */}
+      {[0, 0.5, 1].map((f) => {
+        const [x, , z] = timelineArcPoint(f);
+        return (
+          <TechLabel key={f} position={[x, -0.62, z]} color={color} size={0.05} opacity={0.45}>
+            {`${Math.round(f * 100)}%`}
+          </TechLabel>
+        );
+      })}
+
+      {!reduced && <TimeFlow accent={accent} speed={STATE_LOOK[state].particleIntensity ?? 1} />}
+
       {data.map((e, i) => {
-        const x = -W / 2 + e.at * W;
+        const position = timelineArcPoint(e.at);
+        const a = (Math.min(1, Math.max(0, e.at)) - 0.5) * TL_SPAN;
         return (
           <TimelineEventNode
             key={`${e.label}-${i}`}
             event={e}
-            x={x}
+            position={position}
+            rotationY={-a}
             color={color}
             accent={accent}
             isNow={i === data.length - 1}
