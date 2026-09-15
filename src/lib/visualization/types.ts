@@ -95,13 +95,22 @@ export interface VisualizationSpec {
   title?: string;
 }
 
-/** A visualization element the user drilled into. */
+/**
+ * The single selection spine. `native: true` means the owning visualization
+ * renders its own focus treatment — the shared reticle (FocusMarker) and DOM
+ * card (FocusPanel) skip those and only the HUD `FOCUS ·` lane reads it.
+ * `native: false` is the legacy generic drill-down (reticle at `position`).
+ */
 export interface VizFocus {
+  /** Which visualization drew this selection: "globe" | "gauge" | "network" | "bar" | "drilldown". */
+  owner: string;
+  /** Stable element id within that owner (unique per owner only). */
+  key: string;
   label: string;
   detail: string;
-  position: [number, number, number];
-  /** True when the focus comes from a globe marker (camera + selection). */
-  globe?: boolean;
+  native: boolean;
+  /** Legacy reticle anchor only — native owners never set it. */
+  position?: [number, number, number];
 }
 
 export type VizLifecycle = "materializing" | "active" | "updating" | "settling";

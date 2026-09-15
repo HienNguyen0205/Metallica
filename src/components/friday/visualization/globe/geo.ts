@@ -1,4 +1,4 @@
-import type { GeoPoint, GlobeRoute, RenderQuality, VizData } from "@/lib/store";
+import type { GeoPoint, GlobeRoute, RenderQuality, VizData, VizFocus } from "@/lib/store";
 
 export type Vec3 = [number, number, number];
 
@@ -255,31 +255,16 @@ export const SUN_DIRECTION: Vec3 = [-0.55, 0.32, 1].map((v) => {
 
 // ---------- globe focus (data-driven, not label denylist) ----------
 
-/** Drill-down tag carried in `userData.viz`. `globe` marks globe markers. */
-export interface GlobeTag {
-  label: string;
-  detail: string;
-  globe?: boolean;
-  /** Element renders its own hover readout → suppress the generic hover label. */
-  noHoverLabel?: boolean;
-}
-
-/** True when the tag comes from a globe marker — never match on label strings. */
-export function isGlobeTag(tag: GlobeTag | null | undefined): boolean {
-  return tag?.globe === true;
-}
-
-/** Store focus for a globe marker: camera flies AND selection highlights. */
-export function globeFocusFor(
-  point: GeoPoint,
-  index: number,
-  position: Vec3,
-): { label: string; detail: string; position: Vec3; globe: true } {
+/** Globe-marker selection: native (own in-scene highlight); camera flies separately. */
+export function globeFocusFor(point: GeoPoint, index: number): VizFocus {
+  const label = markerLabel(point, index);
   return {
-    label: markerLabel(point, index),
+    owner: "globe",
+    key: label,
+    label,
     detail: markerDetail(point),
-    position,
-    globe: true,
+    native: true,
+    position: undefined,
   };
 }
 

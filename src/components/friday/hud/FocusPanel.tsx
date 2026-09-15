@@ -2,6 +2,7 @@
 
 import { useEffect } from "react";
 import { useFridayStore } from "@/lib/store";
+import { releaseFocus } from "@/lib/visualization/focus";
 
 /** Drill-down detail card — DOM mirror of the 3D focus reticle. ESC or ✕ releases. */
 export function FocusPanel() {
@@ -11,13 +12,14 @@ export function FocusPanel() {
   useEffect(() => {
     if (!focus) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setFocus(null);
+      if (e.key === "Escape") setFocus(releaseFocus(focus, "drilldown"));
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [focus, setFocus]);
 
-  if (!focus) return null;
+  // Native selections draw their own readout in-scene — no DOM card.
+  if (!focus || focus.native) return null;
   return (
     <div
       role="status"

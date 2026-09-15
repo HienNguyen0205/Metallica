@@ -59,7 +59,7 @@ export function Globe3D({ points, routes, color }: GlobeProps) {
 
   const q = resolveGlobeQuality({ preference: qualityPref, systemReduced: reduced });
   const look = STATE_LOOK[state];
-  const selectedLabel = focus?.label ?? null;
+  const selectedLabel = focus?.owner === "globe" ? focus.key : null;
 
   // While mounted, this visualization owns the camera for geographic
   // navigation; the cinematic rig yields and resumes on unmount (§16).
@@ -69,19 +69,19 @@ export function Globe3D({ points, routes, color }: GlobeProps) {
   }, []);
 
   const getFocusTarget = useCallback(() => {
-    if (!focus) return null;
-    const hit = data.find((p, i) => markerLabel(p, i) === focus.label);
+    if (!focus || focus.owner !== "globe") return null;
+    const hit = data.find((p, i) => markerLabel(p, i) === focus.key);
     return hit ? { lat: hit.lat, lon: hit.lon } : null;
   }, [data, focus]);
 
   const { spinRef, handlers, focusOn } = useGlobeInteraction({ getFocusTarget });
 
   const handleFocusMarker = useCallback(
-    (p: GeoPoint, index: number, worldPos: [number, number, number]) => {
+    (p: GeoPoint, index: number) => {
       // Camera flies AND store focus sets — selection highlight, dimming,
       // route emphasis and the `F` key all read from the same focus.
       focusOn({ lat: p.lat, lon: p.lon });
-      useFridayStore.getState().setFocus(globeFocusFor(p, index, worldPos));
+      useFridayStore.getState().setFocus(globeFocusFor(p, index));
     },
     [focusOn],
   );

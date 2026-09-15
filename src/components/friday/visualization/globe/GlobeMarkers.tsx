@@ -26,7 +26,7 @@ interface MarkerNodeProps {
   dimmed: boolean;
   showLabel: boolean;
   reduced: boolean;
-  onFocusMarker: (point: GeoPoint, index: number, worldPos: [number, number, number]) => void;
+  onFocusMarker: (point: GeoPoint, index: number) => void;
 }
 
 /**
@@ -136,7 +136,7 @@ function MarkerNode({
             // DrillDown wrapper does not create an extra reticle/connector
             // on top of the marker.
             e.stopPropagation();
-            onFocusMarker(point, index, [worldPos.x, worldPos.y, worldPos.z]);
+            onFocusMarker(point, index);
           }}
           onDoubleClick={(e) => {
             // Swallow: a double-click is two focusing clicks, never a reset.
@@ -192,7 +192,7 @@ export function GlobeMarkers({
   radius: number;
   selectedLabel: string | null;
   reduced: boolean;
-  onFocusMarker: (point: GeoPoint, index: number, worldPos: [number, number, number]) => void;
+  onFocusMarker: (point: GeoPoint, index: number) => void;
 }) {
   // Dense scenes label only on demand — hover/selection still surface names
   // through the shared drill-down hover tag (§17).

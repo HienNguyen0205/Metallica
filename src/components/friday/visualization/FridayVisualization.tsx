@@ -13,13 +13,13 @@ import {
 } from "@/lib/store";
 import { STATE_LOOK } from "@/lib/stateLook";
 import { resolveVisualizationLayout } from "@/lib/visualization/layoutResolver";
+import { makeDrilldownFocus } from "@/lib/visualization/focus";
 import { Connector, Reticle, TechLabel } from "../primitives";
 import { RadialGauge, Radar, Waveform } from "./vizRadial";
 import { BarChart3D, LineChart3D, Timeline3D } from "./vizCharts";
 import { SankeyFlow } from "./vizFlow";
 import { Network3D } from "./vizSpatial";
 import { Globe3D } from "./globe/GlobeVisualization";
-import { isGlobeTag } from "./globe/geo";
 
 interface RendererProps {
   data: VizData;
@@ -67,7 +67,8 @@ export function nextFocus(
   tag: VizTag,
   position: [number, number, number],
 ): VizFocus | null {
-  return current?.label === tag.label ? null : { ...tag, position };
+  const next = makeDrilldownFocus(tag.label, tag.detail, position);
+  return current?.label === tag.label ? null : next;
 }
 
 function findVizTag(obj: Object3D): VizTag | null {
@@ -130,10 +131,11 @@ function DrillDown({ enabled, children }: { enabled: boolean; children: ReactNod
     }
     const hit = resolveTag(e);
     if (!hit) return;
-    // Globe markers handle camera focus + store focus themselves and suppress
-    // the shared reticle — don't create a second DrillDown focus for them.
-    // Data-driven flag, never a hardcoded label list.
-    if (isGlobeTag(hit.tag)) return;
+    // Globe markers own their focus (camera fly + native selection) and
+    // normally stopPropagation — but their backside/drag guards can return
+    // early without it, so a leaked globe click still must not build a
+    // DrillDown focus. Data-driven flag, never a hardcoded label list.
+    if (hit.tag.globe === true) return;
     setHover(null);
     setFocus(nextFocus(focus, hit.tag, hit.position));
   };
@@ -179,9 +181,6 @@ function DrillDown({ enabled, children }: { enabled: boolean; children: ReactNod
 function FocusMarker() {
   const focus = useFridayStore((s) => s.focus);
   const state = useFridayStore((s) => s.state);
-  // Globe-originated focus renders its own selected state on the marker;
-  // the shared reticle would pile a second target UI on top. Scoped to the
-  // focus origin — an unrelated globe must not hide reticles for bar/network.
   const look = STATE_LOOK[state];
   const ref = useRef<Group>(null);
 
@@ -192,7 +191,12 @@ function FocusMarker() {
   });
 
   if (!focus) return null;
-  if (focus.globe) return null;
+  // Native selections (globe, gauge, network, bar) render their own focus
+  // in-scene; the shared reticle would pile a second target UI on top.
+  if (focus.native) return null;
+  // The reticle anchors in world space — only legacy drill-down focus carries
+  // a position.
+  if (!focus.position) return null;
 
   return (
     <>
