@@ -1,9 +1,11 @@
 "use client";
 
-import { useMemo, useRef } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useFrame } from "@react-three/fiber";
 import { DoubleSide, type Group } from "three";
-import type { NodeDatum } from "@/lib/store";
+import { useFridayStore, type NodeDatum } from "@/lib/store";
+import { makeNativeFocus, releaseFocus, toggleFocus } from "@/lib/visualization/focus";
+import { useFocusRelease } from "./useFocusRelease";
 import { HairLine, TechLabel, useMaterialize } from "../primitives";
 
 export interface SpatialProps {
@@ -33,11 +35,119 @@ function spherePosition(i: number, total: number, radius: number): [number, numb
   return [Math.cos(theta) * r * radius, y * radius * 0.75, Math.sin(theta) * r * radius];
 }
 
+interface NetworkNodeProps {
+  node: NodeDatum;
+  index: number;
+  position: [number, number, number];
+  color: string;
+  accent: string;
+  degree: number;
+  selected: boolean;
+  dimmed: boolean;
+  onSelect: (node: NodeDatum, degree: number) => void;
+}
+
+/**
+ * One network node. Native focus language: the selected/hovered node brightens
+ * and its ring spins faster; when any node is selected the rest dim. Hit events
+ * stopPropagation so the shared DrillDown never sees them, with a 6px gate so
+ * orbit-drags ending on a node never select it.
+ */
+function NetworkNode({
+  node,
+  index,
+  position,
+  color,
+  accent,
+  degree,
+  selected,
+  dimmed,
+  onSelect,
+}: NetworkNodeProps) {
+  const [hovered, setHovered] = useState(false);
+  const ringRef = useRef<Group>(null);
+  const downAt = useRef<[number, number] | null>(null);
+  const highlighted = selected || hovered;
+
+  useFrame((_, delta) => {
+    if (!ringRef.current) return;
+    ringRef.current.rotation.z += delta * (highlighted ? 1.2 : 0.2);
+  });
+
+  const setHover = (h: boolean) => {
+    setHovered(h);
+    document.body.style.cursor = h ? "pointer" : "auto";
+  };
+
+  const base = index % 3 === 0 ? accent : color;
+  return (
+    <group position={position}>
+      <mesh
+        visible={false}
+        onPointerOver={(e) => {
+          e.stopPropagation();
+          setHover(true);
+        }}
+        onPointerOut={() => setHover(false)}
+        onPointerDown={(e) => {
+          e.stopPropagation();
+          downAt.current = [e.nativeEvent.clientX, e.nativeEvent.clientY];
+        }}
+        onClick={(e) => {
+          e.stopPropagation();
+          if (downAt.current) {
+            const dx = e.nativeEvent.clientX - downAt.current[0];
+            const dy = e.nativeEvent.clientY - downAt.current[1];
+            downAt.current = null;
+            if (Math.hypot(dx, dy) > 6) return;
+          }
+          onSelect(node, degree);
+        }}
+      >
+        <sphereGeometry args={[0.24, 10, 10]} />
+      </mesh>
+      <mesh>
+        <octahedronGeometry args={[0.11, 0]} />
+        <meshBasicMaterial
+          color={highlighted ? "#eafcff" : base}
+          transparent
+          opacity={dimmed ? 0.2 : 0.9}
+          toneMapped={false}
+        />
+      </mesh>
+      <group ref={ringRef} scale={selected ? 1.35 : 1}>
+        <mesh>
+          <ringGeometry args={[0.17, 0.185, 24]} />
+          <meshBasicMaterial
+            color={highlighted ? "#eafcff" : color}
+            transparent
+            opacity={dimmed ? 0.08 : highlighted ? 0.8 : 0.35}
+            side={DoubleSide}
+            depthWrite={false}
+          />
+        </mesh>
+      </group>
+      <TechLabel position={[0, -0.3, 0]} color={color} size={0.075} opacity={dimmed ? 0.25 : 0.9} decode>
+        {node.label ?? node.id}
+      </TechLabel>
+      {selected && (
+        <TechLabel position={[0, -0.46, 0]} color="#eafcff" size={0.06} opacity={0.9}>
+          {`${degree} LINK${degree === 1 ? "" : "S"}`}
+        </TechLabel>
+      )}
+    </group>
+  );
+}
+
 /** §6 relationships → network graph orbiting the core. */
 export function Network3D({ nodes = DEFAULT_NODES, links, color, accent }: SpatialProps) {
   const ref = useMaterialize(0.9);
   const spin = useRef<Group>(null);
   const data = nodes.length ? nodes : DEFAULT_NODES;
+
+  const focus = useFridayStore((s) => s.focus);
+  const setFocus = useFridayStore((s) => s.setFocus);
+  useFocusRelease("network");
 
   const positions = useMemo(
     () => data.map((_, i) => spherePosition(i, data.length, 2.7)),
@@ -47,48 +157,74 @@ export function Network3D({ nodes = DEFAULT_NODES, links, color, accent }: Spati
     () => links ?? data.map((_, i) => [i, (i + 2) % data.length] as [number, number]),
     [links, data],
   );
+  const degrees = useMemo(() => {
+    const d = new Array<number>(data.length).fill(0);
+    for (const [a, b] of edges) {
+      if (a >= 0 && b >= 0 && a < d.length && b < d.length) {
+        d[a]++;
+        d[b]++;
+      }
+    }
+    return d;
+  }, [data, edges]);
+
+  const selectedId = focus && focus.owner === "network" ? focus.key : null;
+  const anySelected = !!selectedId;
+
+  const handleSelect = (node: NodeDatum, degree: number) => {
+    setFocus(
+      toggleFocus(
+        useFridayStore.getState().focus,
+        makeNativeFocus(
+          "network",
+          node.id,
+          (node.label ?? node.id).toUpperCase(),
+          `${degree} LINK${degree === 1 ? "" : "S"}`,
+        ),
+      ),
+    );
+  };
 
   useFrame((_, delta) => {
     if (spin.current) spin.current.rotation.y += delta * 0.12;
   });
 
   return (
-    <group ref={ref}>
+    <group
+      ref={ref}
+      onPointerMissed={() => {
+        const s = useFridayStore.getState();
+        s.setFocus(releaseFocus(s.focus, "network"));
+      }}
+    >
       <group ref={spin}>
-        {edges.map(([a, b], i) => (
-          <HairLine
-            key={i}
-            points={[positions[a] ?? [0, 0, 0], positions[b] ?? [0, 0, 0]]}
-            color={color}
-            opacity={0.45}
-            lineWidth={1.5}
-          />
-        ))}
+        {edges.map(([a, b], i) => {
+          const touches =
+            selectedId !== null &&
+            (data[a]?.id === selectedId || data[b]?.id === selectedId);
+          return (
+            <HairLine
+              key={i}
+              points={[positions[a] ?? [0, 0, 0], positions[b] ?? [0, 0, 0]]}
+              color={touches ? accent : color}
+              opacity={selectedId === null ? 0.45 : touches ? 0.9 : 0.12}
+              lineWidth={touches ? 2 : 1.5}
+            />
+          );
+        })}
         {positions.map((p, i) => (
-          <group key={data[i].id} position={p}>
-            <mesh
-              visible={false}
-              userData={{
-                viz: {
-                  label: (data[i].label ?? data[i].id).toUpperCase(),
-                  detail: "NODE ONLINE",
-                },
-              }}
-            >
-              <sphereGeometry args={[0.24, 10, 10]} />
-            </mesh>
-            <mesh>
-              <octahedronGeometry args={[0.11, 0]} />
-              <meshBasicMaterial color={i % 3 === 0 ? accent : color} transparent opacity={0.9} toneMapped={false} />
-            </mesh>
-            <mesh>
-              <ringGeometry args={[0.17, 0.185, 24]} />
-              <meshBasicMaterial color={color} transparent opacity={0.35} side={DoubleSide} depthWrite={false} />
-            </mesh>
-            <TechLabel position={[0, -0.3, 0]} color={color} size={0.075} opacity={0.9} decode>
-              {data[i].label ?? data[i].id}
-            </TechLabel>
-          </group>
+          <NetworkNode
+            key={data[i].id}
+            node={data[i]}
+            index={i}
+            position={p}
+            color={color}
+            accent={accent}
+            degree={degrees[i] ?? 0}
+            selected={selectedId === data[i].id}
+            dimmed={anySelected && selectedId !== data[i].id}
+            onSelect={handleSelect}
+          />
         ))}
       </group>
     </group>

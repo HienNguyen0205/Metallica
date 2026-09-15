@@ -1,9 +1,11 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
-import { useFrame } from "@react-three/fiber";
-import { DoubleSide, Object3D, type InstancedMesh } from "three";
-import type { SeriesDatum, TimelineEvent } from "@/lib/store";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useFrame, type ThreeEvent } from "@react-three/fiber";
+import { Color, DoubleSide, Object3D, type InstancedMesh } from "three";
+import { useFridayStore, type SeriesDatum, type TimelineEvent } from "@/lib/store";
+import { makeNativeFocus, releaseFocus, toggleFocus } from "@/lib/visualization/focus";
+import { useFocusRelease } from "./useFocusRelease";
 import { HairLine, TechLabel, useMaterialize } from "../primitives";
 
 export interface ChartProps {
@@ -159,6 +161,15 @@ export const BAR_WIDTH = 0.16;
 export const BAR_GROUP_MAX = 4;
 /** Lateral pitch between grouped bars, in world units along the arc tangent. */
 const BAR_GROUP_PITCH = 0.22;
+/** How far a selected bar rises above its resting height. */
+const BAR_LIFT = 0.06;
+/**
+ * Module-scope scratch colors for the per-instance pass. Mutated only through
+ * `.set`/`.copy`/`.multiplyScalar` (methods) so the React Compiler never sees a
+ * post-render assignment to a hook value; reused across frames to avoid GC.
+ */
+const tmpColor = new Color();
+const tmpBase = new Color();
 
 function barAngle(i: number, count: number) {
   return -BAR_SPAN / 2 + (i / Math.max(1, count - 1)) * BAR_SPAN;
@@ -199,8 +210,8 @@ export function BarChart3D({ series = DEFAULT_SERIES, color, accent }: ChartProp
   const ref = useMaterialize(0.8);
   const meshes = useRef<(InstancedMesh | null)[]>([]);
   const dummy = useMemo(() => new Object3D(), []);
-  // Grouped: one instanced mesh per series, so drill-down
-  // reuses vizBar unchanged — each mesh carries its own series label + values.
+  // Grouped: one instanced mesh per series. Each bar is a per-instance focus
+  // target (instanceId), colored/lifted from the spine in the frame loop below.
   const data = series.length ? series.slice(0, BAR_GROUP_MAX) : DEFAULT_SERIES;
   const count = Math.max(...data.map((s) => s.points.length));
   const grown = useRef(0);
@@ -210,8 +221,28 @@ export function BarChart3D({ series = DEFAULT_SERIES, color, accent }: ChartProp
   const peaks = data.map((s) => s.points.indexOf(Math.max(...s.points)));
   const width = barGroupWidth(data.length);
 
+  // --- native focus (owner "bar", key "<series>-<category>") ---
+  const focus = useFridayStore((s) => s.focus);
+  const setFocus = useFridayStore((s) => s.setFocus);
+  useFocusRelease("bar");
+  const [hovered, setHovered] = useState<{ si: number; i: number } | null>(null);
+  // 6px gate: the camera orbits, and a drag ending over the bars must not select.
+  const downAt = useRef<[number, number] | null>(null);
+  const selected = useMemo(() => {
+    if (!focus || focus.owner !== "bar") return null;
+    const [si, i] = focus.key.split("-").map(Number);
+    return Number.isFinite(si) && Number.isFinite(i) ? { si: si!, i: i! } : null;
+  }, [focus]);
+  // One color/lift pass must run after the grow ends or whenever the focus
+  // changes — the frame loop otherwise idles and the matrices stay stale.
+  const dirty = useRef(true);
+  useEffect(() => {
+    dirty.current = true;
+  }, [selected, hovered, color, accent]);
+
   useLayoutEffect(() => {
     grown.current = 0;
+    dirty.current = true;
   }, [series]);
 
   /**
@@ -230,29 +261,39 @@ export function BarChart3D({ series = DEFAULT_SERIES, color, accent }: ChartProp
   }, [series]);
 
   useFrame((_, delta) => {
-    // Stops once the bars have finished growing. Without this the loop kept
-    // rewriting matrices that no longer change and re-flagging
-    // `instanceMatrix` every frame — a GPU upload per frame, forever, for
-    // geometry standing still. `useLayoutEffect` above rewinds it when the
-    // data changes, so the animation still replays.
-    if (grown.current >= 1) return;
-    grown.current = Math.min(1, grown.current + delta * 1.6);
+    // Runs while growing, and one extra pass whenever `dirty` (a focus/hover
+    // change, or the moment growth finishes) so colors + the selected lift are
+    // written without re-uploading matrices every idle frame.
+    const animating = grown.current < 1;
+    if (!animating && !dirty.current) return;
+    if (animating) grown.current = Math.min(1, grown.current + delta * 1.6);
     data.forEach((s, si) => {
       const mesh = meshes.current[si];
       if (!mesh) return;
+      tmpBase.set(si === 0 ? color : accent);
       for (let i = 0; i < count; i++) {
         const v = s.points[i] ?? 0;
         const a = barAngle(i, count);
         const [x, , z] = barGroupPosition(i, count, si, data.length);
         const h = (v / max) * BAR_MAX_H * grown.current + 0.02;
-        dummy.position.set(x, BAR_BASE + h / 2, z);
+        const isSel = selected?.si === si && selected?.i === i;
+        const isHov = hovered?.si === si && hovered?.i === i;
+        dummy.position.set(x, BAR_BASE + h / 2 + (isSel ? BAR_LIFT : 0), z);
         dummy.rotation.set(0, -a, 0);
         dummy.scale.set(width, h, 0.16);
         dummy.updateMatrix();
         mesh.setMatrixAt(i, dummy.matrix);
+        // The mesh material is white; instance color carries the whole hue so
+        // dim/highlight never exceed 1 or fight the shared opacity.
+        if (isSel || isHov) tmpColor.set(0.92, 0.99, 1);
+        else if (selected) tmpColor.copy(tmpBase).multiplyScalar(0.3);
+        else tmpColor.copy(tmpBase);
+        mesh.setColorAt(i, tmpColor);
       }
       mesh.instanceMatrix.needsUpdate = true;
+      if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
     });
+    if (!animating) dirty.current = false;
   });
 
   // Legend anchor: under the first category, clear of bars (which rise from
@@ -261,7 +302,13 @@ export function BarChart3D({ series = DEFAULT_SERIES, color, accent }: ChartProp
   const [legendX, , legendZ] = barPosition(0, count);
 
   return (
-    <group ref={ref}>
+    <group
+      ref={ref}
+      onPointerMissed={() => {
+        const st = useFridayStore.getState();
+        st.setFocus(releaseFocus(st.focus, "bar"));
+      }}
+    >
       {data.map((s, si) => (
         <instancedMesh
           key={s.label}
@@ -269,12 +316,51 @@ export function BarChart3D({ series = DEFAULT_SERIES, color, accent }: ChartProp
             meshes.current[si] = m;
           }}
           args={[undefined, undefined, count]}
-          userData={{ vizBar: { label: s.label.toUpperCase(), values: s.points } }}
+          onPointerDown={(e: ThreeEvent<PointerEvent>) => {
+            e.stopPropagation();
+            downAt.current = [e.nativeEvent.clientX, e.nativeEvent.clientY];
+          }}
+          onPointerMove={(e: ThreeEvent<PointerEvent>) => {
+            e.stopPropagation();
+            if (e.instanceId === undefined) return;
+            // Bail on same-instance moves: a fresh object per mousemove would
+            // re-render the whole chart (and its labels) for no visual change.
+            setHovered((h) => (h?.si === si && h?.i === e.instanceId ? h : { si, i: e.instanceId! }));
+            document.body.style.cursor = "pointer";
+          }}
+          onPointerOut={() => {
+            setHovered(null);
+            document.body.style.cursor = "auto";
+          }}
+          onClick={(e: ThreeEvent<MouseEvent>) => {
+            e.stopPropagation();
+            if (downAt.current) {
+              const dx = e.nativeEvent.clientX - downAt.current[0];
+              const dy = e.nativeEvent.clientY - downAt.current[1];
+              downAt.current = null;
+              if (Math.hypot(dx, dy) > 6) return;
+            }
+            const i = e.instanceId;
+            if (i === undefined) return;
+            setFocus(
+              toggleFocus(
+                useFridayStore.getState().focus,
+                makeNativeFocus(
+                  "bar",
+                  `${si}-${i}`,
+                  `${s.label.toUpperCase()} · ${i + 1}`,
+                  String(s.points[i] ?? 0),
+                ),
+              ),
+            );
+          }}
         >
           <boxGeometry args={[1, 1, 1]} />
-          {/* opacity 0.45 over a bright core turned the bars to fog */}
+          {/* white base — the per-instance color set in the frame loop carries
+              the hue (base / dimmed / highlighted), so the shared 0.72 opacity
+              never fights it and a lone series renders exactly as before. */}
           <meshBasicMaterial
-            color={si === 0 ? color : accent}
+            color="#ffffff"
             transparent
             opacity={0.72}
             toneMapped={false}
@@ -300,13 +386,16 @@ export function BarChart3D({ series = DEFAULT_SERIES, color, accent }: ChartProp
           const v = s.points[i] ?? 0;
           const [x, , z] = barGroupPosition(i, count, si, data.length);
           const h = (v / max) * BAR_MAX_H;
+          const isSel = selected?.si === si && selected?.i === i;
+          const isHov = hovered?.si === si && hovered?.i === i;
+          const lift = (isSel ? BAR_LIFT : 0) + 0.16;
           return (
             <group key={`${s.label}-${i}`}>
               <TechLabel
-                position={[x, BAR_BASE + h + 0.16, z]}
-                color={i === peaks[si] ? (si === 0 ? accent : color) : "#e5f6ff"}
-                size={0.075}
-                opacity={i === peaks[si] ? 1 : 0.8}
+                position={[x, BAR_BASE + h + lift, z]}
+                color={isSel || isHov ? "#eafcff" : i === peaks[si] ? (si === 0 ? accent : color) : "#e5f6ff"}
+                size={isSel ? 0.09 : 0.075}
+                opacity={isSel || isHov || i === peaks[si] ? 1 : 0.8}
               >
                 {String(v)}
               </TechLabel>
