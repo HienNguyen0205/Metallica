@@ -3,8 +3,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useFrame, type ThreeEvent } from "@react-three/fiber";
 import { Color, DoubleSide, Object3D, type Group, type InstancedMesh } from "three";
-import { MeshBasicNodeMaterial } from "three/webgpu";
-import { uv } from "three/tsl";
 import { useFridayStore, type SeriesDatum, type TimelineEvent } from "@/lib/store";
 import { STATE_LOOK } from "@/lib/stateLook";
 import { makeFocus, releaseFocus, toggleFocus } from "@/lib/visualization/focus";
@@ -542,68 +540,38 @@ const DEFAULT_EVENTS: TimelineEvent[] = [
 ];
 
 /**
- * The time axis is a shallow elliptical arc in the x–z plane (not a flat
- * line): `at` 0→1 sweeps it left→right, the midpoint bulges toward the
- * camera. Curving time into depth is what makes it read as a holographic
- * timeline rather than a 2D ruler, and it matches the bar chart's arc so the
- * two never look like they belong to different apps.
+ * Mission-control time scrubber: one straight rail, filled bright from the
+ * past up to NOW, events as diamonds ON the rail, HUD-elbow labels alternating
+ * below/above it, and a glowing playhead riding the now-mark. The whole board
+ * rides on a plane tilted a few degrees into the camera — depth without the
+ * "bent stick" look a curved axis produced.
  */
-export const TL_SPAN = 2.1;
-export const TL_RADIUS = 2.5;
-/** Depth the far ends recede by; also the ellipse's z semi-axis. */
-export const TL_DEPTH = 0.6;
-/** Midpoint (closest) z, in the timeline group's local space. */
-export const TL_Z0 = 1.15;
+export const TL_RAIL_SPAN = 4.6;
 
-/** A point on the time arc for `at` ∈ [0,1]; clamped and NaN-safe. y is 0 (the track). */
-export function timelineArcPoint(at: number): [number, number, number] {
+/** X position on the rail for `at` ∈ [0,1]; clamped and NaN-safe. */
+export function railXFor(at: number): number {
   const u = Number.isFinite(at) ? Math.min(1, Math.max(0, at)) : 0.5;
-  const a = (u - 0.5) * TL_SPAN;
-  return [Math.sin(a) * TL_RADIUS, 0, TL_Z0 - (1 - Math.cos(a)) * TL_DEPTH];
-}
-
-/** Vertical light column: bright at the base, fading to the tip (uv.y gradient). */
-function Beacon({ height, color, dimmed }: { height: number; color: string; dimmed: boolean }) {
-  const material = useMemo(() => {
-    const mat = new MeshBasicNodeMaterial({
-      transparent: true,
-      depthWrite: false,
-      side: DoubleSide,
-      toneMapped: false,
-    });
-    mat.color = new Color(color);
-    mat.opacityNode = uv().y.oneMinus().mul(0.7).add(0.25).mul(dimmed ? 0.22 : 1);
-    return mat;
-  }, [color, dimmed]);
-  useEffect(() => () => material.dispose(), [material]);
-  return (
-    <mesh position={[0, height / 2, 0]} material={material}>
-      <planeGeometry args={[0.075, height]} />
-    </mesh>
-  );
+  return (u - 0.5) * TL_RAIL_SPAN;
 }
 
 interface TimelineEventNodeProps {
   event: TimelineEvent;
-  position: [number, number, number];
-  /** Yaw that turns the (flat) beacon to face down the arc tangent. */
-  rotationY: number;
+  x: number;
+  /** +1 = label above the rail, -1 = below (alternating keeps labels apart). */
+  side: 1 | -1;
   color: string;
-  accent: string;
-  isNow: boolean;
   selected: boolean;
   dimmed: boolean;
   interactive: boolean;
   onSelect: () => void;
 }
 
+/** One event: a diamond riding the rail + an HUD elbow leading to its label. */
 function TimelineEventNode({
   event,
-  position,
-  rotationY,
+  x,
+  side,
   color,
-  accent,
-  isNow,
   selected,
   dimmed,
   interactive,
@@ -611,31 +579,23 @@ function TimelineEventNode({
 }: TimelineEventNodeProps) {
   const [hovered, setHovered] = useState(false);
   const downAt = useRef<[number, number] | null>(null);
-  const ringRef = useRef<Group>(null);
   const highlighted = selected || hovered;
-  const base = isNow ? accent : color;
-  const height = isNow ? 0.6 : 0.4;
-
-  // Now-marker expanding rings: two rings on opposite phases, scaled + faded
-  // each frame. A ref (not state) so no re-render fires from the loop.
-  useFrame(({ clock }) => {
-    if (!ringRef.current || !isNow) return;
-    const t = clock.elapsedTime * (dimmed ? 0.4 : 0.85);
-    const s = 0.12 + (t % 1) * 0.26;
-    const fade = 0.55 * (1 - (t % 1));
-    for (const child of ringRef.current.children) {
-      child.scale.setScalar(s);
-      const m = (child as Object3D & { material?: { opacity: number } }).material;
-      if (m) m.opacity = fade;
-    }
-  });
+  const base = highlighted ? "#eafcff" : color;
+  // Elbows run horizontal toward the nearest end of the rail, so labels never
+  // reach back over their neighbours.
+  const outward = x >= 0 ? 1 : -1;
+  const elbow: [number, number, number][] = [
+    [x, 0, 0],
+    [x, side * 0.13, 0],
+    [x + outward * 0.14, side * 0.13, 0],
+  ];
 
   return (
-    <group position={position} rotation={[0, rotationY, 0]}>
+    <group position={[x, 0, 0]}>
       {interactive && (
         <mesh
           visible={false}
-          position={[0, height / 2, 0.02]}
+          position={[outward * 0.18, side * 0.16, 0.02]}
           onPointerOver={(e: ThreeEvent<PointerEvent>) => {
             e.stopPropagation();
             setHovered(true);
@@ -660,42 +620,40 @@ function TimelineEventNode({
             onSelect();
           }}
         >
-          <planeGeometry args={[0.4, Math.max(0.5, height)]} />
+          <planeGeometry args={[0.62, 0.46]} />
         </mesh>
       )}
 
-      <Beacon height={highlighted ? height * 1.18 : height} color={highlighted ? "#eafcff" : base} dimmed={dimmed} />
-
-      {/* base tick on the track */}
-      <mesh position={[0, 0, 0]}>
-        <boxGeometry args={[0.03, 0.03, 0.03]} />
-        <meshBasicMaterial color={highlighted ? "#eafcff" : base} transparent opacity={dimmed ? 0.3 : 1} toneMapped={false} />
+      <mesh rotation={[0, 0, Math.PI / 4]} scale={highlighted ? 1.5 : 1}>
+        <boxGeometry args={[0.065, 0.065, 0.02]} />
+        <meshBasicMaterial color={base} transparent opacity={dimmed ? 0.25 : 1} toneMapped={false} />
       </mesh>
-      {/* cap */}
-      <mesh position={[0, height, 0]} rotation={[0, 0, Math.PI / 4]} scale={highlighted ? 1.35 : 1}>
-        <octahedronGeometry args={[0.05, 0]} />
-        <meshBasicMaterial color={highlighted ? "#eafcff" : base} transparent opacity={dimmed ? 0.3 : 0.95} toneMapped={false} />
-      </mesh>
-
-      {/* NOW pulse rings */}
-      {isNow && (
-        <group ref={ringRef} position={[0, height * 0.5, 0]}>
-          {[0, 0.5].map((ph) => (
-            <mesh key={ph}>
-              <ringGeometry args={[0.1, 0.115, 32]} />
-              <meshBasicMaterial color={accent} transparent opacity={0} side={DoubleSide} depthWrite={false} toneMapped={false} />
-            </mesh>
-          ))}
-        </group>
+      {highlighted && (
+        <mesh rotation={[0, 0, Math.PI / 4]}>
+          <boxGeometry args={[0.115, 0.115, 0.008]} />
+          <meshBasicMaterial color={base} transparent opacity={0.35} toneMapped={false} depthWrite={false} />
+        </mesh>
       )}
 
-      {/* leader to the label */}
-      <HairLine points={[[0, 0, 0], [0, -0.2, 0]]} color={base} opacity={dimmed ? 0.15 : 0.4} lineWidth={1} />
-      <TechLabel position={[0, -0.34, 0]} color={base} size={0.078} opacity={dimmed ? 0.3 : 0.9} decode>
+      <HairLine points={elbow} color={base} opacity={dimmed ? 0.15 : 0.55} lineWidth={1} />
+      <TechLabel
+        position={[outward * 0.18, side * 0.13, 0]}
+        color={base}
+        size={0.075}
+        opacity={dimmed ? 0.3 : 0.95}
+        anchorX={outward > 0 ? "left" : "right"}
+        decode
+      >
         {event.label}
       </TechLabel>
       {selected && (
-        <TechLabel position={[0, -0.5, 0]} color="#eafcff" size={0.06} opacity={0.9}>
+        <TechLabel
+          position={[outward * 0.18, side * 0.27, 0]}
+          color="#eafcff"
+          size={0.055}
+          opacity={0.9}
+          anchorX={outward > 0 ? "left" : "right"}
+        >
           {`T+${Math.round(event.at * 100)}%`}
         </TechLabel>
       )}
@@ -703,22 +661,65 @@ function TimelineEventNode({
   );
 }
 
+/** The scan bar riding the now-mark: vertical blade + expanding rings + tag. */
+function Playhead({ x, accent, reduced }: { x: number; accent: string; reduced: boolean }) {
+  const rings = useRef<Group>(null);
+  useFrame(({ clock }) => {
+    if (reduced || !rings.current) return;
+    const t = clock.elapsedTime * 0.7;
+    rings.current.children.forEach((child, i) => {
+      const ph = (t + i * 0.5) % 1;
+      child.scale.setScalar(0.1 + ph * 0.34);
+      const m = (child as Object3D & { material?: { opacity: number } }).material;
+      if (m) m.opacity = 0.6 * (1 - ph);
+    });
+  });
+  return (
+    <group position={[x, 0, 0.01]}>
+      <mesh>
+        <boxGeometry args={[0.016, 0.46, 0.01]} />
+        <meshBasicMaterial color={accent} transparent opacity={0.9} toneMapped={false} depthWrite={false} />
+      </mesh>
+      <mesh rotation={[0, 0, Math.PI / 4]}>
+        <boxGeometry args={[0.05, 0.05, 0.014]} />
+        <meshBasicMaterial color="#ffffff" transparent opacity={0.95} toneMapped={false} />
+      </mesh>
+      {/* Unit-radius rings; the frame loop scales them 0.1→0.44 world units. */}
+      <group ref={rings}>
+        {[0, 1].map((i) => (
+          <mesh key={i} scale={reduced && i === 1 ? 0 : 0.1 + (i === 0 ? 0.16 : 0.02)}>
+            <ringGeometry args={[1, 1.06, 48]} />
+            <meshBasicMaterial
+              color={accent}
+              transparent
+              opacity={reduced ? (i === 0 ? 0.35 : 0) : 0}
+              side={DoubleSide}
+              depthWrite={false}
+              toneMapped={false}
+            />
+          </mesh>
+        ))}
+      </group>
+      <TechLabel position={[0, 0.36, 0]} color={accent} size={0.07} opacity={0.95} decode>
+        NOW
+      </TechLabel>
+    </group>
+  );
+}
+
 /**
- * Sparks drifting along the arc from past toward NOW — the "time flowing"
- * motion. Count is fixed; positions come from the same `timelineArcPoint` the
- * layout uses, so they always sit on the track. Reduced motion → the group is
- * never mounted, so no per-frame work.
+ * Sparks drifting along the FILLED segment of the rail, toward the playhead —
+ * time flowing into the present. Reduced motion → never mounted.
  */
-function TimeFlow({ accent, speed }: { accent: string; speed: number }) {
+function TimeFlow({ accent, nowT, speed }: { accent: string; nowT: number; speed: number }) {
   const refs = useRef<Array<Group | null>>([]);
   const offsets = useMemo(() => [0, 0.25, 0.5, 0.75], []);
   useFrame(({ clock }) => {
     for (let k = 0; k < offsets.length; k++) {
       const g = refs.current[k];
       if (!g) continue;
-      const u = (clock.elapsedTime * speed * 0.06 + offsets[k]!) % 1;
-      const [x, , z] = timelineArcPoint(u);
-      g.position.set(x, 0.02 + Math.sin(u * Math.PI) * 0.03, z);
+      const u = (clock.elapsedTime * speed * 0.05 + offsets[k]!) % 1;
+      g.position.set(railXFor(u * nowT), 0, 0.015);
     }
   });
   return (
@@ -731,8 +732,8 @@ function TimeFlow({ accent, speed }: { accent: string; speed: number }) {
           }}
         >
           <mesh>
-            <sphereGeometry args={[0.018, 6, 6]} />
-            <meshBasicMaterial color={accent} transparent opacity={0.8} toneMapped={false} depthWrite={false} />
+            <sphereGeometry args={[0.02, 6, 6]} />
+            <meshBasicMaterial color={accent} transparent opacity={0.85} toneMapped={false} depthWrite={false} />
           </mesh>
         </group>
       ))}
@@ -755,11 +756,11 @@ export function Timeline3D({ events = DEFAULT_EVENTS, color, accent, interactive
     [],
   );
 
-  const track = useMemo(() => Array.from({ length: 41 }, (_, i) => timelineArcPoint(i / 40)), []);
-  const grid = useMemo(
-    () => Array.from({ length: 11 }, (_, i) => timelineArcPoint(i / 10)),
-    [],
-  );
+  const look = STATE_LOOK[state];
+  // NOW = the furthest event in time (data may arrive unsorted).
+  const nowT = Math.min(1, Math.max(0, ...data.map((e) => (Number.isFinite(e.at) ? e.at : 0))));
+  const xNow = railXFor(nowT);
+  const half = TL_RAIL_SPAN / 2;
 
   const handleSelect = (i: number, e: TimelineEvent) => {
     setFocus(
@@ -771,12 +772,13 @@ export function Timeline3D({ events = DEFAULT_EVENTS, color, accent, interactive
   };
 
   return (
-    // Was parked at y=-1.95, below a full-size core — which put it on top of
-    // the bottom edge telemetry and left the middle of the frame empty. The
-    // core withdraws now, so the sequence takes the centre.
+    // A board tilted a few degrees into the camera (same vocabulary as the
+    // line chart's plane): straight rail, readable from any rig angle, and
+    // the rotation gives the depth the curved version faked.
     <group
       ref={ref}
-      position={[0, -0.4, 0]}
+      position={[0, -0.1, 1.2]}
+      rotation={[0.05, -0.12, 0]}
       onPointerMissed={
         interactive
           ? () => {
@@ -786,49 +788,38 @@ export function Timeline3D({ events = DEFAULT_EVENTS, color, accent, interactive
           : undefined
       }
     >
-      {/* the time track */}
-      <HairLine points={track} color={color} opacity={0.5} lineWidth={1.5} />
-      {/* decile ticks */}
-      {grid.map((p, i) => (
-        <HairLine
-          key={i}
-          points={[p, [p[0], -0.06, p[2]]]}
+      {/* base rail across the whole span, then the brighter "elapsed" fill up
+          to NOW — the scrubber reads as time spent, not a decorative line */}
+      <HairLine points={[[-half, 0, 0], [half, 0, 0]]} color={color} opacity={0.22} lineWidth={2} />
+      <HairLine points={[[-half, 0, 0], [xNow, 0, 0]]} color={accent} opacity={0.85} lineWidth={3} />
+      {/* faint dashes on the future stretch, past the playhead */}
+      {Array.from({ length: 8 }, (_, i) => {
+        const a = railXFor(nowT + ((i + 1) / 9) * (1 - nowT));
+        const b = railXFor(nowT + ((i + 1) / 9) * (1 - nowT) + 0.02);
+        return <HairLine key={i} points={[[a, 0, 0], [b, 0, 0]]} color={color} opacity={0.3} lineWidth={2} />;
+      })}
+
+      {!reduced && nowT > 0.02 && (
+        <TimeFlow accent={accent} nowT={nowT} speed={look.particleIntensity ?? 1} />
+      )}
+
+      <Playhead x={xNow} accent={accent} reduced={reduced} />
+
+      {data.map((e, i) => (
+        <TimelineEventNode
+          key={`${e.label}-${i}`}
+          event={e}
+          x={railXFor(e.at)}
+          // Alternating sides, phase-shifted from the right end so the last
+          // event never stacks its label onto the NOW tag.
+          side={(data.length - 1 - i) % 2 === 0 ? -1 : 1}
           color={color}
-          opacity={i % 5 === 0 ? 0.4 : 0.18}
-          lineWidth={1}
+          selected={selectedId === `${i}`}
+          dimmed={selectedId !== null && selectedId !== `${i}`}
+          interactive={interactive}
+          onSelect={() => handleSelect(i, e)}
         />
       ))}
-      {/* scale anchors at the ends and center */}
-      {[0, 0.5, 1].map((f) => {
-        const [x, , z] = timelineArcPoint(f);
-        return (
-          <TechLabel key={f} position={[x, -0.62, z]} color={color} size={0.05} opacity={0.45}>
-            {`${Math.round(f * 100)}%`}
-          </TechLabel>
-        );
-      })}
-
-      {!reduced && <TimeFlow accent={accent} speed={STATE_LOOK[state].particleIntensity ?? 1} />}
-
-      {data.map((e, i) => {
-        const position = timelineArcPoint(e.at);
-        const a = (Math.min(1, Math.max(0, e.at)) - 0.5) * TL_SPAN;
-        return (
-          <TimelineEventNode
-            key={`${e.label}-${i}`}
-            event={e}
-            position={position}
-            rotationY={-a}
-            color={color}
-            accent={accent}
-            isNow={i === data.length - 1}
-            selected={selectedId === `${i}`}
-            dimmed={selectedId !== null && selectedId !== `${i}`}
-            interactive={interactive}
-            onSelect={() => handleSelect(i, e)}
-          />
-        );
-      })}
     </group>
   );
 }
