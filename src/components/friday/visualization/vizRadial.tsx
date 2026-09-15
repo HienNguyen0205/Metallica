@@ -1,10 +1,18 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { useFrame } from "@react-three/fiber";
+import { useFrame, type ThreeEvent } from "@react-three/fiber";
 import { Billboard } from "@react-three/drei";
 import { DoubleSide, type Group } from "three";
 import { useFridayStore, type MetricDatum } from "@/lib/store";
+import {
+  anyFocusedBy,
+  isFocusedBy,
+  makeNativeFocus,
+  releaseFocus,
+  toggleFocus,
+} from "@/lib/visualization/focus";
+import { useFocusRelease } from "./useFocusRelease";
 import { ArcSegments, TechLabel, TickDial, useMaterialize } from "../primitives";
 import WaveformRing from "../core/WaveformRing";
 
@@ -83,6 +91,7 @@ function MetricNode({
   color,
   selected,
   anySelected,
+  onSelect,
 }: {
   index: number;
   count: number;
@@ -90,6 +99,7 @@ function MetricNode({
   color: string;
   selected: boolean;
   anySelected: boolean;
+  onSelect: (e: ThreeEvent<MouseEvent>) => void;
 }) {
   const [x, y, z] = fanPosition(index, count);
   // Dynamic density: past a rowful the nodes shrink instead of colliding —
@@ -120,24 +130,24 @@ function MetricNode({
         <group ref={groupRef}>
           <group ref={bobRef}>
             <Billboard>
-              {/* drill-down hit area — invisible but raycastable; drives hover
-                  (local) and focus (shared DrillDown → store). */}
+              {/* Interaction target — invisible but raycastable. The gauge owns
+                  its hover + click-to-select natively (stopPropagation keeps
+                  the shared DrillDown out of it entirely). */}
               <mesh
                 visible={false}
-                userData={{
-                  viz: {
-                    label: metric.label.toUpperCase(),
-                    detail: `${Math.round(metric.value)}${metric.unit ?? ""}`,
-                    noHoverLabel: true,
-                  },
-                }}
-                onPointerOver={() => {
+                onPointerOver={(e) => {
+                  e.stopPropagation();
                   setHovered(true);
                   document.body.style.cursor = "pointer";
                 }}
                 onPointerOut={() => {
                   setHovered(false);
                   document.body.style.cursor = "auto";
+                }}
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onSelect(e);
                 }}
               >
                 <circleGeometry args={[0.58, 20]} />
@@ -176,14 +186,40 @@ function MetricNode({
 
 /** §6 percentage / multiple metrics → orbiting radial gauges. */
 export function RadialGauge({ metrics = [], color }: VizProps) {
-  // Focus is set by the shared DrillDown on click; match it back to these
-  // metrics by label so the selected node highlights and its siblings dim.
   const focus = useFridayStore((s) => s.focus);
-  const focusedLabel = focus?.label ?? null;
-  const anySelected =
-    !!focusedLabel && metrics.some((m) => m.label.toUpperCase() === focusedLabel);
+  const setFocus = useFridayStore((s) => s.setFocus);
+  useFocusRelease("gauge");
+  // 6px drag-vs-click gate: the camera orbits even when the gauges don't, so a
+  // drag that ends on a node must not select it.
+  const downAt = useRef<[number, number] | null>(null);
+
+  const handleSelect = (m: MetricDatum, e: ThreeEvent<MouseEvent>) => {
+    if (downAt.current) {
+      const dx = e.nativeEvent.clientX - downAt.current[0];
+      const dy = e.nativeEvent.clientY - downAt.current[1];
+      downAt.current = null;
+      if (Math.hypot(dx, dy) > 6) return;
+    }
+    const key = m.label.toUpperCase();
+    setFocus(
+      toggleFocus(
+        useFridayStore.getState().focus,
+        makeNativeFocus("gauge", key, key, `${Math.round(m.value)}${m.unit ?? ""}`),
+      ),
+    );
+  };
+
+  const anySelected = anyFocusedBy(focus, "gauge");
   return (
-    <group>
+    <group
+      onPointerDown={(e) => {
+        downAt.current = [e.nativeEvent.clientX, e.nativeEvent.clientY];
+      }}
+      onPointerMissed={() => {
+        const s = useFridayStore.getState();
+        s.setFocus(releaseFocus(s.focus, "gauge"));
+      }}
+    >
       {metrics.map((m, i) => (
         <MetricNode
           key={m.label}
@@ -191,8 +227,9 @@ export function RadialGauge({ metrics = [], color }: VizProps) {
           count={metrics.length}
           metric={m}
           color={color}
-          selected={focusedLabel === m.label.toUpperCase()}
+          selected={isFocusedBy(focus, "gauge", m.label.toUpperCase())}
           anySelected={anySelected}
+          onSelect={(e) => handleSelect(m, e)}
         />
       ))}
     </group>

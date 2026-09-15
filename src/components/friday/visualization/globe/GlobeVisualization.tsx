@@ -11,6 +11,7 @@ import { GlobeEarth } from "./GlobeEarth";
 import { GlobeMarkers } from "./GlobeMarkers";
 import { GlobeRoutes } from "./GlobeRoutes";
 import { useGlobeInteraction, GLOBE_CENTER } from "./useGlobeInteraction";
+import { useFocusRelease } from "../useFocusRelease";
 import {
   SUN_DIRECTION,
   SUN_CYCLE_SECONDS,
@@ -48,6 +49,9 @@ export function Globe3D({ points, routes, color }: GlobeProps) {
   const focus = useFridayStore((s) => s.focus);
   const state = useFridayStore((s) => s.state);
   const liveMode = useFridayStore((s) => s.liveMode);
+  // Globe selection is native (owner "globe"), so the shared FocusPanel ESC
+  // (owner "drilldown") never clears it — own ESC release here.
+  useFocusRelease("globe");
 
   useEffect(() => {
     const mq = window.matchMedia("(prefers-reduced-motion: reduce)");
