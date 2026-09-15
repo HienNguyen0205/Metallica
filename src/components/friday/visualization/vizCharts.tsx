@@ -4,7 +4,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useFrame, type ThreeEvent } from "@react-three/fiber";
 import { Color, DoubleSide, Object3D, type InstancedMesh } from "three";
 import { useFridayStore, type SeriesDatum, type TimelineEvent } from "@/lib/store";
-import { makeNativeFocus, releaseFocus, toggleFocus } from "@/lib/visualization/focus";
+import { makeFocus, releaseFocus, toggleFocus } from "@/lib/visualization/focus";
 import { useFocusRelease } from "./useFocusRelease";
 import { HairLine, TechLabel, useMaterialize } from "../primitives";
 
@@ -13,6 +13,8 @@ export interface ChartProps {
   events?: TimelineEvent[];
   color: string;
   accent: string;
+  /** Preview specs (interaction:"none") render without picking. */
+  interactive?: boolean;
 }
 
 const W = 4.4;
@@ -77,17 +79,119 @@ const DEFAULT_SERIES: SeriesDatum[] = [
 ];
 
 /** §6 time series → 3D line graph, layered in depth per series. */
-export function LineChart3D({ series = DEFAULT_SERIES, color, accent }: ChartProps) {
+function LinePoint({
+  p,
+  color,
+  value,
+  selected,
+  dimmed,
+  interactive,
+  onSelect,
+}: {
+  p: [number, number, number];
+  color: string;
+  value: number;
+  selected: boolean;
+  dimmed: boolean;
+  interactive: boolean;
+  onSelect: () => void;
+}) {
+  const [hovered, setHovered] = useState(false);
+  const downAt = useRef<[number, number] | null>(null);
+  const highlighted = selected || hovered;
+  return (
+    <group position={p}>
+      {interactive && (
+        <mesh
+          visible={false}
+          onPointerOver={(e: ThreeEvent<PointerEvent>) => {
+            e.stopPropagation();
+            setHovered(true);
+            document.body.style.cursor = "pointer";
+          }}
+          onPointerOut={() => {
+            setHovered(false);
+            document.body.style.cursor = "auto";
+          }}
+          onPointerDown={(e: ThreeEvent<PointerEvent>) => {
+            e.stopPropagation();
+            downAt.current = [e.nativeEvent.clientX, e.nativeEvent.clientY];
+          }}
+          onClick={(e: ThreeEvent<MouseEvent>) => {
+            e.stopPropagation();
+            if (downAt.current) {
+              const dx = e.nativeEvent.clientX - downAt.current[0];
+              const dy = e.nativeEvent.clientY - downAt.current[1];
+              downAt.current = null;
+              if (Math.hypot(dx, dy) > 6) return;
+            }
+            onSelect();
+          }}
+        >
+          <sphereGeometry args={[0.09, 8, 8]} />
+        </mesh>
+      )}
+      <mesh scale={highlighted ? 1.8 : 1}>
+        <sphereGeometry args={[0.028, 8, 8]} />
+        <meshBasicMaterial
+          color={highlighted ? "#eafcff" : color}
+          transparent
+          opacity={dimmed ? 0.3 : 1}
+          toneMapped={false}
+        />
+      </mesh>
+      {highlighted && (
+        <TechLabel position={[0, 0.14, 0]} color="#eafcff" size={0.07} opacity={1}>
+          {String(value)}
+        </TechLabel>
+      )}
+    </group>
+  );
+}
+
+export function LineChart3D({ series = DEFAULT_SERIES, color, accent, interactive = true }: ChartProps) {
   const ref = useMaterialize(0.8);
   const data = series.length ? series : DEFAULT_SERIES;
   // One shared scale across series — per-series maxima made two lines of very
   // different magnitude look identical.
   const max = Math.max(...data.flatMap((s) => s.points), 1);
 
+  const focus = useFridayStore((s) => s.focus);
+  const setFocus = useFridayStore((s) => s.setFocus);
+  useFocusRelease("line");
+  const selectedKey = focus && focus.owner === "line" ? focus.key : null;
+
+  const handleSelect = (si: number, i: number, s: SeriesDatum) => {
+    const key = `${si}-${i}`;
+    setFocus(
+      toggleFocus(
+        useFridayStore.getState().focus,
+        makeFocus(
+          "line",
+          key,
+          `${s.label.toUpperCase()} T${String(i).padStart(2, "0")}`,
+          String(s.points[i] ?? 0),
+        ),
+      ),
+    );
+  };
+
   return (
     // Lifted and pushed forward off the core plane, and barely yawed: the old
     // -0.35 turn foreshortened the left half into the middle of the frame.
-    <group ref={ref} position={CHART_ANCHOR} rotation={[0, -0.16, 0]}>
+    <group
+      ref={ref}
+      position={CHART_ANCHOR}
+      rotation={[0, -0.16, 0]}
+      onPointerMissed={
+        interactive
+          ? () => {
+              const s = useFridayStore.getState();
+              s.setFocus(releaseFocus(s.focus, "line"));
+            }
+          : undefined
+      }
+    >
       <ChartFloor color={color} max={max} />
       {data.map((s, si) => {
         const pts: [number, number, number][] = s.points.map((p, i) => [
@@ -101,14 +205,18 @@ export function LineChart3D({ series = DEFAULT_SERIES, color, accent }: ChartPro
           <group key={s.label}>
             <HairLine points={pts} color={si === 0 ? color : accent} opacity={0.9} lineWidth={2} />
             {pts.map((p, i) => (
-              <group key={i} position={p}>
-                <mesh>
-                  <sphereGeometry args={[0.028, 8, 8]} />
-                  <meshBasicMaterial color={si === 0 ? color : accent} toneMapped={false} />
-                </mesh>
-                {/* Values at the ends and the peak only: labelling every point
-                    stacked numbers wherever two series crossed, even alternating
-                    above/below. The rest stay reachable through the hit mesh. */}
+              <group key={i}>
+                <LinePoint
+                  p={p}
+                  color={si === 0 ? color : accent}
+                  value={s.points[i] ?? 0}
+                  selected={selectedKey === `${si}-${i}`}
+                  dimmed={selectedKey !== null && selectedKey !== `${si}-${i}`}
+                  interactive={interactive}
+                  onSelect={() => handleSelect(si, i, s)}
+                />
+                {/* Values at the ends and the peak always show; other points
+                    surface theirs through hover/select (LinePoint above). */}
                 {(i === 0 || i === last || i === peak) && (
                   <TechLabel
                     position={[0, si % 2 === 0 ? 0.14 : -0.14, 0]}
@@ -119,17 +227,6 @@ export function LineChart3D({ series = DEFAULT_SERIES, color, accent }: ChartPro
                     {String(s.points[i])}
                   </TechLabel>
                 )}
-                <mesh
-                  visible={false}
-                  userData={{
-                    viz: {
-                      label: `${s.label} T${String(i).padStart(2, "0")}`,
-                      detail: `${s.points[i]}`,
-                    },
-                  }}
-                >
-                  <sphereGeometry args={[0.09, 8, 8]} />
-                </mesh>
               </group>
             ))}
             <TechLabel position={[-W / 2 - 0.14, pts[0][1], si * -0.4]} color={si === 0 ? color : accent} size={0.075} anchorX="right" decode>
@@ -206,7 +303,7 @@ export function barGroupPosition(
   return [x + (tx / len) * off, 0, z + (tz / len) * off];
 }
 
-export function BarChart3D({ series = DEFAULT_SERIES, color, accent }: ChartProps) {
+export function BarChart3D({ series = DEFAULT_SERIES, color, accent, interactive = true }: ChartProps) {
   const ref = useMaterialize(0.8);
   const meshes = useRef<(InstancedMesh | null)[]>([]);
   const dummy = useMemo(() => new Object3D(), []);
@@ -304,10 +401,14 @@ export function BarChart3D({ series = DEFAULT_SERIES, color, accent }: ChartProp
   return (
     <group
       ref={ref}
-      onPointerMissed={() => {
-        const st = useFridayStore.getState();
-        st.setFocus(releaseFocus(st.focus, "bar"));
-      }}
+      onPointerMissed={
+        interactive
+          ? () => {
+              const st = useFridayStore.getState();
+              st.setFocus(releaseFocus(st.focus, "bar"));
+            }
+          : undefined
+      }
     >
       {data.map((s, si) => (
         <instancedMesh
@@ -317,10 +418,12 @@ export function BarChart3D({ series = DEFAULT_SERIES, color, accent }: ChartProp
           }}
           args={[undefined, undefined, count]}
           onPointerDown={(e: ThreeEvent<PointerEvent>) => {
+            if (!interactive) return;
             e.stopPropagation();
             downAt.current = [e.nativeEvent.clientX, e.nativeEvent.clientY];
           }}
           onPointerMove={(e: ThreeEvent<PointerEvent>) => {
+            if (!interactive) return;
             e.stopPropagation();
             if (e.instanceId === undefined) return;
             // Bail on same-instance moves: a fresh object per mousemove would
@@ -329,10 +432,12 @@ export function BarChart3D({ series = DEFAULT_SERIES, color, accent }: ChartProp
             document.body.style.cursor = "pointer";
           }}
           onPointerOut={() => {
+            if (!interactive) return;
             setHovered(null);
             document.body.style.cursor = "auto";
           }}
           onClick={(e: ThreeEvent<MouseEvent>) => {
+            if (!interactive) return;
             e.stopPropagation();
             if (downAt.current) {
               const dx = e.nativeEvent.clientX - downAt.current[0];
@@ -345,7 +450,7 @@ export function BarChart3D({ series = DEFAULT_SERIES, color, accent }: ChartProp
             setFocus(
               toggleFocus(
                 useFridayStore.getState().focus,
-                makeNativeFocus(
+                makeFocus(
                   "bar",
                   `${si}-${i}`,
                   `${s.label.toUpperCase()} · ${i + 1}`,
@@ -434,15 +539,119 @@ const DEFAULT_EVENTS: TimelineEvent[] = [
 ];
 
 /** §6 sequence → horizontal timeline axis with event ticks. */
-export function Timeline3D({ events = DEFAULT_EVENTS, color, accent }: ChartProps) {
+function TimelineEventNode({
+  event,
+  x,
+  color,
+  accent,
+  isNow,
+  selected,
+  dimmed,
+  interactive,
+  onSelect,
+}: {
+  event: TimelineEvent;
+  x: number;
+  color: string;
+  accent: string;
+  isNow: boolean;
+  selected: boolean;
+  dimmed: boolean;
+  interactive: boolean;
+  onSelect: () => void;
+}) {
+  const [hovered, setHovered] = useState(false);
+  const downAt = useRef<[number, number] | null>(null);
+  const highlighted = selected || hovered;
+  const base = isNow ? accent : color;
+  return (
+    <group position={[x, 0, 0]}>
+      {interactive && (
+        <mesh
+          visible={false}
+          onPointerOver={(e: ThreeEvent<PointerEvent>) => {
+            e.stopPropagation();
+            setHovered(true);
+            document.body.style.cursor = "pointer";
+          }}
+          onPointerOut={() => {
+            setHovered(false);
+            document.body.style.cursor = "auto";
+          }}
+          onPointerDown={(e: ThreeEvent<PointerEvent>) => {
+            e.stopPropagation();
+            downAt.current = [e.nativeEvent.clientX, e.nativeEvent.clientY];
+          }}
+          onClick={(e: ThreeEvent<MouseEvent>) => {
+            e.stopPropagation();
+            if (downAt.current) {
+              const dx = e.nativeEvent.clientX - downAt.current[0];
+              const dy = e.nativeEvent.clientY - downAt.current[1];
+              downAt.current = null;
+              if (Math.hypot(dx, dy) > 6) return;
+            }
+            onSelect();
+          }}
+        >
+          <planeGeometry args={[0.42, 0.4]} />
+        </mesh>
+      )}
+      <mesh scale={[1, highlighted ? 1.6 : 1, 1]}>
+        <planeGeometry args={[0.012, 0.18]} />
+        <meshBasicMaterial
+          color={highlighted ? "#eafcff" : base}
+          transparent
+          opacity={dimmed ? 0.25 : 0.8}
+          side={DoubleSide}
+          toneMapped={false}
+        />
+      </mesh>
+      <TechLabel position={[0, -0.24, 0]} color={base} size={0.075} opacity={dimmed ? 0.3 : 0.85} decode>
+        {event.label}
+      </TechLabel>
+      {selected && (
+        <TechLabel position={[0, 0.24, 0]} color="#eafcff" size={0.06} opacity={0.9}>
+          {`T+${Math.round(event.at * 100)}%`}
+        </TechLabel>
+      )}
+    </group>
+  );
+}
+
+export function Timeline3D({ events = DEFAULT_EVENTS, color, accent, interactive = true }: ChartProps) {
   const ref = useMaterialize(0.7);
   const data = events.length ? events : DEFAULT_EVENTS;
+
+  const focus = useFridayStore((s) => s.focus);
+  const setFocus = useFridayStore((s) => s.setFocus);
+  useFocusRelease("timeline");
+  const selectedId = focus && focus.owner === "timeline" ? focus.key : null;
+
+  const handleSelect = (i: number, e: TimelineEvent) => {
+    setFocus(
+      toggleFocus(
+        useFridayStore.getState().focus,
+        makeFocus("timeline", `${i}`, e.label.toUpperCase(), `T+${Math.round(e.at * 100)}%`),
+      ),
+    );
+  };
 
   return (
     // Was parked at y=-1.95, below a full-size core — which put it on top of
     // the bottom edge telemetry and left the middle of the frame empty. The
     // core withdraws now, so the sequence takes the centre.
-    <group ref={ref} position={[0, -0.35, 1.1]}>
+    <group
+      ref={ref}
+      position={[0, -0.35, 1.1]}
+      onPointerMissed={
+        interactive
+          ? () => {
+              const s = useFridayStore.getState();
+              s.setFocus(releaseFocus(s.focus, "timeline"));
+            }
+          : undefined
+      }
+    >
       <HairLine
         points={[
           [-W / 2, 0, 0],
@@ -455,21 +664,18 @@ export function Timeline3D({ events = DEFAULT_EVENTS, color, accent }: ChartProp
       {data.map((e, i) => {
         const x = -W / 2 + e.at * W;
         return (
-          <group key={`${e.label}-${i}`} position={[x, 0, 0]}>
-            <mesh
-              visible={false}
-              userData={{ viz: { label: e.label.toUpperCase(), detail: `T+${Math.round(e.at * 100)}%` } }}
-            >
-              <planeGeometry args={[0.42, 0.4]} />
-            </mesh>
-            <mesh>
-              <planeGeometry args={[0.012, 0.18]} />
-              <meshBasicMaterial color={i === data.length - 1 ? accent : color} transparent opacity={0.8} side={DoubleSide} toneMapped={false} />
-            </mesh>
-            <TechLabel position={[0, -0.24, 0]} color={i === data.length - 1 ? accent : color} size={0.075} opacity={0.85} decode>
-              {e.label}
-            </TechLabel>
-          </group>
+          <TimelineEventNode
+            key={`${e.label}-${i}`}
+            event={e}
+            x={x}
+            color={color}
+            accent={accent}
+            isNow={i === data.length - 1}
+            selected={selectedId === `${i}`}
+            dimmed={selectedId !== null && selectedId !== `${i}`}
+            interactive={interactive}
+            onSelect={() => handleSelect(i, e)}
+          />
         );
       })}
     </group>

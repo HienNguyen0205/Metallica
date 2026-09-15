@@ -46,7 +46,7 @@ function MarkerNode({
 }: MarkerNodeProps) {
   const group = useRef<Group>(null);
   const [hovered, setHovered] = useState(false);
-  // Click-vs-drag gate (mirrors DrillDown's 6px threshold): ending a globe
+  // Click-vs-drag gate (same 6px threshold as every viz pick): ending a globe
   // drag on a marker must not yank the camera.
   const downAt = useRef<[number, number] | null>(null);
   const cam = useThree((s) => s.camera);
@@ -103,9 +103,8 @@ function MarkerNode({
   return (
     <group position={pos}>
       <group ref={group}>
-        {/* Raycast target + drill-down tag. Click-to-inspect is served by the
-            shared DrillDown wrapper; single click also flies the globe to the
-            node (onClick below).
+        {/* Raycast target. A single click flies the globe to the node and
+            selects it natively via onFocusMarker.
             NOTE: this proxy must carry a real material. THREE.Mesh.raycast
             early-outs when material is undefined, so a material-less (even
             invisible) mesh is never hit — hover/click/focus silently die.
@@ -132,9 +131,8 @@ function MarkerNode({
             const toMarker = worldPos.clone().sub(globeCenter).normalize();
             const toCam = new Vector3().copy(cam.position).sub(globeCenter).normalize();
             if (toCam.dot(toMarker) < 0.15) return;
-            // Only the camera flies — stop the click here so the shared
-            // DrillDown wrapper does not create an extra reticle/connector
-            // on top of the marker.
+            // Only the camera flies + the selection lands here — stop the
+            // click so the spin group's own handlers never see it.
             e.stopPropagation();
             onFocusMarker(point, index);
           }}

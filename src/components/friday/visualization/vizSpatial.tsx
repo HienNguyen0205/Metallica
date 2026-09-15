@@ -4,7 +4,7 @@ import { useMemo, useRef, useState } from "react";
 import { useFrame } from "@react-three/fiber";
 import { DoubleSide, type Group } from "three";
 import { useFridayStore, type NodeDatum } from "@/lib/store";
-import { makeNativeFocus, releaseFocus, toggleFocus } from "@/lib/visualization/focus";
+import { makeFocus, releaseFocus, toggleFocus } from "@/lib/visualization/focus";
 import { useFocusRelease } from "./useFocusRelease";
 import { HairLine, TechLabel, useMaterialize } from "../primitives";
 
@@ -13,6 +13,8 @@ export interface SpatialProps {
   links?: [number, number][];
   color: string;
   accent: string;
+  /** Preview specs (interaction:"none") render without picking. */
+  interactive?: boolean;
 }
 
 const DEFAULT_NODES: NodeDatum[] = [
@@ -44,13 +46,14 @@ interface NetworkNodeProps {
   degree: number;
   selected: boolean;
   dimmed: boolean;
+  interactive: boolean;
   onSelect: (node: NodeDatum, degree: number) => void;
 }
 
 /**
  * One network node. Native focus language: the selected/hovered node brightens
  * and its ring spins faster; when any node is selected the rest dim. Hit events
- * stopPropagation so the shared DrillDown never sees them, with a 6px gate so
+ * stopPropagation keeps the wrapper from ever seeing them, with a 6px gate so
  * orbit-drags ending on a node never select it.
  */
 function NetworkNode({
@@ -62,6 +65,7 @@ function NetworkNode({
   degree,
   selected,
   dimmed,
+  interactive,
   onSelect,
 }: NetworkNodeProps) {
   const [hovered, setHovered] = useState(false);
@@ -82,30 +86,32 @@ function NetworkNode({
   const base = index % 3 === 0 ? accent : color;
   return (
     <group position={position}>
-      <mesh
-        visible={false}
-        onPointerOver={(e) => {
-          e.stopPropagation();
-          setHover(true);
-        }}
-        onPointerOut={() => setHover(false)}
-        onPointerDown={(e) => {
-          e.stopPropagation();
-          downAt.current = [e.nativeEvent.clientX, e.nativeEvent.clientY];
-        }}
-        onClick={(e) => {
-          e.stopPropagation();
-          if (downAt.current) {
-            const dx = e.nativeEvent.clientX - downAt.current[0];
-            const dy = e.nativeEvent.clientY - downAt.current[1];
-            downAt.current = null;
-            if (Math.hypot(dx, dy) > 6) return;
-          }
-          onSelect(node, degree);
-        }}
-      >
-        <sphereGeometry args={[0.24, 10, 10]} />
-      </mesh>
+      {interactive && (
+        <mesh
+          visible={false}
+          onPointerOver={(e) => {
+            e.stopPropagation();
+            setHover(true);
+          }}
+          onPointerOut={() => setHover(false)}
+          onPointerDown={(e) => {
+            e.stopPropagation();
+            downAt.current = [e.nativeEvent.clientX, e.nativeEvent.clientY];
+          }}
+          onClick={(e) => {
+            e.stopPropagation();
+            if (downAt.current) {
+              const dx = e.nativeEvent.clientX - downAt.current[0];
+              const dy = e.nativeEvent.clientY - downAt.current[1];
+              downAt.current = null;
+              if (Math.hypot(dx, dy) > 6) return;
+            }
+            onSelect(node, degree);
+          }}
+        >
+          <sphereGeometry args={[0.24, 10, 10]} />
+        </mesh>
+      )}
       <mesh>
         <octahedronGeometry args={[0.11, 0]} />
         <meshBasicMaterial
@@ -140,7 +146,7 @@ function NetworkNode({
 }
 
 /** §6 relationships → network graph orbiting the core. */
-export function Network3D({ nodes = DEFAULT_NODES, links, color, accent }: SpatialProps) {
+export function Network3D({ nodes = DEFAULT_NODES, links, color, accent, interactive = true }: SpatialProps) {
   const ref = useMaterialize(0.9);
   const spin = useRef<Group>(null);
   const data = nodes.length ? nodes : DEFAULT_NODES;
@@ -172,10 +178,11 @@ export function Network3D({ nodes = DEFAULT_NODES, links, color, accent }: Spati
   const anySelected = !!selectedId;
 
   const handleSelect = (node: NodeDatum, degree: number) => {
+    if (!interactive) return;
     setFocus(
       toggleFocus(
         useFridayStore.getState().focus,
-        makeNativeFocus(
+        makeFocus(
           "network",
           node.id,
           (node.label ?? node.id).toUpperCase(),
@@ -223,6 +230,7 @@ export function Network3D({ nodes = DEFAULT_NODES, links, color, accent }: Spati
             degree={degrees[i] ?? 0}
             selected={selectedId === data[i].id}
             dimmed={anySelected && selectedId !== data[i].id}
+            interactive={interactive}
             onSelect={handleSelect}
           />
         ))}

@@ -1,5 +1,5 @@
 import type { GeoPoint, GlobeRoute, RenderQuality, VizData, VizFocus } from "@/lib/store";
-import { makeNativeFocus } from "@/lib/visualization/focus";
+import { makeFocus } from "@/lib/visualization/focus";
 
 export type Vec3 = [number, number, number];
 
@@ -259,7 +259,7 @@ export const SUN_DIRECTION: Vec3 = [-0.55, 0.32, 1].map((v) => {
 /** Globe-marker selection: native (own in-scene highlight); camera flies separately. */
 export function globeFocusFor(point: GeoPoint, index: number): VizFocus {
   const label = markerLabel(point, index);
-  return makeNativeFocus("globe", label, label, markerDetail(point));
+  return makeFocus("globe", label, label, markerDetail(point));
 }
 
 function wrapAngleDelta(angle: number): number {

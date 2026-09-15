@@ -432,21 +432,25 @@ src/
 │   ├── hud/
 │   │   ├── Hud.tsx             # Barrel re-exports (per-component modules below)
 │   │   ├── TopHud.tsx / EdgeTelemetry.tsx / AnswerLine.tsx
-│   │   ├── StateRail.tsx / VizRail.tsx / FocusPanel.tsx / AudioCues.tsx
+│   │   ├── StateRail.tsx / VizRail.tsx / AudioCues.tsx
 │   │   ├── useHudDepth.ts      # Parallax chrome hook (subscribed reduced-motion)
 │   │   ├── devRails.ts         # Dev-rails gate shared by both rails
 │   │   ├── InputBar.tsx        # ASK FRIDAY input (typed + voice turns)
 │   │   ├── ConfirmPrompt.tsx   # High-risk tool approval dialog
 │   │   └── SpatialHud.tsx      # In-scene 3D HUD (coord/sync readouts)
 │   └── visualization/
-│       ├── FridayVisualization.tsx  # Spec → REGISTRY dispatch + DrillDown
+│       ├── FridayVisualization.tsx  # Spec → REGISTRY dispatch + scene wrappers
+│       ├── useFocusRelease.ts   # ESC release, scoped to one viz owner
 │       ├── vizRadial.tsx        # Gauge, Radar, Waveform
 │       ├── vizCharts.tsx        # LineChart3D, BarChart3D, Timeline3D
-│       └── vizSpatial.tsx       # Network3D, Globe3D, ParticleFlow
+│       ├── vizFlow.tsx          # SankeyFlow
+│       ├── vizSpatial.tsx       # Network3D
+│       └── globe/               # Globe3D: earth, markers, routes, interaction
 └── lib/
     ├── store.ts                # Zustand store + turn lifecycle (re-exports viz types)
     ├── visualization/
     │   ├── types.ts            # Renderer contract (VisualizationSpec, VizData, ...)
+    │   ├── focus.ts            # Selection spine: makeFocus/toggleFocus/release helpers
     │   ├── normalization.ts    # Wire-spec sanitizer (labels, colors, scale, links)
     │   └── layoutResolver.ts   # Deterministic world-space layout
     ├── vizPlanner.ts           # Query → VisualizationSpec rules + samples + summaries

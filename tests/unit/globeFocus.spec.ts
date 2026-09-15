@@ -10,8 +10,6 @@ test("globeFocusFor builds a native spine focus", () => {
   expect(f.key).toBe("HAN");
   expect(f.label).toBe("HAN");
   expect(f.detail).toContain("EDGE REGION");
-  expect(f.native).toBe(true);
-  expect(f.position).toBeUndefined();
 });
 
 test("computeGlobeFocusAngles clamps high latitude tilt", () => {

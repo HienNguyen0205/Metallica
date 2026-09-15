@@ -69,7 +69,8 @@ Locks planner rule ordering and invariants:
    sanitizes colors/scale/position/title, drops OOB links, respects partial overrides,
 - lifecycle keeps at most 3 visualizations (bulk `setVisualizations` capped),
   settle by stable id survives eviction,
-- `nextFocus` pure move/release semantics tested without a browser.
+- the focus spine's pure decisions (`focus.ts`: make/toggle/release/owner-scope)
+  tested without a browser.
 
 ### Other unit specs
 
@@ -140,17 +141,17 @@ contrast math composites the element color over the known background
   context; all vizzes mount/unmount cleanly without context loss.
 - ≥ 24 fps on real GPUs (software-GL CI runners assert liveness only).
 
-**`drilldown.spec.ts` — interaction**
+**`drilldown.spec.ts` — focus interaction**
 
-Contains its own world→screen pinhole projection of gauge node coordinates so
-it can click exact metric nodes in 3D space:
+Projects the fanned gauge nodes (importing the app's own `fanPosition`) to
+screen coordinates so it can click exact metric nodes in 3D space:
 
-- clicking CPU/RAM/DISK/NET nodes locks focus (visible as `FOCUS · …` in edge
-  telemetry),
+- clicking CPU/RAM/DISK/NET nodes selects them (`FOCUS · …` in edge telemetry),
 - switching visualizations clears stale focus.
 - release-on-second-click is intentionally untested (flaky via dynamic 3D
-  coordinates — see `drilldown.spec.ts` comments); the wiring lives in
-  `FridayVisualization.tsx` (`onClick`/`onPointerMissed`).
+  coordinates — see `drilldown.spec.ts` comments); the decision is pure
+  (`focus.ts` `toggleFocus`) and unit-tested; the wiring is each viz's own
+  pick handler + `onPointerMissed`/`useFocusRelease`.
 
 **`dock.spec.ts` + `groupedBars.spec.ts` — layout & charts**
 

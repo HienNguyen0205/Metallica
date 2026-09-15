@@ -87,7 +87,11 @@ export interface VisualizationSpec {
   type: VisualizationType;
   data?: VizData;
   animation?: "materialize" | "pulse" | "none";
-  /** "none" disables picking; anything else allows click-to-inspect. */
+  /**
+   * Wire contract with the backend. "none" (previews) disables picking; the
+   * viz's own focus handlers gate on it. "drill_down" is the historical name
+   * for "pickable" — the shared drill-down chrome is gone.
+   */
   interaction?: "none" | "drill_down";
   theme?: { color?: string; accent?: string };
   position?: [number, number, number];
@@ -96,21 +100,19 @@ export interface VisualizationSpec {
 }
 
 /**
- * The single selection spine. `native: true` means the owning visualization
- * renders its own focus treatment — the shared reticle (FocusMarker) and DOM
- * card (FocusPanel) skip those and only the HUD `FOCUS ·` lane reads it.
- * `native: false` is the legacy generic drill-down (reticle at `position`).
+ * The single selection spine. Every visualization owns its focus rendering
+ * now (gauge enlarge + dim, network neighbor highlight, bar lift, globe
+ * camera fly, …); this record only identifies WHAT is selected so the HUD
+ * `FOCUS ·` lane can name it and ESC/empty-click can release it. `owner`
+ * namespaces `key` so two viz types can never collide.
  */
 export interface VizFocus {
-  /** Which visualization drew this selection: "globe" | "gauge" | "network" | "bar" | "drilldown". */
+  /** Which visualization drew this selection: "globe" | "gauge" | "network" | "bar" | "line" | "timeline" | "radar" | "sankey". */
   owner: string;
   /** Stable element id within that owner (unique per owner only). */
   key: string;
   label: string;
   detail: string;
-  native: boolean;
-  /** Legacy reticle anchor only — native owners never set it. */
-  position?: [number, number, number];
 }
 
 export type VizLifecycle = "materializing" | "active" | "updating" | "settling";

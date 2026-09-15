@@ -1,6 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { useFridayStore, INITIAL_LANG, type FridayState } from "@/lib/store";
-import { makeDrilldownFocus, makeNativeFocus } from "@/lib/visualization/focus";
+import { makeFocus } from "@/lib/visualization/focus";
 
 /**
  * §17 — the state machine. `transition` is guarded (it must refuse illegal
@@ -120,15 +120,15 @@ test("audio toggle flips and persists", () => {
 });
 
 test("focus can be set and cleared", () => {
-  api.getState().setFocus(makeDrilldownFocus("CPU", "73%", [1, 2, 0]));
+  api.getState().setFocus(makeFocus("bar", "0-1", "CPU", "73%"));
   expect(api.getState().focus?.label).toBe("CPU");
-  expect(api.getState().focus?.owner).toBe("drilldown");
+  expect(api.getState().focus?.owner).toBe("bar");
   api.getState().setFocus(null);
   expect(api.getState().focus).toBeNull();
 });
 
 test("reset clears any active focus", () => {
-  api.getState().setFocus(makeNativeFocus("gauge", "RAM", "RAM", "61%"));
+  api.getState().setFocus(makeFocus("gauge", "RAM", "RAM", "61%"));
   api.getState().reset();
   expect(api.getState().focus).toBeNull();
 });

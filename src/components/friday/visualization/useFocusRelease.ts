@@ -6,9 +6,9 @@ import { releaseFocus } from "@/lib/visualization/focus";
 
 /**
  * ESC releases THIS visualization's selection only — a network node's ESC must
- * never clear the gauge's, and vice versa (one spine, owner-scoped). Migrated
- * viz call this with their owner id so the shared `FocusPanel` (which only sees
- * `native:false` drill-down focus) is not their only release path.
+ * never clear the gauge's, and vice versa (one spine, owner-scoped). Every
+ * selecting viz calls this — it is the only keyboard release now that the old
+ * `FocusPanel` card is gone.
  */
 export function useFocusRelease(owner: string) {
   useEffect(() => {

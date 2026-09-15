@@ -8,7 +8,7 @@ import { useFridayStore, type MetricDatum } from "@/lib/store";
 import {
   anyFocusedBy,
   isFocusedBy,
-  makeNativeFocus,
+  makeFocus,
   releaseFocus,
   toggleFocus,
 } from "@/lib/visualization/focus";
@@ -20,6 +20,8 @@ export interface VizProps {
   metrics?: MetricDatum[];
   color: string;
   accent: string;
+  /** Preview specs (interaction:"none") render without picking. */
+  interactive?: boolean;
 }
 
 /**
@@ -71,7 +73,13 @@ export function gaugeVisual({
   return { emphasis: highlighted ? 1.15 : 1, dimmed: anySelected && !selected, highlighted };
 }
 
-function fanPosition(index: number, count: number): [number, number, number] {  const t = count < 2 ? 0.5 : index / (count - 1);
+/**
+ * Exported for tests/e2e (tests/ui/drilldown.spec.ts projects these world
+ * positions to screen coordinates) — layout math, single source with the
+ * renderer.
+ */
+export function fanPosition(index: number, count: number): [number, number, number] {
+  const t = count < 2 ? 0.5 : index / (count - 1);
   const a = (t - 0.5) * FAN_SPAN;
   const stagger = count >= STAGGER_FROM && index % 2 === 1 ? -0.62 : 0;
   return [
@@ -91,6 +99,7 @@ function MetricNode({
   color,
   selected,
   anySelected,
+  interactive,
   onSelect,
 }: {
   index: number;
@@ -99,6 +108,7 @@ function MetricNode({
   color: string;
   selected: boolean;
   anySelected: boolean;
+  interactive: boolean;
   onSelect: (e: ThreeEvent<MouseEvent>) => void;
 }) {
   const [x, y, z] = fanPosition(index, count);
@@ -130,28 +140,28 @@ function MetricNode({
         <group ref={groupRef}>
           <group ref={bobRef}>
             <Billboard>
-              {/* Interaction target — invisible but raycastable. The gauge owns
-                  its hover + click-to-select natively (stopPropagation keeps
-                  the shared DrillDown out of it entirely). */}
-              <mesh
-                visible={false}
-                onPointerOver={(e) => {
-                  e.stopPropagation();
-                  setHovered(true);
-                  document.body.style.cursor = "pointer";
-                }}
-                onPointerOut={() => {
-                  setHovered(false);
-                  document.body.style.cursor = "auto";
-                }}
-                onPointerDown={(e) => e.stopPropagation()}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onSelect(e);
-                }}
-              >
-                <circleGeometry args={[0.58, 20]} />
-              </mesh>
+              {/* Interaction target — invisible but raycastable; only present
+                  for interactive specs (previews render tris inert). */}
+              {interactive && (
+                <mesh
+                  visible={false}
+                  onPointerOver={(e) => {
+                    e.stopPropagation();
+                    setHovered(true);
+                    document.body.style.cursor = "pointer";
+                  }}
+                  onPointerOut={() => {
+                    setHovered(false);
+                    document.body.style.cursor = "auto";
+                  }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onSelect(e);
+                  }}
+                >
+                  <circleGeometry args={[0.58, 20]} />
+                </mesh>
+              )}
               {/* track */}
               <mesh>
                 <ringGeometry args={[0.34, 0.36, 64]} />
@@ -185,7 +195,7 @@ function MetricNode({
 }
 
 /** §6 percentage / multiple metrics → orbiting radial gauges. */
-export function RadialGauge({ metrics = [], color }: VizProps) {
+export function RadialGauge({ metrics = [], color, interactive = true }: VizProps) {
   const focus = useFridayStore((s) => s.focus);
   const setFocus = useFridayStore((s) => s.setFocus);
   useFocusRelease("gauge");
@@ -204,7 +214,7 @@ export function RadialGauge({ metrics = [], color }: VizProps) {
     setFocus(
       toggleFocus(
         useFridayStore.getState().focus,
-        makeNativeFocus("gauge", key, key, `${Math.round(m.value)}${m.unit ?? ""}`),
+        makeFocus("gauge", key, key, `${Math.round(m.value)}${m.unit ?? ""}`),
       ),
     );
   };
@@ -215,10 +225,14 @@ export function RadialGauge({ metrics = [], color }: VizProps) {
       onPointerDown={(e) => {
         downAt.current = [e.nativeEvent.clientX, e.nativeEvent.clientY];
       }}
-      onPointerMissed={() => {
-        const s = useFridayStore.getState();
-        s.setFocus(releaseFocus(s.focus, "gauge"));
-      }}
+      onPointerMissed={
+        interactive
+          ? () => {
+              const s = useFridayStore.getState();
+              s.setFocus(releaseFocus(s.focus, "gauge"));
+            }
+          : undefined
+      }
     >
       {metrics.map((m, i) => (
         <MetricNode
@@ -229,6 +243,7 @@ export function RadialGauge({ metrics = [], color }: VizProps) {
           color={color}
           selected={isFocusedBy(focus, "gauge", m.label.toUpperCase())}
           anySelected={anySelected}
+          interactive={interactive}
           onSelect={(e) => handleSelect(m, e)}
         />
       ))}
@@ -237,9 +252,91 @@ export function RadialGauge({ metrics = [], color }: VizProps) {
 }
 
 /** §6 search / scan → radar sweep with concentric rings and blips. */
-export function Radar({ metrics = [], color, accent }: VizProps) {
+function RadarContact({
+  a,
+  r,
+  index,
+  accent,
+  detail,
+  selected,
+  dimmed,
+  onSelect,
+}: {
+  a: number;
+  r: number;
+  index: number;
+  accent: string;
+  detail: string;
+  selected: boolean;
+  dimmed: boolean;
+  onSelect: (index: number, a: number) => void;
+}) {
+  const [hovered, setHovered] = useState(false);
+  const downAt = useRef<[number, number] | null>(null);
+  const highlighted = selected || hovered;
+
+  return (
+    <group position={[Math.cos(a) * r, Math.sin(a) * r, 0.01]}>
+      <mesh
+        visible={false}
+        onPointerOver={(e) => {
+          e.stopPropagation();
+          setHovered(true);
+          document.body.style.cursor = "pointer";
+        }}
+        onPointerOut={() => {
+          setHovered(false);
+          document.body.style.cursor = "auto";
+        }}
+        onPointerDown={(e) => {
+          e.stopPropagation();
+          downAt.current = [e.nativeEvent.clientX, e.nativeEvent.clientY];
+        }}
+        onClick={(e) => {
+          e.stopPropagation();
+          if (downAt.current) {
+            const dx = e.nativeEvent.clientX - downAt.current[0];
+            const dy = e.nativeEvent.clientY - downAt.current[1];
+            downAt.current = null;
+            if (Math.hypot(dx, dy) > 6) return;
+          }
+          onSelect(index, a);
+        }}
+      >
+        <circleGeometry args={[0.16, 12]} />
+      </mesh>
+      <mesh scale={highlighted ? 1.6 : 1}>
+        <circleGeometry args={[0.035, 12]} />
+        <meshBasicMaterial
+          color={highlighted ? "#eafcff" : accent}
+          transparent
+          opacity={dimmed ? 0.25 : 0.85}
+          toneMapped={false}
+        />
+      </mesh>
+      {(highlighted || selected) && (
+        <mesh>
+          <ringGeometry args={[0.12, 0.13, 24]} />
+          <meshBasicMaterial color="#eafcff" transparent opacity={0.9} side={DoubleSide} depthWrite={false} toneMapped={false} />
+        </mesh>
+      )}
+      {selected && (
+        <TechLabel position={[0, -0.22, 0]} color="#eafcff" size={0.055} opacity={0.9}>
+          {detail}
+        </TechLabel>
+      )}
+    </group>
+  );
+}
+
+export function Radar({ metrics = [], color, accent, interactive = true }: VizProps) {
   const sweep = useRef<Group>(null);
   const ref = useMaterialize(0.6);
+
+  const focus = useFridayStore((s) => s.focus);
+  const setFocus = useFridayStore((s) => s.setFocus);
+  useFocusRelease("radar");
+  const selectedId = focus && focus.owner === "radar" ? focus.key : null;
 
   useFrame((_, delta) => {
     if (sweep.current) sweep.current.rotation.z -= delta * 1.5;
@@ -249,43 +346,71 @@ export function Radar({ metrics = [], color, accent }: VizProps) {
     ? metrics.map((m, i) => ({ a: (i / metrics.length) * Math.PI * 2, r: 0.6 + (m.value / 100) * 1.7 }))
     : [0.4, 1.9, 3.3, 5.1].map((a, i) => ({ a, r: 0.8 + i * 0.4 }));
 
+  const handleSelect = (index: number, a: number) => {
+    const key = `contact-${index}`;
+    setFocus(
+      toggleFocus(
+        useFridayStore.getState().focus,
+        makeFocus(
+          "radar",
+          key,
+          `CONTACT ${String(index + 1).padStart(2, "0")}`,
+          `BRG ${Math.round(((a * 180) / Math.PI + 360) % 360)}°`,
+        ),
+      ),
+    );
+  };
+
   return (
     // Billboard, not tilted: a tilted disc is an ellipse from most angles
     // and a line edge-on — face-locked it is a true circle everywhere.
-    <group ref={ref}>
+    <group
+      ref={ref}
+      onPointerMissed={
+        interactive
+          ? () => {
+              const s = useFridayStore.getState();
+              s.setFocus(releaseFocus(s.focus, "radar"));
+            }
+          : undefined
+      }
+    >
       <Billboard>
-      {[0.9, 1.5, 2.1, 2.6].map((r) => (
-        <mesh key={r}>
-          <ringGeometry args={[r, r + 0.004, 96]} />
-          <meshBasicMaterial color={color} transparent opacity={0.18} side={DoubleSide} depthWrite={false} />
-        </mesh>
-      ))}
-      <TickDial radius={2.72} count={72} color={color} opacity={0.2} length={0.06} />
-      <group ref={sweep}>
-        <mesh>
-          <ringGeometry args={[0.05, 2.6, 64, 1, 0, Math.PI / 7]} />
-          <meshBasicMaterial color={color} transparent opacity={0.16} side={DoubleSide} depthWrite={false} toneMapped={false} />
-        </mesh>
-      </group>
-      {blips.map(({ a, r }, i) => (
-        <group key={i} position={[Math.cos(a) * r, Math.sin(a) * r, 0.01]}>
-          <mesh>
-            <circleGeometry args={[0.035, 12]} />
-            <meshBasicMaterial color={accent} transparent opacity={0.85} toneMapped={false} />
+        {[0.9, 1.5, 2.1, 2.6].map((r) => (
+          <mesh key={r}>
+            <ringGeometry args={[r, r + 0.004, 96]} />
+            <meshBasicMaterial color={color} transparent opacity={0.18} side={DoubleSide} depthWrite={false} />
           </mesh>
-          <mesh
-            visible={false}
-            userData={{
-              viz: {
-                label: `CONTACT ${String(i + 1).padStart(2, "0")}`,
-                detail: `BRG ${Math.round(((a * 180) / Math.PI + 360) % 360)}°`,
-              },
-            }}
-          >
-            <circleGeometry args={[0.16, 12]} />
+        ))}
+        <TickDial radius={2.72} count={72} color={color} opacity={0.2} length={0.06} />
+        <group ref={sweep}>
+          <mesh>
+            <ringGeometry args={[0.05, 2.6, 64, 1, 0, Math.PI / 7]} />
+            <meshBasicMaterial color={color} transparent opacity={0.16} side={DoubleSide} depthWrite={false} toneMapped={false} />
           </mesh>
         </group>
-      ))}
+        {blips.map(({ a, r }, i) =>
+          interactive ? (
+            <RadarContact
+              key={i}
+              a={a}
+              r={r}
+              index={i}
+              accent={accent}
+              detail={`BRG ${Math.round(((a * 180) / Math.PI + 360) % 360)}°`}
+              selected={selectedId === `contact-${i}`}
+              dimmed={selectedId !== null && selectedId !== `contact-${i}`}
+              onSelect={handleSelect}
+            />
+          ) : (
+            <group key={i} position={[Math.cos(a) * r, Math.sin(a) * r, 0.01]}>
+              <mesh>
+                <circleGeometry args={[0.035, 12]} />
+                <meshBasicMaterial color={accent} transparent opacity={0.85} toneMapped={false} />
+              </mesh>
+            </group>
+          ),
+        )}
       </Billboard>
     </group>
   );

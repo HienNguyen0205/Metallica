@@ -44,7 +44,7 @@ function CameraRig({ reduced }: { reduced: boolean }) {
     };
     const move = (e: PointerEvent) => {
       // Arm on pointerdown, engage only past the threshold so a plain click
-      // never becomes a 1-frame orbit jump (and pairs with DrillDown's own gate).
+      // never becomes a 1-frame orbit jump (and pairs with the per-viz pick gates).
       if ((el as HTMLElement & { dataset: DOMStringMap }).dataset.dragArmed !== "1") return;
       const dist = Math.hypot(e.clientX - downPos.x, e.clientY - downPos.y);
       if (!dragging.current && dist < DRAG_THRESHOLD) return;

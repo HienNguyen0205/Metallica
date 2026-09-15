@@ -49,8 +49,8 @@ export function Globe3D({ points, routes, color }: GlobeProps) {
   const focus = useFridayStore((s) => s.focus);
   const state = useFridayStore((s) => s.state);
   const liveMode = useFridayStore((s) => s.liveMode);
-  // Globe selection is native (owner "globe"), so the shared FocusPanel ESC
-  // (owner "drilldown") never clears it — own ESC release here.
+  // Globe selection is native (owner "globe") — the shared card is gone, so
+  // the globe owns its keyboard release.
   useFocusRelease("globe");
 
   useEffect(() => {

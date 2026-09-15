@@ -29,7 +29,7 @@ The application has four cooperating layers:
 | **State** | `src/lib/store.ts` | Single source of truth: agent state machine (+ `endTurn` landing), current answer, `visualizations: VisualizationEntry[]` (max 3, stable id, transient `preview` flag), drill-down focus, `pendingConfirm` gate, `toolActivity`/`deniedTool`, `liveMode`/`sessionError`, `memories`, render backend/quality/lang, audio flag. |
 | **Logic** | `src/lib/vizPlanner.ts`, `src/lib/agentStream.ts`, `stateLook.ts` | Pure planner (query → spec), SSE orchestrator + offline `runLocal` fallback, state → look tables. |
 | **3D scene** | `src/components/friday/**` | The R3F canvas: core hologram, particles, rings, waveform, spatial HUD, visualization registry, shaders, post-processing. |
-| **DOM HUD** | `src/components/friday/hud/` per-component modules (`TopHud`, `EdgeTelemetry`, `AnswerLine`, `VizRail`, `StateRail`, `FocusPanel`, `AudioCues`, plus `useHudDepth`/`devRails` helpers; `Hud.tsx` is a back-compat barrel re-exporting them) | Everything above the canvas: top bar, edge telemetry, dev rails, answer line, input bar. |
+| **DOM HUD** | `src/components/friday/hud/` per-component modules (`TopHud`, `EdgeTelemetry`, `AnswerLine`, `VizRail`, `StateRail`, `AudioCues`, plus `useHudDepth`/`devRails` helpers; `Hud.tsx` is a back-compat barrel re-exporting them) | Everything above the canvas: top bar, edge telemetry, dev rails, answer line, input bar. |
 
 `src/app/page.tsx` is a server shell composing client islands; the 3D scene
 lives behind `SceneIsland`, the one `dynamic(..., { ssr: false })` boundary
@@ -182,19 +182,27 @@ const REGISTRY: Record<VisualizationType, ComponentType<VizProps>> = {
 
 Wrappers around the registry entry add behavior without each viz re-implementing it:
 
-- **`DrillDown`** — pointer picking that walks `userData.viz` tags up the object
-  tree (plus `userData.vizBar` + `instanceId` for instanced bars), toggling
-  store focus; hover changes cursor; `onPointerMissed` clears focus; focus is
-  cleared whenever the spec changes.
+- **`Entrance`** — materialize scale/rise wired to the store lifecycle.
 - **`Pulse`** — scale pulse loop when `animation: "pulse"`.
 - **Title** — billboarded `TechLabel` with glyph-scramble decode animation.
-- **`FocusMarker`** — pulsing ring reticle + connector locked onto the focused element.
 
-### Drill-down data tagging
+### Focus (per-viz, owner-scoped)
 
-Renderers tag pickable meshes with `{ userData: { viz: VizFocus } }`. This keeps
-the interaction layer generic — adding a new visualization never touches
-`DrillDown`.
+There is no shared drill-down anymore. Each visualization owns its pick
+handlers (invisible hit meshes, a 6px drag-vs-click gate, `stopPropagation`)
+and renders its own selection language — the gauge enlarges + tints and dims
+its siblings, the network brightens the node and its incident edges, the bar
+lifts + recolors the instance, the globe flies the camera, and so on.
+
+The selection lives in one store slot, `focus: { owner, key, label, detail }`
+(the spine). `owner` namespaces `key`, so a `CPU` gauge and a `CPU` anything-else
+never collide. The pure helpers in `src/lib/visualization/focus.ts`
+(`makeFocus`, `toggleFocus`, `releaseFocus`, `isFocusedBy`, `anyFocusedBy`) hold
+every decision — click re-picks the same element to release it, ESC releases
+only that viz's selection (`useFocusRelease(owner)`), `onPointerMissed` clears
+it, and switching the scene's specs drops any stale focus. `EdgeTelemetry`
+renders the spine as the `FOCUS ·` HUD lane; the element's own detail readout
+is drawn in-scene by the viz.
 
 ## 5. Scene graph (`Scene.tsx`)
 

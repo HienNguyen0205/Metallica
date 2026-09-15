@@ -1,22 +1,17 @@
 import type { VizFocus } from "./types";
 
-/** A selection owned by a viz that renders its own focus (no shared chrome). */
-export function makeNativeFocus(
+/**
+ * Build a selection record. `owner` namespaces `key` so two visualization
+ * types never collide, and every viz now renders its own focus — there is no
+ * shared reticle/card to opt out of anymore.
+ */
+export function makeFocus(
   owner: string,
   key: string,
   label: string,
   detail: string,
 ): VizFocus {
-  return { owner, key, label, detail, native: true, position: undefined };
-}
-
-/** The legacy generic drill-down focus: shared reticle + FocusPanel draw it. */
-export function makeDrilldownFocus(
-  label: string,
-  detail: string,
-  position: [number, number, number],
-): VizFocus {
-  return { owner: "drilldown", key: label, label, detail, native: false, position };
+  return { owner, key, label, detail };
 }
 
 /** Click semantics: re-picking the same element releases it, else it replaces. */
