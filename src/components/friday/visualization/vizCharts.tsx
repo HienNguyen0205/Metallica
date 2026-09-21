@@ -5,8 +5,10 @@ import { useFrame, type ThreeEvent } from "@react-three/fiber";
 import { Color, DoubleSide, Object3D, type Group, type InstancedMesh } from "three";
 import { useFridayStore, type SeriesDatum, type TimelineEvent } from "@/lib/store";
 import { STATE_LOOK } from "@/lib/stateLook";
-import { makeFocus, releaseFocus, toggleFocus } from "@/lib/visualization/focus";
+import { useReducedMotion } from "@/lib/useReducedMotion";
+import { makeFocus, toggleFocus } from "@/lib/visualization/focus";
 import { useFocusRelease } from "./useFocusRelease";
+import { useClickGate, useHoverCursor, usePick } from "./usePick";
 import { HairLine, TechLabel, useMaterialize } from "../primitives";
 
 export interface ChartProps {
@@ -87,6 +89,9 @@ function LinePoint({
   selected,
   dimmed,
   interactive,
+  pinned,
+  pinnedColor,
+  pinnedY,
   onSelect,
 }: {
   p: [number, number, number];
@@ -95,39 +100,20 @@ function LinePoint({
   selected: boolean;
   dimmed: boolean;
   interactive: boolean;
+  /** Ends and the peak always show their value; others only on hover/select. */
+  pinned: boolean;
+  pinnedColor: string;
+  pinnedY: number;
   onSelect: () => void;
 }) {
-  const [hovered, setHovered] = useState(false);
-  const downAt = useRef<[number, number] | null>(null);
+  const { hovered, bind } = usePick(onSelect);
   const highlighted = selected || hovered;
   return (
     <group position={p}>
       {interactive && (
         <mesh
           visible={false}
-          onPointerOver={(e: ThreeEvent<PointerEvent>) => {
-            e.stopPropagation();
-            setHovered(true);
-            document.body.style.cursor = "pointer";
-          }}
-          onPointerOut={() => {
-            setHovered(false);
-            document.body.style.cursor = "auto";
-          }}
-          onPointerDown={(e: ThreeEvent<PointerEvent>) => {
-            e.stopPropagation();
-            downAt.current = [e.nativeEvent.clientX, e.nativeEvent.clientY];
-          }}
-          onClick={(e: ThreeEvent<MouseEvent>) => {
-            e.stopPropagation();
-            if (downAt.current) {
-              const dx = e.nativeEvent.clientX - downAt.current[0];
-              const dy = e.nativeEvent.clientY - downAt.current[1];
-              downAt.current = null;
-              if (Math.hypot(dx, dy) > 6) return;
-            }
-            onSelect();
-          }}
+          {...bind}
         >
           <sphereGeometry args={[0.09, 8, 8]} />
         </mesh>
@@ -141,10 +127,18 @@ function LinePoint({
           toneMapped={false}
         />
       </mesh>
-      {highlighted && (
+      {/* One label per point: the highlight replaces the pinned one rather
+          than stacking a second copy of the same number on top of it. */}
+      {highlighted ? (
         <TechLabel position={[0, 0.14, 0]} color="#eafcff" size={0.07} opacity={1}>
           {String(value)}
         </TechLabel>
+      ) : (
+        pinned && (
+          <TechLabel position={[0, pinnedY, 0]} color={pinnedColor} size={0.07} opacity={0.9}>
+            {String(value)}
+          </TechLabel>
+        )
       )}
     </group>
   );
@@ -159,7 +153,7 @@ export function LineChart3D({ series = DEFAULT_SERIES, color, accent, interactiv
 
   const focus = useFridayStore((s) => s.focus);
   const setFocus = useFridayStore((s) => s.setFocus);
-  useFocusRelease("line");
+  const releaseOnMiss = useFocusRelease("line");
   const selectedKey = focus && focus.owner === "line" ? focus.key : null;
 
   const handleSelect = (si: number, i: number, s: SeriesDatum) => {
@@ -184,14 +178,7 @@ export function LineChart3D({ series = DEFAULT_SERIES, color, accent, interactiv
       ref={ref}
       position={CHART_ANCHOR}
       rotation={[0, -0.16, 0]}
-      onPointerMissed={
-        interactive
-          ? () => {
-              const s = useFridayStore.getState();
-              s.setFocus(releaseFocus(s.focus, "line"));
-            }
-          : undefined
-      }
+      onPointerMissed={interactive ? releaseOnMiss : undefined}
     >
       <ChartFloor color={color} max={max} />
       {data.map((s, si) => {
@@ -206,29 +193,19 @@ export function LineChart3D({ series = DEFAULT_SERIES, color, accent, interactiv
           <group key={s.label}>
             <HairLine points={pts} color={si === 0 ? color : accent} opacity={0.9} lineWidth={2} />
             {pts.map((p, i) => (
-              <group key={i}>
-                <LinePoint
-                  p={p}
-                  color={si === 0 ? color : accent}
-                  value={s.points[i] ?? 0}
-                  selected={selectedKey === `${si}-${i}`}
-                  dimmed={selectedKey !== null && selectedKey !== `${si}-${i}`}
-                  interactive={interactive}
-                  onSelect={() => handleSelect(si, i, s)}
-                />
-                {/* Values at the ends and the peak always show; other points
-                    surface theirs through hover/select (LinePoint above). */}
-                {(i === 0 || i === last || i === peak) && (
-                  <TechLabel
-                    position={[0, si % 2 === 0 ? 0.14 : -0.14, 0]}
-                    color={i === peak ? (si === 0 ? color : accent) : "#e5f6ff"}
-                    size={0.07}
-                    opacity={0.9}
-                  >
-                    {String(s.points[i])}
-                  </TechLabel>
-                )}
-              </group>
+              <LinePoint
+                key={i}
+                p={p}
+                color={si === 0 ? color : accent}
+                value={s.points[i] ?? 0}
+                selected={selectedKey === `${si}-${i}`}
+                dimmed={selectedKey !== null && selectedKey !== `${si}-${i}`}
+                interactive={interactive}
+                pinned={i === 0 || i === last || i === peak}
+                pinnedColor={i === peak ? (si === 0 ? color : accent) : "#e5f6ff"}
+                pinnedY={si % 2 === 0 ? 0.14 : -0.14}
+                onSelect={() => handleSelect(si, i, s)}
+              />
             ))}
             <TechLabel position={[-W / 2 - 0.14, pts[0][1], si * -0.4]} color={si === 0 ? color : accent} size={0.075} anchorX="right" decode>
               {s.label}
@@ -322,10 +299,10 @@ export function BarChart3D({ series = DEFAULT_SERIES, color, accent, interactive
   // --- native focus (owner "bar", key "<series>-<category>") ---
   const focus = useFridayStore((s) => s.focus);
   const setFocus = useFridayStore((s) => s.setFocus);
-  useFocusRelease("bar");
+  const releaseOnMiss = useFocusRelease("bar");
   const [hovered, setHovered] = useState<{ si: number; i: number } | null>(null);
-  // 6px gate: the camera orbits, and a drag ending over the bars must not select.
-  const downAt = useRef<[number, number] | null>(null);
+  const gate = useClickGate();
+  useHoverCursor(hovered !== null);
   const selected = useMemo(() => {
     if (!focus || focus.owner !== "bar") return null;
     const [si, i] = focus.key.split("-").map(Number);
@@ -402,14 +379,7 @@ export function BarChart3D({ series = DEFAULT_SERIES, color, accent, interactive
   return (
     <group
       ref={ref}
-      onPointerMissed={
-        interactive
-          ? () => {
-              const st = useFridayStore.getState();
-              st.setFocus(releaseFocus(st.focus, "bar"));
-            }
-          : undefined
-      }
+      onPointerMissed={interactive ? releaseOnMiss : undefined}
     >
       {data.map((s, si) => (
         <instancedMesh
@@ -421,7 +391,7 @@ export function BarChart3D({ series = DEFAULT_SERIES, color, accent, interactive
           onPointerDown={(e: ThreeEvent<PointerEvent>) => {
             if (!interactive) return;
             e.stopPropagation();
-            downAt.current = [e.nativeEvent.clientX, e.nativeEvent.clientY];
+            gate.record(e);
           }}
           onPointerMove={(e: ThreeEvent<PointerEvent>) => {
             if (!interactive) return;
@@ -430,22 +400,15 @@ export function BarChart3D({ series = DEFAULT_SERIES, color, accent, interactive
             // Bail on same-instance moves: a fresh object per mousemove would
             // re-render the whole chart (and its labels) for no visual change.
             setHovered((h) => (h?.si === si && h?.i === e.instanceId ? h : { si, i: e.instanceId! }));
-            document.body.style.cursor = "pointer";
           }}
           onPointerOut={() => {
             if (!interactive) return;
             setHovered(null);
-            document.body.style.cursor = "auto";
           }}
           onClick={(e: ThreeEvent<MouseEvent>) => {
             if (!interactive) return;
             e.stopPropagation();
-            if (downAt.current) {
-              const dx = e.nativeEvent.clientX - downAt.current[0];
-              const dy = e.nativeEvent.clientY - downAt.current[1];
-              downAt.current = null;
-              if (Math.hypot(dx, dy) > 6) return;
-            }
+            if (!gate.accept(e)) return;
             const i = e.instanceId;
             if (i === undefined) return;
             setFocus(
@@ -577,8 +540,7 @@ function TimelineEventNode({
   interactive,
   onSelect,
 }: TimelineEventNodeProps) {
-  const [hovered, setHovered] = useState(false);
-  const downAt = useRef<[number, number] | null>(null);
+  const { hovered, bind } = usePick(onSelect);
   const highlighted = selected || hovered;
   const base = highlighted ? "#eafcff" : color;
   // Elbows run horizontal toward the nearest end of the rail, so labels never
@@ -596,29 +558,7 @@ function TimelineEventNode({
         <mesh
           visible={false}
           position={[outward * 0.18, side * 0.16, 0.02]}
-          onPointerOver={(e: ThreeEvent<PointerEvent>) => {
-            e.stopPropagation();
-            setHovered(true);
-            document.body.style.cursor = "pointer";
-          }}
-          onPointerOut={() => {
-            setHovered(false);
-            document.body.style.cursor = "auto";
-          }}
-          onPointerDown={(e: ThreeEvent<PointerEvent>) => {
-            e.stopPropagation();
-            downAt.current = [e.nativeEvent.clientX, e.nativeEvent.clientY];
-          }}
-          onClick={(e: ThreeEvent<MouseEvent>) => {
-            e.stopPropagation();
-            if (downAt.current) {
-              const dx = e.nativeEvent.clientX - downAt.current[0];
-              const dy = e.nativeEvent.clientY - downAt.current[1];
-              downAt.current = null;
-              if (Math.hypot(dx, dy) > 6) return;
-            }
-            onSelect();
-          }}
+          {...bind}
         >
           <planeGeometry args={[0.62, 0.46]} />
         </mesh>
@@ -748,13 +688,10 @@ export function Timeline3D({ events = DEFAULT_EVENTS, color, accent, interactive
   const focus = useFridayStore((s) => s.focus);
   const setFocus = useFridayStore((s) => s.setFocus);
   const state = useFridayStore((s) => s.state);
-  useFocusRelease("timeline");
+  const releaseOnMiss = useFocusRelease("timeline");
   const selectedId = focus && focus.owner === "timeline" ? focus.key : null;
 
-  const reduced = useMemo(
-    () => typeof window !== "undefined" && !!window.matchMedia?.("(prefers-reduced-motion: reduce)").matches,
-    [],
-  );
+  const reduced = useReducedMotion();
 
   const look = STATE_LOOK[state];
   // NOW = the furthest event in time (data may arrive unsorted).
@@ -779,21 +716,15 @@ export function Timeline3D({ events = DEFAULT_EVENTS, color, accent, interactive
       ref={ref}
       position={[0, -0.1, 1.2]}
       rotation={[0.05, -0.12, 0]}
-      onPointerMissed={
-        interactive
-          ? () => {
-              const s = useFridayStore.getState();
-              s.setFocus(releaseFocus(s.focus, "timeline"));
-            }
-          : undefined
-      }
+      onPointerMissed={interactive ? releaseOnMiss : undefined}
     >
       {/* base rail across the whole span, then the brighter "elapsed" fill up
           to NOW — the scrubber reads as time spent, not a decorative line */}
       <HairLine points={[[-half, 0, 0], [half, 0, 0]]} color={color} opacity={0.22} lineWidth={2} />
       <HairLine points={[[-half, 0, 0], [xNow, 0, 0]]} color={accent} opacity={0.85} lineWidth={3} />
-      {/* faint dashes on the future stretch, past the playhead */}
-      {Array.from({ length: 8 }, (_, i) => {
+      {/* faint dashes on the future stretch, past the playhead — none when NOW
+          sits at the rail's end (they would all clamp to zero length there) */}
+      {Array.from({ length: nowT < 0.98 ? 8 : 0 }, (_, i) => {
         const a = railXFor(nowT + ((i + 1) / 9) * (1 - nowT));
         const b = railXFor(nowT + ((i + 1) / 9) * (1 - nowT) + 0.02);
         return <HairLine key={i} points={[[a, 0, 0], [b, 0, 0]]} color={color} opacity={0.3} lineWidth={2} />;

@@ -66,12 +66,24 @@ function sanitizeData(data: VisualizationSpec["data"]): VizData {
     : undefined;
 
   // A series with no renderable points would crash max()/min() downstream.
+  // ponytail: negatives clamp to 0 — line/bar axes run 0..max and a negative
+  // bar flipped under the baseline; add a min..max axis if signed data matters.
   out.series = Array.isArray(out.series)
     ? out.series.flatMap((s, i) => {
         if (!s || !Array.isArray(s.points) || s.points.length === 0) return [];
-        return [{ ...s, label: sanitizeLabel(s.label) ?? `SERIES-${i}`, points: s.points.map((p) => (typeof p === "number" && Number.isFinite(p) ? p : 0)) }];
+        return [{ ...s, label: sanitizeLabel(s.label) ?? `SERIES-${i}`, points: s.points.map((p) => (typeof p === "number" && Number.isFinite(p) ? Math.max(0, p) : 0)) }];
       })
     : undefined;
+  // Line/bar key React nodes and legend rows by label; a repeat collided.
+  if (out.series) {
+    const seen = new Set<string>();
+    for (const s of out.series) {
+      let label = s.label;
+      for (let n = 2; seen.has(label); n++) label = `${s.label}-${n}`;
+      seen.add(label);
+      s.label = label;
+    }
+  }
 
   // Clone node/point/event arrays so callers never share mutable wire data.
   // Ids and labels are coerced: nodes key React + raycast tags off them.
@@ -110,12 +122,16 @@ function sanitizeData(data: VisualizationSpec["data"]): VizData {
       return out_p;
     });
   else out.points = undefined;
+  // `at` is a position on the rail: a NaN one used to sit mid-rail yet not
+  // count toward NOW, and unsorted events broke the alternating label sides.
   if (Array.isArray(out.events))
-    out.events = out.events.flatMap((e) => {
-      const label = sanitizeLabel(e?.label);
-      if (!label) return [];
-      return [{ ...e, label }];
-    });
+    out.events = out.events
+      .flatMap((e) => {
+        const label = sanitizeLabel(e?.label);
+        if (!label || typeof e.at !== "number" || !Number.isFinite(e.at)) return [];
+        return [{ ...e, label, at: Math.max(0, Math.min(1, e.at)) }];
+      })
+      .sort((a, b) => a.at - b.at);
   else out.events = undefined;
 
   // Links index into `nodes`; an out-of-range pair used to draw a line to the

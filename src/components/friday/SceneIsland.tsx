@@ -22,7 +22,6 @@ function VizDeepLink() {
     if (s.visualizations.length > 0) return;
     s.setLiveMode("offline");
     s.addVisualization(sampleSpec(viz as VisualizationType));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [params]);
   return null;
 }

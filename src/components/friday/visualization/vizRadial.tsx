@@ -1,7 +1,7 @@
 "use client";
 
-import { useRef, useState } from "react";
-import { useFrame, type ThreeEvent } from "@react-three/fiber";
+import { useRef } from "react";
+import { useFrame } from "@react-three/fiber";
 import { Billboard } from "@react-three/drei";
 import { DoubleSide, type Group } from "three";
 import { useFridayStore, type MetricDatum } from "@/lib/store";
@@ -9,10 +9,10 @@ import {
   anyFocusedBy,
   isFocusedBy,
   makeFocus,
-  releaseFocus,
   toggleFocus,
 } from "@/lib/visualization/focus";
 import { useFocusRelease } from "./useFocusRelease";
+import { usePick } from "./usePick";
 import { ArcSegments, TechLabel, TickDial, useMaterialize } from "../primitives";
 import WaveformRing from "../core/WaveformRing";
 
@@ -109,13 +109,13 @@ function MetricNode({
   selected: boolean;
   anySelected: boolean;
   interactive: boolean;
-  onSelect: (e: ThreeEvent<MouseEvent>) => void;
+  onSelect: () => void;
 }) {
   const [x, y, z] = fanPosition(index, count);
   // Dynamic density: past a rowful the nodes shrink instead of colliding —
   // the count comes from the data, never from a fixed slot plan.
   const s = gaugeNodeScale(count);
-  const [hovered, setHovered] = useState(false);
+  const { hovered, bind } = usePick(onSelect);
   const vis = gaugeVisual({ hovered, selected, anySelected });
 
   const groupRef = useMaterialize(0.7, true, index * 0.18);
@@ -143,22 +143,7 @@ function MetricNode({
               {/* Interaction target — invisible but raycastable; only present
                   for interactive specs (previews render tris inert). */}
               {interactive && (
-                <mesh
-                  visible={false}
-                  onPointerOver={(e) => {
-                    e.stopPropagation();
-                    setHovered(true);
-                    document.body.style.cursor = "pointer";
-                  }}
-                  onPointerOut={() => {
-                    setHovered(false);
-                    document.body.style.cursor = "auto";
-                  }}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onSelect(e);
-                  }}
-                >
+                <mesh visible={false} {...bind}>
                   <circleGeometry args={[0.58, 20]} />
                 </mesh>
               )}
@@ -198,18 +183,9 @@ function MetricNode({
 export function RadialGauge({ metrics = [], color, interactive = true }: VizProps) {
   const focus = useFridayStore((s) => s.focus);
   const setFocus = useFridayStore((s) => s.setFocus);
-  useFocusRelease("gauge");
-  // 6px drag-vs-click gate: the camera orbits even when the gauges don't, so a
-  // drag that ends on a node must not select it.
-  const downAt = useRef<[number, number] | null>(null);
+  const releaseOnMiss = useFocusRelease("gauge");
 
-  const handleSelect = (m: MetricDatum, e: ThreeEvent<MouseEvent>) => {
-    if (downAt.current) {
-      const dx = e.nativeEvent.clientX - downAt.current[0];
-      const dy = e.nativeEvent.clientY - downAt.current[1];
-      downAt.current = null;
-      if (Math.hypot(dx, dy) > 6) return;
-    }
+  const handleSelect = (m: MetricDatum) => {
     const key = m.label.toUpperCase();
     setFocus(
       toggleFocus(
@@ -222,17 +198,7 @@ export function RadialGauge({ metrics = [], color, interactive = true }: VizProp
   const anySelected = anyFocusedBy(focus, "gauge");
   return (
     <group
-      onPointerDown={(e) => {
-        downAt.current = [e.nativeEvent.clientX, e.nativeEvent.clientY];
-      }}
-      onPointerMissed={
-        interactive
-          ? () => {
-              const s = useFridayStore.getState();
-              s.setFocus(releaseFocus(s.focus, "gauge"));
-            }
-          : undefined
-      }
+      onPointerMissed={interactive ? releaseOnMiss : undefined}
     >
       {metrics.map((m, i) => (
         <MetricNode
@@ -244,7 +210,7 @@ export function RadialGauge({ metrics = [], color, interactive = true }: VizProp
           selected={isFocusedBy(focus, "gauge", m.label.toUpperCase())}
           anySelected={anySelected}
           interactive={interactive}
-          onSelect={(e) => handleSelect(m, e)}
+          onSelect={() => handleSelect(m)}
         />
       ))}
     </group>
@@ -271,38 +237,12 @@ function RadarContact({
   dimmed: boolean;
   onSelect: (index: number, a: number) => void;
 }) {
-  const [hovered, setHovered] = useState(false);
-  const downAt = useRef<[number, number] | null>(null);
+  const { hovered, bind } = usePick(() => onSelect(index, a));
   const highlighted = selected || hovered;
 
   return (
     <group position={[Math.cos(a) * r, Math.sin(a) * r, 0.01]}>
-      <mesh
-        visible={false}
-        onPointerOver={(e) => {
-          e.stopPropagation();
-          setHovered(true);
-          document.body.style.cursor = "pointer";
-        }}
-        onPointerOut={() => {
-          setHovered(false);
-          document.body.style.cursor = "auto";
-        }}
-        onPointerDown={(e) => {
-          e.stopPropagation();
-          downAt.current = [e.nativeEvent.clientX, e.nativeEvent.clientY];
-        }}
-        onClick={(e) => {
-          e.stopPropagation();
-          if (downAt.current) {
-            const dx = e.nativeEvent.clientX - downAt.current[0];
-            const dy = e.nativeEvent.clientY - downAt.current[1];
-            downAt.current = null;
-            if (Math.hypot(dx, dy) > 6) return;
-          }
-          onSelect(index, a);
-        }}
-      >
+      <mesh visible={false} {...bind}>
         <circleGeometry args={[0.16, 12]} />
       </mesh>
       <mesh scale={highlighted ? 1.6 : 1}>
@@ -335,7 +275,7 @@ export function Radar({ metrics = [], color, accent, interactive = true }: VizPr
 
   const focus = useFridayStore((s) => s.focus);
   const setFocus = useFridayStore((s) => s.setFocus);
-  useFocusRelease("radar");
+  const releaseOnMiss = useFocusRelease("radar");
   const selectedId = focus && focus.owner === "radar" ? focus.key : null;
 
   useFrame((_, delta) => {
@@ -366,14 +306,7 @@ export function Radar({ metrics = [], color, accent, interactive = true }: VizPr
     // and a line edge-on — face-locked it is a true circle everywhere.
     <group
       ref={ref}
-      onPointerMissed={
-        interactive
-          ? () => {
-              const s = useFridayStore.getState();
-              s.setFocus(releaseFocus(s.focus, "radar"));
-            }
-          : undefined
-      }
+      onPointerMissed={interactive ? releaseOnMiss : undefined}
     >
       <Billboard>
         {[0.9, 1.5, 2.1, 2.6].map((r) => (
