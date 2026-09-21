@@ -88,3 +88,23 @@ test("normalize coerces node ids and timeline labels", () => {
   });
   expect(tl.data?.events?.[0]?.label).toBe("42");
 });
+
+test("timeline events: non-finite `at` dropped, rest clamped to [0,1] and sorted", () => {
+  const out = normalizeVisualization({
+    type: "timeline",
+    data: {
+      events: [
+        { label: "LATE", at: 4 },
+        { label: "BAD", at: Number.NaN },
+        { label: "MID", at: 0.5 },
+        { label: "EARLY", at: -1 },
+        { label: "STR", at: "0.3" as unknown as number },
+      ],
+    },
+  });
+  expect(out.data?.events).toEqual([
+    { label: "EARLY", at: 0 },
+    { label: "MID", at: 0.5 },
+    { label: "LATE", at: 1 },
+  ]);
+});
