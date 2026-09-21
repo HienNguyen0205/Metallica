@@ -69,20 +69,27 @@ async def run() -> int:
     global TURN_COUNTER
     TURN_COUNTER = 0
 
-    # This turn's owner's memories only: judged side by side, one user's fact
-    # would "contradict" another's and get it dropped.
+    # One pass per group, never mixed: judged side by side, one user's fact
+    # would "contradict" another's — or a shared one — and get it dropped for
+    # everyone. The shared pool still gets its own pass on identified turns,
+    # or it would grow without bound once identified traffic exists.
     owner = lt.OWNER.get()
-    mine = [m for m in lt.CACHE if m.owner_user_id == owner]
-    if not mine:
-        return 0
-    try:
-        drops = await choose_drops(mine)
-    except Exception:
-        log.warning("consolidation failed; memories left as they were", exc_info=True)
-        return 0
+    groups = [[m for m in lt.CACHE if m.owner_user_id == owner]]
+    if owner is not None:
+        groups.append([m for m in lt.CACHE if m.owner_user_id is None])
 
-    allowed = {m.id for m in mine}
-    removed = sum([1 for memory_id in drops if memory_id in allowed and await lt.forget(memory_id)])
+    removed = 0
+    for group in groups:
+        if not group:
+            continue
+        try:
+            drops = await choose_drops(group)
+        except Exception:
+            log.warning("consolidation failed; memories left as they were", exc_info=True)
+            continue
+        # The model can name any id; only this pass's group may be dropped.
+        allowed = {m.id for m in group}
+        removed += sum([1 for memory_id in drops if memory_id in allowed and await lt.forget(memory_id)])
     if removed:
         log.info("consolidation dropped %d memories", removed)
     return removed
