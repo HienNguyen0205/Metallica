@@ -1,5 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 import { gotoLitScene } from "./helpers";
+import { MAP_FLOW, startStubOrchestrator } from "./stubOrchestrator";
 
 /**
  * Street map (spec 2026-09-21). api.maptiler.com is stubbed: a background-only
@@ -89,4 +90,66 @@ test("right-click offers directions from/to and what's here", async ({ page }) =
   await expect(menu).toBeVisible();
   await menu.getByRole("menuitem", { name: "Đây là đâu?" }).click();
   await expect(page.getByTestId("place-card")).toContainText("Hồ Gươm"); // reverse geocode stub answers the first feature
+});
+
+const ROUTE = {
+  routes: [
+    {
+      distance_m: 2412,
+      duration_s: 545,
+      legs: [{
+        shape: "_{nbg@gdv{hEoeGvpQolF~kO",
+        maneuvers: [
+          { instruction: "Đi về hướng tây trên Đinh Tiên Hoàng.", type: 2, distance_m: 1100, duration_s: 250, begin_shape_index: 0 },
+          { instruction: "Rẽ phải vào Hùng Vương.", type: 10, distance_m: 1312, duration_s: 295, begin_shape_index: 1 },
+          { instruction: "Bạn đã đến nơi.", type: 4, distance_m: 0, duration_s: 0, begin_shape_index: 2 },
+        ],
+      }],
+    },
+    { distance_m: 2900, duration_s: 610, legs: [{ shape: "_{nbg@gdv{hEoeGvpQolF~kO", maneuvers: [] }] },
+  ],
+};
+
+test("an agent route opens directions with the summary, steps and route layers", async ({ page }) => {
+  await stubMapTiler(page);
+  await page.route("**/geo/route", (r) => r.fulfill({ json: ROUTE }));
+  const stub = await startStubOrchestrator(MAP_FLOW);
+  try {
+    await gotoLitScene(page);
+    await page.locator("input").click();
+    await page.locator("input").pressSequentially("chỉ đường tới lăng bác", { delay: 15 });
+    await page.keyboard.press("Enter");
+    await expect(layer(page)).toHaveAttribute("data-mode", "map", { timeout: 20_000 });
+    const panel = page.getByTestId("directions-panel");
+    await expect(page.getByTestId("directions-summary")).toContainText("9 phút");
+    await expect(page.getByTestId("directions-summary")).toContainText("2,4 km");
+    await expect(panel.getByRole("tab", { name: "🛵 Xe máy" })).toHaveAttribute("aria-selected", "true");
+    await expect(panel.getByRole("listitem")).toContainText(["Rẽ phải vào Hùng Vương."]);
+    expect(await page.evaluate(() => {
+      const m = (window as unknown as { __fridayMap?: { getLayer(id: string): unknown } }).__fridayMap;
+      return !!m?.getLayer("friday-route-line") && !!m?.getLayer("friday-route-casing");
+    })).toBe(true);
+    // switching mode re-asks the route with the new profile
+    const asked = page.waitForRequest((r) => r.url().endsWith("/geo/route") && r.postDataJSON().profile === "pedestrian");
+    await panel.getByRole("tab", { name: "🚶 Đi bộ" }).click();
+    await asked;
+  } finally {
+    await stub.close();
+  }
+});
+
+test("routing off: directions say so and the map stays usable", async ({ page }) => {
+  await stubMapTiler(page);
+  await page.route("**/geo/route", (r) => r.fulfill({ status: 503, json: { error: "routing_unavailable" } }));
+  const stub = await startStubOrchestrator(MAP_FLOW);
+  try {
+    await gotoLitScene(page);
+    await page.locator("input").click();
+    await page.locator("input").pressSequentially("chỉ đường tới lăng bác", { delay: 15 });
+    await page.keyboard.press("Enter");
+    await expect(page.getByTestId("directions-status")).toHaveText("Chỉ đường chưa được cấu hình", { timeout: 20_000 });
+    await expect(page.getByRole("combobox", { name: "Tìm kiếm địa điểm" })).toBeEnabled();
+  } finally {
+    await stub.close();
+  }
 });

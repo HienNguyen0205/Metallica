@@ -13,6 +13,7 @@ import { STATUS_COLORS, markerLabel, statusOf } from "../visualization/globe/geo
 import { devRailsEnabled } from "../hud/devRails";
 import { styleUrl, type Endpoint, type MapStyleId, type Place } from "./mapApi";
 import { MapSearch } from "./MapSearch";
+import { DirectionsPanel } from "./DirectionsPanel";
 import { ContextMenu, PlacePanel, myLocationEndpoint, type MenuState } from "./PlacePanel";
 
 const ENTER_MS = 900;
@@ -366,10 +367,25 @@ export default function MapStage() {
             map?.flyTo({ center: [p.lon, p.lat], zoom: Math.max(map.getZoom(), 16) });
           }}
         />
+        <button
+          type="button"
+          className="friday-map-fab"
+          aria-label="Chỉ đường"
+          onClick={() => {
+            const to = place ? { lat: place.lat, lon: place.lon, label: place.label } : null;
+            setPlace(null);
+            setDirections({ profile: "motor_scooter", stops: [myLocationEndpoint(), to] });
+          }}
+        >
+          ↱
+        </button>
       </div>
 
       {place && !directions && (
         <PlacePanel place={place} onClose={() => setPlace(null)} onDirectionsTo={directionsTo} onDirectionsFrom={directionsFrom} />
+      )}
+      {map && directions && (
+        <DirectionsPanel map={map} value={directions} onChange={setDirections} onClose={() => setDirections(null)} getNear={getNear} />
       )}
       {menu && (
         <ContextMenu
