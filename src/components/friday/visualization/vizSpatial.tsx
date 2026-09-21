@@ -1,11 +1,12 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
 import { DoubleSide, type Group } from "three";
 import { useFridayStore, type NodeDatum } from "@/lib/store";
 import { makeFocus, releaseFocus, toggleFocus } from "@/lib/visualization/focus";
 import { useFocusRelease } from "./useFocusRelease";
+import { usePick } from "./usePick";
 import { HairLine, TechLabel, useMaterialize } from "../primitives";
 
 export interface SpatialProps {
@@ -68,9 +69,8 @@ function NetworkNode({
   interactive,
   onSelect,
 }: NetworkNodeProps) {
-  const [hovered, setHovered] = useState(false);
+  const { hovered, bind } = usePick(() => onSelect(node, degree));
   const ringRef = useRef<Group>(null);
-  const downAt = useRef<[number, number] | null>(null);
   const highlighted = selected || hovered;
 
   useFrame((_, delta) => {
@@ -78,36 +78,13 @@ function NetworkNode({
     ringRef.current.rotation.z += delta * (highlighted ? 1.2 : 0.2);
   });
 
-  const setHover = (h: boolean) => {
-    setHovered(h);
-    document.body.style.cursor = h ? "pointer" : "auto";
-  };
-
   const base = index % 3 === 0 ? accent : color;
   return (
     <group position={position}>
       {interactive && (
         <mesh
           visible={false}
-          onPointerOver={(e) => {
-            e.stopPropagation();
-            setHover(true);
-          }}
-          onPointerOut={() => setHover(false)}
-          onPointerDown={(e) => {
-            e.stopPropagation();
-            downAt.current = [e.nativeEvent.clientX, e.nativeEvent.clientY];
-          }}
-          onClick={(e) => {
-            e.stopPropagation();
-            if (downAt.current) {
-              const dx = e.nativeEvent.clientX - downAt.current[0];
-              const dy = e.nativeEvent.clientY - downAt.current[1];
-              downAt.current = null;
-              if (Math.hypot(dx, dy) > 6) return;
-            }
-            onSelect(node, degree);
-          }}
+          {...bind}
         >
           <sphereGeometry args={[0.24, 10, 10]} />
         </mesh>

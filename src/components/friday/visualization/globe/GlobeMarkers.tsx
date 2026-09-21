@@ -1,5 +1,6 @@
 "use client";
 
+import { useClickGate, useHoverCursor } from "../usePick";
 import { useMemo, useRef, useState } from "react";
 import { useFrame, useThree, type ThreeEvent } from "@react-three/fiber";
 import { Vector3, type Group } from "three";
@@ -46,9 +47,10 @@ function MarkerNode({
 }: MarkerNodeProps) {
   const group = useRef<Group>(null);
   const [hovered, setHovered] = useState(false);
-  // Click-vs-drag gate (same 6px threshold as every viz pick): ending a globe
-  // drag on a marker must not yank the camera.
-  const downAt = useRef<[number, number] | null>(null);
+  // Click-vs-drag gate (same slop as every viz pick): ending a globe drag on
+  // a marker must not yank the camera.
+  const gate = useClickGate();
+  useHoverCursor(hovered);
   const cam = useThree((s) => s.camera);
   const globeCenter = GLOBE_CENTER;
 
@@ -93,12 +95,8 @@ function MarkerNode({
     if (toCam.dot(toMarker) < 0.15) return;
     e.stopPropagation();
     setHovered(true);
-    document.body.style.cursor = "pointer";
   };
-  const onOut = () => {
-    setHovered(false);
-    document.body.style.cursor = "auto";
-  };
+  const onOut = () => setHovered(false);
 
   return (
     <group position={pos}>
@@ -111,20 +109,13 @@ function MarkerNode({
             opacity 0 + depthWrite false keeps it visually absent. */}
         <mesh
           userData={{ viz: { label, detail, globe: true } }}
-          onPointerDown={(e) => {
-            downAt.current = [e.nativeEvent.clientX, e.nativeEvent.clientY];
-          }}
+          onPointerDown={gate.record}
           onPointerOver={onOver}
           onPointerOut={onOut}
           onClick={(e) => {
             // A drag-end lands as a click on the same object — ignore it so
             // orbiting the planet never triggers a camera flight.
-            if (downAt.current) {
-              const dx = e.nativeEvent.clientX - downAt.current[0];
-              const dy = e.nativeEvent.clientY - downAt.current[1];
-              downAt.current = null;
-              if (Math.hypot(dx, dy) > 6) return;
-            }
+            if (!gate.accept(e)) return;
             // Backside guard (same as hover)
             const worldPos = new Vector3();
             e.object.getWorldPosition(worldPos);

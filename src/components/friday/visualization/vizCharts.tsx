@@ -7,6 +7,7 @@ import { useFridayStore, type SeriesDatum, type TimelineEvent } from "@/lib/stor
 import { STATE_LOOK } from "@/lib/stateLook";
 import { makeFocus, releaseFocus, toggleFocus } from "@/lib/visualization/focus";
 import { useFocusRelease } from "./useFocusRelease";
+import { useClickGate, useHoverCursor, usePick } from "./usePick";
 import { HairLine, TechLabel, useMaterialize } from "../primitives";
 
 export interface ChartProps {
@@ -104,37 +105,14 @@ function LinePoint({
   pinnedY: number;
   onSelect: () => void;
 }) {
-  const [hovered, setHovered] = useState(false);
-  const downAt = useRef<[number, number] | null>(null);
+  const { hovered, bind } = usePick(onSelect);
   const highlighted = selected || hovered;
   return (
     <group position={p}>
       {interactive && (
         <mesh
           visible={false}
-          onPointerOver={(e: ThreeEvent<PointerEvent>) => {
-            e.stopPropagation();
-            setHovered(true);
-            document.body.style.cursor = "pointer";
-          }}
-          onPointerOut={() => {
-            setHovered(false);
-            document.body.style.cursor = "auto";
-          }}
-          onPointerDown={(e: ThreeEvent<PointerEvent>) => {
-            e.stopPropagation();
-            downAt.current = [e.nativeEvent.clientX, e.nativeEvent.clientY];
-          }}
-          onClick={(e: ThreeEvent<MouseEvent>) => {
-            e.stopPropagation();
-            if (downAt.current) {
-              const dx = e.nativeEvent.clientX - downAt.current[0];
-              const dy = e.nativeEvent.clientY - downAt.current[1];
-              downAt.current = null;
-              if (Math.hypot(dx, dy) > 6) return;
-            }
-            onSelect();
-          }}
+          {...bind}
         >
           <sphereGeometry args={[0.09, 8, 8]} />
         </mesh>
@@ -329,8 +307,8 @@ export function BarChart3D({ series = DEFAULT_SERIES, color, accent, interactive
   const setFocus = useFridayStore((s) => s.setFocus);
   useFocusRelease("bar");
   const [hovered, setHovered] = useState<{ si: number; i: number } | null>(null);
-  // 6px gate: the camera orbits, and a drag ending over the bars must not select.
-  const downAt = useRef<[number, number] | null>(null);
+  const gate = useClickGate();
+  useHoverCursor(hovered !== null);
   const selected = useMemo(() => {
     if (!focus || focus.owner !== "bar") return null;
     const [si, i] = focus.key.split("-").map(Number);
@@ -426,7 +404,7 @@ export function BarChart3D({ series = DEFAULT_SERIES, color, accent, interactive
           onPointerDown={(e: ThreeEvent<PointerEvent>) => {
             if (!interactive) return;
             e.stopPropagation();
-            downAt.current = [e.nativeEvent.clientX, e.nativeEvent.clientY];
+            gate.record(e);
           }}
           onPointerMove={(e: ThreeEvent<PointerEvent>) => {
             if (!interactive) return;
@@ -435,22 +413,15 @@ export function BarChart3D({ series = DEFAULT_SERIES, color, accent, interactive
             // Bail on same-instance moves: a fresh object per mousemove would
             // re-render the whole chart (and its labels) for no visual change.
             setHovered((h) => (h?.si === si && h?.i === e.instanceId ? h : { si, i: e.instanceId! }));
-            document.body.style.cursor = "pointer";
           }}
           onPointerOut={() => {
             if (!interactive) return;
             setHovered(null);
-            document.body.style.cursor = "auto";
           }}
           onClick={(e: ThreeEvent<MouseEvent>) => {
             if (!interactive) return;
             e.stopPropagation();
-            if (downAt.current) {
-              const dx = e.nativeEvent.clientX - downAt.current[0];
-              const dy = e.nativeEvent.clientY - downAt.current[1];
-              downAt.current = null;
-              if (Math.hypot(dx, dy) > 6) return;
-            }
+            if (!gate.accept(e)) return;
             const i = e.instanceId;
             if (i === undefined) return;
             setFocus(
@@ -582,8 +553,7 @@ function TimelineEventNode({
   interactive,
   onSelect,
 }: TimelineEventNodeProps) {
-  const [hovered, setHovered] = useState(false);
-  const downAt = useRef<[number, number] | null>(null);
+  const { hovered, bind } = usePick(onSelect);
   const highlighted = selected || hovered;
   const base = highlighted ? "#eafcff" : color;
   // Elbows run horizontal toward the nearest end of the rail, so labels never
@@ -601,29 +571,7 @@ function TimelineEventNode({
         <mesh
           visible={false}
           position={[outward * 0.18, side * 0.16, 0.02]}
-          onPointerOver={(e: ThreeEvent<PointerEvent>) => {
-            e.stopPropagation();
-            setHovered(true);
-            document.body.style.cursor = "pointer";
-          }}
-          onPointerOut={() => {
-            setHovered(false);
-            document.body.style.cursor = "auto";
-          }}
-          onPointerDown={(e: ThreeEvent<PointerEvent>) => {
-            e.stopPropagation();
-            downAt.current = [e.nativeEvent.clientX, e.nativeEvent.clientY];
-          }}
-          onClick={(e: ThreeEvent<MouseEvent>) => {
-            e.stopPropagation();
-            if (downAt.current) {
-              const dx = e.nativeEvent.clientX - downAt.current[0];
-              const dy = e.nativeEvent.clientY - downAt.current[1];
-              downAt.current = null;
-              if (Math.hypot(dx, dy) > 6) return;
-            }
-            onSelect();
-          }}
+          {...bind}
         >
           <planeGeometry args={[0.62, 0.46]} />
         </mesh>

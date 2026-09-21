@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { useFrame, type ThreeEvent } from "@react-three/fiber";
+import { useEffect, useMemo, useRef } from "react";
+import { useFrame } from "@react-three/fiber";
 import { DoubleSide, Vector3, type Group } from "three";
 import { useFridayStore, type NodeDatum } from "@/lib/store";
 import { makeFocus, releaseFocus, toggleFocus } from "@/lib/visualization/focus";
 import { useFocusRelease } from "./useFocusRelease";
+import { usePick } from "./usePick";
 import { HairLine, TechLabel, useMaterialize } from "../primitives";
 
 export interface FlowSpatialProps {
@@ -96,9 +97,8 @@ function SankeyNode({
   interactive: boolean;
   onSelect: (node: NodeDatum, detail: string) => void;
 }) {
-  const [hovered, setHovered] = useState(false);
+  const { hovered, bind } = usePick(() => onSelect(node, detail));
   const ringRef = useRef<Group>(null);
-  const downAt = useRef<[number, number] | null>(null);
   const highlighted = selected || hovered;
   const base = index % 3 === 0 ? accent : color;
 
@@ -112,29 +112,7 @@ function SankeyNode({
       {interactive && (
         <mesh
           visible={false}
-          onPointerOver={(e: ThreeEvent<PointerEvent>) => {
-            e.stopPropagation();
-            setHovered(true);
-            document.body.style.cursor = "pointer";
-          }}
-          onPointerOut={() => {
-            setHovered(false);
-            document.body.style.cursor = "auto";
-          }}
-          onPointerDown={(e: ThreeEvent<PointerEvent>) => {
-            e.stopPropagation();
-            downAt.current = [e.nativeEvent.clientX, e.nativeEvent.clientY];
-          }}
-          onClick={(e: ThreeEvent<MouseEvent>) => {
-            e.stopPropagation();
-            if (downAt.current) {
-              const dx = e.nativeEvent.clientX - downAt.current[0];
-              const dy = e.nativeEvent.clientY - downAt.current[1];
-              downAt.current = null;
-              if (Math.hypot(dx, dy) > 6) return;
-            }
-            onSelect(node, detail);
-          }}
+          {...bind}
         >
           <sphereGeometry args={[0.24, 10, 10]} />
         </mesh>
