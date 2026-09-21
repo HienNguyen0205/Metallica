@@ -27,8 +27,8 @@ export interface ClientContext {
   utc_offset_min?: number;
   languages?: string[];
   screen?: { width: number; height: number; dpr: number };
-  /** Only when the operator turned location on; ~1 km (2 decimals). */
-  location?: { lat: number; lon: number };
+  /** Only when the operator turned location on; full precision + radius (m). */
+  location?: { lat: number; lon: number; accuracy_m?: number };
   history?: { interval_s: number; samples: Sample[] };
 }
 
@@ -50,7 +50,7 @@ export interface RawReadings {
   tzOffsetMin?: number;
   languages?: readonly string[];
   screen?: { width: number; height: number; dpr: number };
-  location?: { lat: number; lon: number };
+  location?: { lat: number; lon: number; accuracy?: number };
   history?: { intervalS: number; samples: readonly Sample[] };
 }
 
@@ -62,7 +62,7 @@ const MAX_STR = 40;
 const num = (v: unknown, min: number, max: number): number | undefined =>
   typeof v === "number" && Number.isFinite(v) && v >= min && v <= max ? v : undefined;
 const round1 = (v: number) => Math.round(v * 10) / 10;
-const round2 = (v: number) => Math.round(v * 100) / 100;
+const round6 = (v: number) => Math.round(v * 1e6) / 1e6;
 const str = (v: unknown, max = MAX_STR): string | undefined =>
   typeof v === "string" && v.length > 0 ? v.slice(0, max) : undefined;
 
@@ -113,8 +113,11 @@ export function buildClientContext(r: RawReadings): ClientContext {
     utc_offset_min: num(r.tzOffsetMin, -840, 840) !== undefined ? -r.tzOffsetMin! || 0 : undefined,
     languages: langs?.length ? langs.slice(0, 5) : undefined,
     screen: width && height && dpr ? { width, height, dpr } : undefined,
-    // Coarsened here as well as on arrival: a finer fix never leaves the tab.
-    location: lat !== undefined && lon !== undefined ? { lat: round2(lat), lon: round2(lon) } : undefined,
+    // 6 decimals ≈ 11 cm — finer than any fix, so only float noise is cut.
+    location:
+      lat !== undefined && lon !== undefined
+        ? compact({ lat: round6(lat), lon: round6(lon), accuracy_m: num(r.location?.accuracy, 0, 1e7) })
+        : undefined,
     history: historyOnWire(r.history),
   });
 }

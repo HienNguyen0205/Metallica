@@ -165,12 +165,13 @@ export interface FridayStore {
   audioEnabled: boolean;
   toggleAudio: () => void;
   /**
-   * The operator's shared location, ~1 km (2 decimals). In memory only —
-   * never written to storage — and null unless they turned it on.
+   * The operator's shared location at full precision, with the browser's
+   * accuracy radius (m). In memory only — never written to storage — and
+   * null unless they turned it on.
    */
-  location: { lat: number; lon: number } | null;
+  location: { lat: number; lon: number; accuracy?: number } | null;
   locationStatus: LocationStatus;
-  setLocation: (location: { lat: number; lon: number } | null, status: LocationStatus) => void;
+  setLocation: (location: { lat: number; lon: number; accuracy?: number } | null, status: LocationStatus) => void;
   /** Live device readings, kept current by startDeviceMonitor's event listeners. */
   device: DeviceState;
   setDevice: (patch: Partial<DeviceState>) => void;

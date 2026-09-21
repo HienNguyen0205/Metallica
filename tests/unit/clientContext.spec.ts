@@ -70,8 +70,12 @@ test("streamQuery sends the client context with the question", async () => {
   expect(body.client).toEqual({ cpu_cores: 8 });
 });
 
-test("a shared location is rounded to ~1 km before it leaves the browser", () => {
-  expect(buildClientContext({ location: { lat: 10.776889, lon: 106.700806 } }).location).toEqual({ lat: 10.78, lon: 106.7 });
+test("a shared location keeps the browser's precision and accuracy radius", () => {
+  expect(buildClientContext({ location: { lat: 10.776889, lon: 106.700806, accuracy: 12.5 } }).location).toEqual({
+    lat: 10.776889,
+    lon: 106.700806,
+    accuracy_m: 12.5,
+  });
   expect(buildClientContext({ location: { lat: 95, lon: 0 } }).location).toBeUndefined();
   expect(buildClientContext({ location: { lat: Number.NaN, lon: 1 } }).location).toBeUndefined();
 });

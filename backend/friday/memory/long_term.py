@@ -315,8 +315,7 @@ async def run_remember(payload: dict) -> dict:
     # ponytail: catches the coordinates only, not a place name derived from them.
     from friday.tools.client.metrics import shared_coordinates
 
-    coords = shared_coordinates()
-    if coords and any(c in fact for c in coords):
+    if any(c in fact for c in shared_coordinates()):
         return {"error": "refused: the operator's location is not stored in memory"}
     if not store_configured():
         return {"error": "long-term memory is not configured"}

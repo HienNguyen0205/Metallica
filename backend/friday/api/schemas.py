@@ -47,17 +47,21 @@ class ClientScreen(BaseModel):
 
 
 class ClientLocation(BaseModel):
-    """Shared only when the operator turns location on. Rounded here, on
-    arrival, to two decimals (~1 km) whatever the browser sent: nothing
-    downstream — tool output, run evidence — ever holds a finer fix."""
+    """Shared only when the operator turns location on, at the precision the
+    browser measured (high-accuracy fix). It lands in tool output and so in
+    the run's persisted evidence — the operator's choice, made at the LOC
+    button; `remember` still refuses to keep it (long_term.run_remember)."""
 
     lat: float = Field(ge=-90, le=90)
     lon: float = Field(ge=-180, le=180)
+    #: The browser's 95% confidence radius for this fix, in metres.
+    accuracy_m: float | None = Field(default=None, ge=0, le=1e7)
 
     @field_validator("lat", "lon")
     @classmethod
-    def _coarse(cls, value: float) -> float:
-        return round(value, 2)
+    def _trim(cls, value: float) -> float:
+        # 6 decimals ≈ 11 cm: finer than any browser fix, so only noise goes.
+        return round(value, 6)
 
 
 class ClientSample(BaseModel):

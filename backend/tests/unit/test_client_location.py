@@ -1,8 +1,8 @@
 """The operator's location — only when they chose to share it.
 
 Separate from get_client_metrics on purpose: its own capability
-(client.location), rounded to ~1 km on arrival, and never written into
-long-term memory by `remember`.
+(client.location), kept at the precision the browser measured (with its
+accuracy radius), and never written into long-term memory by `remember`.
 
     PYTHONPATH=. python tests/unit/test_client_location.py
 """
@@ -25,9 +25,11 @@ def turn(ctx: dict, coro_fn):
     return asyncio.run(run())
 
 
-def test_location_is_rounded_to_about_a_kilometre_on_arrival() -> None:
-    loc = ClientContext(location={"lat": 10.776889, "lon": 106.700806}).location
-    assert (loc.lat, loc.lon) == (10.78, 106.7)
+def test_location_keeps_the_browsers_precision() -> None:
+    loc = ClientContext(location={"lat": 10.776889, "lon": 106.700806, "accuracy_m": 12.5}).location
+    assert (loc.lat, loc.lon, loc.accuracy_m) == (10.776889, 106.700806, 12.5)
+    # Float noise past ~10 cm is trimmed; no browser fix is finer than that.
+    assert ClientContext(location={"lat": 10.1234567891, "lon": 0}).location.lat == 10.123457
     for bad in ({"lat": 91, "lon": 0}, {"lat": 0, "lon": 181}, {"lat": "x", "lon": 0}):
         try:
             ClientContext(location=bad)
@@ -39,9 +41,9 @@ def test_location_is_rounded_to_about_a_kilometre_on_arrival() -> None:
 
 
 def test_location_tool_returns_it_and_metrics_tool_does_not() -> None:
-    ctx = {"cpu_cores": 8, "timezone": "Asia/Saigon", "location": {"lat": 10.78, "lon": 106.7}}
+    ctx = {"cpu_cores": 8, "timezone": "Asia/Saigon", "location": {"lat": 10.776889, "lon": 106.700806, "accuracy_m": 12.5}}
     loc = turn(ctx, lambda: cm.run_client_location({}))
-    assert loc == {"lat": 10.78, "lon": 106.7, "timezone": "Asia/Saigon", "precision_km": 1}, loc
+    assert loc == {"lat": 10.776889, "lon": 106.700806, "accuracy_m": 12.5, "timezone": "Asia/Saigon"}, loc
     metrics = turn(ctx, lambda: cm.run_client_metrics({}))
     assert "location" not in metrics, "location has its own tool and capability"
 
@@ -62,13 +64,15 @@ def test_remember_refuses_to_store_the_coordinates() -> None:
     orig = lt.store_configured
     lt.store_configured = lambda: True
     try:
-        out = turn(
-            {"location": {"lat": 10.78, "lon": 106.7}},
-            lambda: lt.run_remember({"fact": "The operator lives at 10.78, 106.7"}),
-        )
+        # Quoted in full or rounded, it is still the operator's position.
+        for fact in ("The operator lives at 10.776889, 106.700806", "Home is near 10.78, 106.7", "lat 10.777"):
+            out = turn(
+                {"location": {"lat": 10.776889, "lon": 106.700806}},
+                lambda: lt.run_remember({"fact": fact}),
+            )
+            assert "error" in out and "location" in out["error"], (fact, out)
     finally:
         lt.store_configured = orig
-    assert "error" in out and "location" in out["error"], out
 
 
 def test_registered_with_its_own_capability() -> None:

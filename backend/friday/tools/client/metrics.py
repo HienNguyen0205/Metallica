@@ -77,10 +77,10 @@ async def run_client_location(_: dict[str, Any]) -> dict[str, Any]:
     if not loc:
         return {"error": "the operator has not shared their location"}
     out: dict[str, Any] = {"lat": loc["lat"], "lon": loc["lon"]}
+    if loc.get("accuracy_m") is not None:
+        out["accuracy_m"] = loc["accuracy_m"]
     if data.get("timezone"):
         out["timezone"] = data["timezone"]
-    # Rounded to two decimals on arrival (schemas.ClientLocation).
-    out["precision_km"] = 1
     return out
 
 
@@ -92,10 +92,13 @@ def preview_client_location(output: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def shared_coordinates() -> tuple[str, str] | None:
-    """This turn's shared coordinates as the strings a fact would quote."""
+def shared_coordinates() -> set[str]:
+    """This turn's shared coordinates as every string a fact might quote:
+    the full fix and its 2-5 decimal roundings ("10.78" is still home)."""
     loc = (CLIENT.get() or {}).get("location")
-    return (str(loc["lat"]), str(loc["lon"])) if loc else None
+    if not loc:
+        return set()
+    return {f"{round(v, d):.{d}f}".rstrip("0").rstrip(".") for v in (loc["lat"], loc["lon"]) for d in range(2, 7)}
 
 
 def preview_client_metrics(output: dict[str, Any]) -> dict[str, Any]:

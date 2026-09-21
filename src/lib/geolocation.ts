@@ -3,12 +3,10 @@
  *
  * Asked for only from the LOC button (a user gesture), never on load. A
  * permission the operator already granted is picked up silently on the next
- * visit — the browser would not prompt again anyway. Coarsened to ~1 km
+ * visit — the browser would not prompt again anyway. Kept at full precision
  * before it is stored, and it lives in memory only.
  */
 import { useFridayStore } from "@/lib/store";
-
-const round2 = (v: number) => Math.round(v * 100) / 100;
 
 /** When the current fix was taken; drives refreshIfStale. */
 let fixedAt = 0;
@@ -23,11 +21,12 @@ export function shareLocation(): void {
   navigator.geolocation.getCurrentPosition(
     (pos) => {
       fixedAt = Date.now();
-      setLocation({ lat: round2(pos.coords.latitude), lon: round2(pos.coords.longitude) }, "on");
+      setLocation({ lat: pos.coords.latitude, lon: pos.coords.longitude, accuracy: pos.coords.accuracy }, "on");
     },
     (err) => setLocation(null, err.code === err.PERMISSION_DENIED ? "denied" : "unavailable"),
-    // Coarse on purpose: city-level is all any tool needs, and it is fast.
-    { enableHighAccuracy: false, maximumAge: 10 * 60_000, timeout: 10_000 },
+    // As precise as the device can: GPS/Wi-Fi fix, never a cached one, and
+    // the longer timeout a high-accuracy fix can need.
+    { enableHighAccuracy: true, maximumAge: 0, timeout: 20_000 },
   );
 }
 

@@ -176,7 +176,7 @@ export default function InputBar() {
           aria-pressed={locationStatus === "on"}
           aria-label={
             locationStatus === "on"
-              ? "Location shared (about 1 km). Activate to stop sharing"
+              ? "Location shared (precise). Activate to stop sharing"
               : "Share approximate location with FRIDAY"
           }
           title={
