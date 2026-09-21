@@ -722,8 +722,9 @@ export function Timeline3D({ events = DEFAULT_EVENTS, color, accent, interactive
           to NOW — the scrubber reads as time spent, not a decorative line */}
       <HairLine points={[[-half, 0, 0], [half, 0, 0]]} color={color} opacity={0.22} lineWidth={2} />
       <HairLine points={[[-half, 0, 0], [xNow, 0, 0]]} color={accent} opacity={0.85} lineWidth={3} />
-      {/* faint dashes on the future stretch, past the playhead */}
-      {Array.from({ length: 8 }, (_, i) => {
+      {/* faint dashes on the future stretch, past the playhead — none when NOW
+          sits at the rail's end (they would all clamp to zero length there) */}
+      {Array.from({ length: nowT < 0.98 ? 8 : 0 }, (_, i) => {
         const a = railXFor(nowT + ((i + 1) / 9) * (1 - nowT));
         const b = railXFor(nowT + ((i + 1) / 9) * (1 - nowT) + 0.02);
         return <HairLine key={i} points={[[a, 0, 0], [b, 0, 0]]} color={color} opacity={0.3} lineWidth={2} />;
