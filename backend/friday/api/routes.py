@@ -230,6 +230,7 @@ async def _run_query_events(
     # different conclusion often enough to be visible — the user watches bars
     # build and then get replaced by gauges for no reason they can see.
     pinned_type: str | None = None
+    last_preview: dict[str, Any] | None = None
     try:
         # Trong try: `state: thinking` đã gửi đi rồi, nên bất cứ gì ném ra
         # ngoài đây sẽ kết thúc stream không `error`, không `done`, và HUD kẹt.
@@ -242,6 +243,7 @@ async def _run_query_events(
 
             if event.kind == "preview":
                 pinned_type = event.payload.get("type") or pinned_type
+                last_preview = event.payload
                 yield ("viz", {"animation": "materialize", "interaction": "none", **event.payload})
                 continue
 
@@ -251,7 +253,16 @@ async def _run_query_events(
             raise failure
 
         stage = "planner"
-        result = await plan(query, outcome.text, outcome.evidence, pinned_type)
+        if pinned_type == "map" and last_preview is not None:
+            # A map preview is already the final answer: its waypoints came
+            # from the geocoder, and re-planning would let the model rewrite
+            # coordinates it never measured (spec 2026-09-21 §5).
+            viz_payload = {**last_preview, "animation": "materialize", "interaction": "drill_down"}
+            planned_answer = "Here is the map."
+        else:
+            result = await plan(query, outcome.text, outcome.evidence, pinned_type)
+            viz_payload = result.model_dump(exclude={"answer"}, exclude_none=True)
+            planned_answer = result.answer
     except NotFoundError:
         log.exception("model %r not available at %s", llm.model(), llm.base_url())
         yield ("error", {"code": "model_unavailable", "message": f"model '{llm.model()}' unavailable at this endpoint"})
@@ -284,9 +295,9 @@ async def _run_query_events(
             task.cancel()
 
     yield ("state", {"state": "visualizing"})
-    yield ("viz", result.model_dump(exclude={"answer"}, exclude_none=True))
+    yield ("viz", viz_payload)
     yield ("state", {"state": "speaking"})
-    answer = outcome.text or result.answer
+    answer = outcome.text or planned_answer
     # Recorded only once the turn has actually produced an answer — a failed
     # turn returns above, so a provider outage cannot poison the session with
     # an exchange that never happened. Scoped like the history read above.
