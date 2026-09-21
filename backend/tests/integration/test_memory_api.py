@@ -135,9 +135,21 @@ def test_a_foreign_origin_cannot_read_or_erase_what_friday_knows():
     assert client.delete("/memory/1", headers=headers).status_code == 403
 
 
+def test_browser_may_send_delete_cross_origin():
+    """The HUD's forget button is a cross-origin DELETE: CORS must allow it,
+    or the browser's preflight fails and the memory silently survives."""
+    res = client.options(
+        "/memory/1",
+        headers={"origin": "http://localhost:3000", "access-control-request-method": "DELETE"},
+    )
+    assert res.status_code == 200, res.text
+    assert "DELETE" in res.headers.get("access-control-allow-methods", "")
+
+
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
         if name.startswith("test_"):
             fn()
             print(f"ok  {name}")
     print("all memory API tests passed")
+

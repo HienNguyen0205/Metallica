@@ -25,7 +25,9 @@ app = FastAPI(title="FRIDAY Orchestrator", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.allowed_origins,
-    allow_methods=["POST", "GET"],
+    # DELETE: the HUD's forget button (DELETE /memory/{id}) is cross-origin,
+    # and a method missing here fails the browser's preflight outright.
+    allow_methods=["POST", "GET", "DELETE"],
     allow_headers=["content-type"],
     # Without this the browser hides Retry-After from the page, and a 429 the
     # UI cannot read the wait from is indistinguishable from a plain refusal.
