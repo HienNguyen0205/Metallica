@@ -5,6 +5,7 @@ import { useFrame, type ThreeEvent } from "@react-three/fiber";
 import { Color, DoubleSide, Object3D, type Group, type InstancedMesh } from "three";
 import { useFridayStore, type SeriesDatum, type TimelineEvent } from "@/lib/store";
 import { STATE_LOOK } from "@/lib/stateLook";
+import { useReducedMotion } from "@/lib/useReducedMotion";
 import { makeFocus, toggleFocus } from "@/lib/visualization/focus";
 import { useFocusRelease } from "./useFocusRelease";
 import { useClickGate, useHoverCursor, usePick } from "./usePick";
@@ -690,10 +691,7 @@ export function Timeline3D({ events = DEFAULT_EVENTS, color, accent, interactive
   const releaseOnMiss = useFocusRelease("timeline");
   const selectedId = focus && focus.owner === "timeline" ? focus.key : null;
 
-  const reduced = useMemo(
-    () => typeof window !== "undefined" && !!window.matchMedia?.("(prefers-reduced-motion: reduce)").matches,
-    [],
-  );
+  const reduced = useReducedMotion();
 
   const look = STATE_LOOK[state];
   // NOW = the furthest event in time (data may arrive unsorted).

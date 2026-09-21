@@ -1,19 +1,10 @@
 "use client";
 
-import { useMemo, useSyncExternalStore } from "react";
+import { useMemo } from "react";
 import type { CSSProperties } from "react";
 import { useTelemetry } from "@/lib/telemetry";
 import { STATE_CAMERA } from "@/lib/stateLook";
-
-function subscribeReducedMotion(onChange: () => void): () => void {
-  const mq = window.matchMedia("(prefers-reduced-motion: reduce)");
-  mq.addEventListener("change", onChange);
-  return () => mq.removeEventListener("change", onChange);
-}
-
-function getReducedMotion(): boolean {
-  return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-}
+import { useReducedMotion } from "@/lib/useReducedMotion";
 
 /**
  * §12 — the 2D chrome is a projection in the same space, not a sticker on
@@ -29,9 +20,7 @@ function getReducedMotion(): boolean {
  */
 export function useHudDepth(strength = 14): CSSProperties {
   const t = useTelemetry();
-  // Subscribed, not read per render: matchMedia never changes except on the
-  // OS setting flipping, and calling it every 4 Hz tick was pure overhead.
-  const reduced = useSyncExternalStore(subscribeReducedMotion, getReducedMotion, () => false);
+  const reduced = useReducedMotion();
 
   return useMemo(() => {
     const near = STATE_CAMERA.thinking.distance;

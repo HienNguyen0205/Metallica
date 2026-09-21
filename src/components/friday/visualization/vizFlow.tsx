@@ -5,6 +5,7 @@ import { useFrame } from "@react-three/fiber";
 import { DoubleSide, Vector3, type Group } from "three";
 import { useFridayStore, type NodeDatum } from "@/lib/store";
 import { makeFocus, toggleFocus } from "@/lib/visualization/focus";
+import { useReducedMotion } from "@/lib/useReducedMotion";
 import { useFocusRelease } from "./useFocusRelease";
 import { usePick } from "./usePick";
 import { HairLine, TechLabel, useMaterialize } from "../primitives";
@@ -57,7 +58,7 @@ function FlowDot({ from, to, color, offset, speed }: { from: [number, number, nu
   const ref = useRef<Group>(null);
   const a = useMemo(() => new Vector3(...from), [from]);
   const b = useMemo(() => new Vector3(...to), [to]);
-  const reduced = typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+  const reduced = useReducedMotion();
   useFrame(({ clock }) => {
     if (!ref.current || reduced) return;
     const t = (clock.elapsedTime * speed + offset) % 1;

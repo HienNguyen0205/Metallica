@@ -1,11 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
 import { DoubleSide, Vector3, type DirectionalLight } from "three";
 import { useFridayStore, type GeoPoint, type GlobeRoute } from "@/lib/store";
 import { GLOBE_DEMO_POINTS, GLOBE_DEMO_ROUTES } from "@/lib/visualization/globeDemo";
 import { STATE_LOOK } from "@/lib/stateLook";
+import { useReducedMotion } from "@/lib/useReducedMotion";
 import { TechLabel, useMaterialize } from "../../primitives";
 import { GlobeEarth } from "./GlobeEarth";
 import { GlobeMarkers } from "./GlobeMarkers";
@@ -44,7 +45,7 @@ export function Globe3D({ points, routes, color }: GlobeProps) {
   // single-sourced in `lib/visualization/globeDemo` (shared with the planner).
   const data = points ?? GLOBE_DEMO_POINTS;
   const inputRoutes = routes ?? GLOBE_DEMO_ROUTES;
-  const [reduced, setReduced] = useState(false);
+  const reduced = useReducedMotion();
   const qualityPref = useFridayStore((s) => s.quality);
   const focus = useFridayStore((s) => s.focus);
   const state = useFridayStore((s) => s.state);
@@ -52,14 +53,6 @@ export function Globe3D({ points, routes, color }: GlobeProps) {
   // Globe selection is native (owner "globe") — the shared card is gone, so
   // the globe owns its keyboard release.
   useFocusRelease("globe");
-
-  useEffect(() => {
-    const mq = window.matchMedia("(prefers-reduced-motion: reduce)");
-    const apply = () => setReduced(mq.matches);
-    apply();
-    mq.addEventListener("change", apply);
-    return () => mq.removeEventListener("change", apply);
-  }, []);
 
   const q = resolveGlobeQuality({ preference: qualityPref, systemReduced: reduced });
   const look = STATE_LOOK[state];
