@@ -87,6 +87,9 @@ function LinePoint({
   selected,
   dimmed,
   interactive,
+  pinned,
+  pinnedColor,
+  pinnedY,
   onSelect,
 }: {
   p: [number, number, number];
@@ -95,6 +98,10 @@ function LinePoint({
   selected: boolean;
   dimmed: boolean;
   interactive: boolean;
+  /** Ends and the peak always show their value; others only on hover/select. */
+  pinned: boolean;
+  pinnedColor: string;
+  pinnedY: number;
   onSelect: () => void;
 }) {
   const [hovered, setHovered] = useState(false);
@@ -141,10 +148,18 @@ function LinePoint({
           toneMapped={false}
         />
       </mesh>
-      {highlighted && (
+      {/* One label per point: the highlight replaces the pinned one rather
+          than stacking a second copy of the same number on top of it. */}
+      {highlighted ? (
         <TechLabel position={[0, 0.14, 0]} color="#eafcff" size={0.07} opacity={1}>
           {String(value)}
         </TechLabel>
+      ) : (
+        pinned && (
+          <TechLabel position={[0, pinnedY, 0]} color={pinnedColor} size={0.07} opacity={0.9}>
+            {String(value)}
+          </TechLabel>
+        )
       )}
     </group>
   );
@@ -206,29 +221,19 @@ export function LineChart3D({ series = DEFAULT_SERIES, color, accent, interactiv
           <group key={s.label}>
             <HairLine points={pts} color={si === 0 ? color : accent} opacity={0.9} lineWidth={2} />
             {pts.map((p, i) => (
-              <group key={i}>
-                <LinePoint
-                  p={p}
-                  color={si === 0 ? color : accent}
-                  value={s.points[i] ?? 0}
-                  selected={selectedKey === `${si}-${i}`}
-                  dimmed={selectedKey !== null && selectedKey !== `${si}-${i}`}
-                  interactive={interactive}
-                  onSelect={() => handleSelect(si, i, s)}
-                />
-                {/* Values at the ends and the peak always show; other points
-                    surface theirs through hover/select (LinePoint above). */}
-                {(i === 0 || i === last || i === peak) && (
-                  <TechLabel
-                    position={[0, si % 2 === 0 ? 0.14 : -0.14, 0]}
-                    color={i === peak ? (si === 0 ? color : accent) : "#e5f6ff"}
-                    size={0.07}
-                    opacity={0.9}
-                  >
-                    {String(s.points[i])}
-                  </TechLabel>
-                )}
-              </group>
+              <LinePoint
+                key={i}
+                p={p}
+                color={si === 0 ? color : accent}
+                value={s.points[i] ?? 0}
+                selected={selectedKey === `${si}-${i}`}
+                dimmed={selectedKey !== null && selectedKey !== `${si}-${i}`}
+                interactive={interactive}
+                pinned={i === 0 || i === last || i === peak}
+                pinnedColor={i === peak ? (si === 0 ? color : accent) : "#e5f6ff"}
+                pinnedY={si % 2 === 0 ? 0.14 : -0.14}
+                onSelect={() => handleSelect(si, i, s)}
+              />
             ))}
             <TechLabel position={[-W / 2 - 0.14, pts[0][1], si * -0.4]} color={si === 0 ? color : accent} size={0.075} anchorX="right" decode>
               {s.label}
