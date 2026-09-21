@@ -275,9 +275,11 @@ export default function Scene() {
           logLost?.(info);
           remount();
         };
-        // Cleanup on unmount: no orphan listeners or queued remounts.
+        // Cleanup on unmount: restore patched hooks, no orphan listeners or queued remounts.
         return () => {
           gl.domElement.removeEventListener("webglcontextlost", onLost);
+          if (logError) hooks.onError = logError;
+          if (logLost) hooks.onDeviceLost = logLost;
           if (timer) clearTimeout(timer);
         };
       }}

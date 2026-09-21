@@ -94,10 +94,6 @@ test("every type has a distinct spoken summary", () => {
   expect(new Set(summaries).size, "summaries must not be copy-paste").toBe(ALL_TYPES.length);
 });
 
-test('plans "flow between ads and pay" → sankey_flow', () => {
-  expect(planVisualization("flow between ads and pay").type).toBe("sankey_flow");
-});
-
 test('plans "history of deploys" → timeline (not line_3d)', () => {
   expect(planVisualization("history of deploys").type).toBe("timeline");
 });

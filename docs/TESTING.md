@@ -31,7 +31,7 @@ limit with nothing completed. 30 s is generous — real actions take
 milliseconds, and every legitimately long poll (`waitForHologram`, flow
 recording) passes an explicit timeout that overrides it.
 
-## Unit project (`tests/unit/` — 24 specs)
+## Unit project (`tests/unit/` — 36 specs)
 
 ### `store.spec.ts` / `agentFlow.spec.ts` / `agentStream.spec.ts`
 
@@ -57,10 +57,10 @@ Locks planner rule ordering and invariants:
 
 - `"show me the network topology"` → `network`,
 - `"compare requests per service"` → `bar_3d` (not topology),
-- unmatched queries (incl. former `particle_flow`/`radar`/`heatmap_3d`
-  triggers) → `radial_gauge` fallback,
+- unmatched queries (incl. former `particle_flow`/`heatmap_3d`
+  triggers) → `radial_gauge` fallback (`radar` is a live rule: scan/threat),
 - case-insensitivity; every spec has a title + valid animation;
-- `sampleSpec` exists for all 10 types with non-empty data (timeline/globe
+- `sampleSpec` exists for all 9 types with non-empty data (timeline/globe
   ship minimal events/points so empty axes never pass);
 - gauge values within 0–100; `summarize` distinct non-empty per type,
  - normalization never mutates input, coerces non-finite metrics, coerces
@@ -136,7 +136,7 @@ contrast math composites the element color over the known background
 - Hologram actually paints: center luma > 12 and cyan ratio > 0.5%.
 - Centre-weighted composition: center luma > 2× corner luma.
 - Idle animation alive: > 0.1% pixels change within 700 ms.
-- Each of the 10 visualization types differs > 1% from the idle baseline.
+- Each of the 9 visualization types differs > 1% from the idle baseline.
 - Cycling all 10 states produces zero console/page errors and an intact GL
   context; all vizzes mount/unmount cleanly without context loss.
 - ≥ 24 fps on real GPUs (software-GL CI runners assert liveness only).

@@ -191,8 +191,8 @@ def render_block(memories: list[Memory]) -> str:
 #: object cho mọi turn — đúng thứ ContextVar sinh ra để chặn.
 TURN_TOOLS: ContextVar[set[str] | None] = ContextVar("turn_tools", default=None)
 
-#: Tool duy nhất đưa chữ do người lạ viết vào context.
-UNTRUSTED_TOOLS = {"search_web"}
+#: Tools bringing stranger-written text into context.
+UNTRUSTED_TOOLS = {"search_web", "fetch_url"}
 
 
 def mark_tool_used(name: str) -> None:

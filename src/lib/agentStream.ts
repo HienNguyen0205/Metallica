@@ -66,8 +66,12 @@ function log(...args: unknown[]) {
  * cancel also stops the server run instead of merely dropping the stream.
  * Cleared every turn; flat/offline turns never set it. A stale id is harmless:
  * cancelling a finished run is a server-side no-op report.
+ *
+ * Guarded by a per-turn token so overlapping turns cannot clobber each
+ * other: only the latest turn may publish or clear the id.
  */
 let activeRunId: string | null = null;
+let activeTurn = 0;
 
 /**
  * Best-effort server cancel for the in-flight turn. Returns the run id that
@@ -77,6 +81,7 @@ let activeRunId: string | null = null;
 export async function cancelActiveRun(): Promise<string | null> {
   const id = activeRunId;
   activeRunId = null;
+  activeTurn++;
   if (!id) return null;
   try {
     await cancelRun(id);
@@ -99,20 +104,25 @@ async function tryResume(
   store: FlowStore,
   guard: StreamGuard,
   flags: { doneSeen: boolean },
+  signal?: AbortSignal,
 ): Promise<{ completed: boolean; spoken: string | null }> {
   const incomplete = { completed: false, spoken: null } as const;
   const runId = activeRunId;
   const after = guard.lastSeenSequence ?? 0;
   if (!runId) return { ...incomplete };
+  if (signal?.aborted) return { ...incomplete };
   let replay;
   try {
-    replay = await fetchRunEvents(runId, after);
+    replay = await fetchRunEvents(runId, after, signal);
   } catch (err) {
+    if ((err as Error)?.name === "AbortError" || signal?.aborted) return { ...incomplete };
     log("resume failed:", err);
     return { ...incomplete };
   }
+  if (signal?.aborted) return { ...incomplete };
   let spoken: string | null = null;
   for (const entry of replay.events) {
+    if (signal?.aborted) return { ...incomplete };
     if (
       typeof entry.sequence !== "number" ||
       typeof entry.event !== "string" ||
@@ -134,11 +144,11 @@ async function tryResume(
     const ev = parseFridayEvent({ event: entry.event, data: JSON.stringify(entry.payload) });
     if (!ev) continue;
     store.setLiveMode("live");
-    if (ev.type === "done") activeRunId = null;
+    if (ev.type === "done" && activeRunId === runId) activeRunId = null;
     if (ev.type === "answer") spoken = ev.text;
     dispatch(store, ev, flags);
   }
-  if (replay.terminal && flags.doneSeen) activeRunId = null;
+  if (replay.terminal && flags.doneSeen && activeRunId === runId) activeRunId = null;
   if (!(replay.terminal && flags.doneSeen)) return { ...incomplete };
   return { completed: true, spoken };
 }
@@ -239,6 +249,7 @@ export async function runQuery(
   store.setLiveMode("connecting");
   stopSpeaking();
   warnIfMisconfigured();
+  const myTurn = ++activeTurn;
   activeRunId = null;
 
   let spoken: string | null = null;
@@ -260,8 +271,12 @@ export async function runQuery(
         }
         hadLiveStream = true;
         store.setLiveMode("live");
-        if (ev.type === "done") activeRunId = null;
-        else if (meta?.runId) activeRunId = meta.runId;
+        // Only the latest turn publishes the run id; a stale turn's frames
+        // (already aborted upstream) must not clobber the new turn's id.
+        if (myTurn === activeTurn) {
+          if (ev.type === "done") activeRunId = null;
+          else if (meta?.runId) activeRunId = meta.runId;
+        }
         if (ev.type === "answer") spoken = ev.text;
         dispatch(store, ev, flags);
       },
@@ -292,7 +307,10 @@ export async function runQuery(
     if (hadLiveStream) {
       // If we already streamed something, catch up from the server log before
       // reporting failure — a terminal replay completes the turn.
-      const resumed = await tryResume(store, guard, flags);
+      // Abort during resume must win: replay is read-only catch-up, never
+      // a resurrection of a cancelled turn.
+      if (signal?.aborted) return;
+      const resumed = await tryResume(store, guard, flags, signal);
       if (resumed.completed) {
         if (resumed.spoken) spoken = resumed.spoken;
       } else {

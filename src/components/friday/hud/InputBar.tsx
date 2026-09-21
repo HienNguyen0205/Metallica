@@ -62,7 +62,15 @@ export default function InputBar() {
     // server run (best-effort: abort above is the guarantee).
     void cancelActiveRun();
     stopSpeaking();
-    useFridayStore.getState().reset();
+    // Preserve already-streamed output: ESC ends the turn, it does not clear
+    // the scene. reset() stays reserved for a dedicated clear action.
+    const s = useFridayStore.getState();
+    s.endTurn();
+    s.setPendingConfirm(null);
+    s.setToolActivity(null);
+    s.setDeniedTool(null);
+    s.setCurrentStep(null);
+    s.setLiveMode("idle");
   };
 
   useEffect(() => {
@@ -177,7 +185,7 @@ export default function InputBar() {
           aria-label={
             locationStatus === "on"
               ? "Location shared (precise). Activate to stop sharing"
-              : "Share approximate location with FRIDAY"
+              : "Share precise location with FRIDAY"
           }
           title={
             locationStatus === "denied"

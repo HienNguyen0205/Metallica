@@ -58,7 +58,9 @@ export async function* parseSseStream(
       // Normalize CRLF -> LF so split logic is simple
       buffer = buffer.replace(/\r\n/g, "\n");
       if (buffer.length > MAX_BUFFER) {
-        buffer = buffer.slice(-MAX_BUFFER);
+        // Fail-closed: a server that never sends \n\n gets its whole tail
+        // dropped, never a sliced mid-frame that still parses as corrupt data.
+        buffer = "";
       }
 
       let sep = buffer.indexOf("\n\n");

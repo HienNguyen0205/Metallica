@@ -123,7 +123,8 @@ def test_a_delete_the_store_refuses_is_not_reported_as_a_success():
         raise store.StoreError("no route to host")
 
     lt.store_delete = boom
-    assert client.delete("/memory/1").json()["ok"] is False
+    res = client.delete("/memory/1")
+    assert res.status_code == 502, res.status_code
     assert [m.id for m in lt.CACHE] == [1, 2], "store từ chối mà cache vẫn bỏ là cache nói dối"
 
 

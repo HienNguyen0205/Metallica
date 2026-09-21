@@ -22,6 +22,73 @@
           "default": null,
           "description": "short code, e.g. HAN",
           "title": "Label"
+        },
+        "id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Id"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Value"
+        },
+        "status": {
+          "anyOf": [
+            {
+              "enum": [
+                "healthy",
+                "warning",
+                "critical",
+                "offline"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Status"
+        },
+        "color": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Color"
+        },
+        "metadata": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Metadata"
         }
       },
       "required": [
@@ -29,6 +96,85 @@
         "lon"
       ],
       "title": "GeoPoint",
+      "type": "object"
+    },
+    "GlobeRoute": {
+      "description": "Curved data connection between two globe markers; from/to reference\npoints by id/label (string) or index (number).",
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "from": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            }
+          ],
+          "title": "From"
+        },
+        "to": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            }
+          ],
+          "title": "To"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Value"
+        },
+        "latencyMs": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Latencyms"
+        },
+        "status": {
+          "anyOf": [
+            {
+              "enum": [
+                "healthy",
+                "warning",
+                "critical"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Status"
+        }
+      },
+      "required": [
+        "id",
+        "from",
+        "to"
+      ],
+      "title": "GlobeRoute",
       "type": "object"
     },
     "MetricDatum": {
@@ -208,6 +354,21 @@
           "default": null,
           "title": "Points"
         },
+        "routes": {
+          "anyOf": [
+            {
+              "items": {
+                "$ref": "#/$defs/GlobeRoute"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Routes"
+        },
         "events": {
           "anyOf": [
             {
@@ -245,14 +406,14 @@
     "type": {
       "enum": [
         "radial_gauge",
-        "health_core",
         "radar",
         "waveform",
         "network",
         "line_3d",
         "bar_3d",
         "globe",
-        "timeline"
+        "timeline",
+        "sankey_flow"
       ],
       "title": "Type",
       "type": "string"

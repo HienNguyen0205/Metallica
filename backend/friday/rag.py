@@ -133,8 +133,12 @@ async def build_index() -> dict[str, Any]:
         try:
             # Embed section trail + body: titles carry the topic ("Approval
             # flow"), and a chunk retrieved without them often misses it.
-            vectors = await embed_mod.embed(
-                [f"{c['section']}\n{c['text']}" for c in fresh])
+            # Batched so a real docs/ tree never exceeds provider input
+            # limits in one shot; per-batch errors attribute to the batch.
+            texts = [f"{c['section']}\n{c['text']}" for c in fresh]
+            vectors: list[list[float]] = []
+            for i in range(0, len(texts), 32):
+                vectors.extend(await embed_mod.embed(texts[i:i + 32]))
         except embed_mod.EmbedError as err:
             return {"error": f"embedding failed: {err}"}
         for chunk, vector in zip(fresh, vectors):
