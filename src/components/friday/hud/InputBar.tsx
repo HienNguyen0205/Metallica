@@ -5,6 +5,7 @@ import { FRIDAY_LANG_KEY, useFridayStore } from "@/lib/store";
 import { runQuery, cancelActiveRun } from "@/lib/agentStream";
 import { canListen, startListening, stopSpeaking } from "@/lib/voice";
 import { attachMic, detachMic, resolveLang } from "@/lib/audioBus";
+import { resumeIfGranted, shareLocation, stopSharing } from "@/lib/geolocation";
 
 export default function InputBar() {
   const [value, setValue] = useState("");
@@ -13,6 +14,12 @@ export default function InputBar() {
   const busy = state !== "idle" && !listening;
   const lang = useFridayStore((s) => s.lang);
   const setLang = useFridayStore((s) => s.setLang);
+  const locationStatus = useFridayStore((s) => s.locationStatus);
+
+  // A grant from an earlier visit resumes silently; a first ask waits for LOC.
+  useEffect(() => {
+    void resumeIfGranted();
+  }, []);
   // the live recogniser, kept out of state — stopping it is not a render
   const stopRef = useRef<(() => void) | null>(null);
   /**
@@ -162,6 +169,32 @@ export default function InputBar() {
           className="shrink-0 -m-2 p-2 font-mono text-[10px] tracking-[0.16em] text-cyan-300/70 transition-colors hover:text-cyan-200 disabled:opacity-40"
         >
           {lang === "vi-VN" ? "VI" : "EN"}
+        </button>
+        <button
+          onClick={() => (locationStatus === "on" ? stopSharing() : shareLocation())}
+          disabled={locationStatus === "pending"}
+          aria-pressed={locationStatus === "on"}
+          aria-label={
+            locationStatus === "on"
+              ? "Location shared (precise). Activate to stop sharing"
+              : "Share approximate location with FRIDAY"
+          }
+          title={
+            locationStatus === "denied"
+              ? "Location blocked - allow it in the browser's site settings"
+              : locationStatus === "unavailable"
+                ? "Location unavailable on this device"
+                : undefined
+          }
+          className={`shrink-0 -m-2 p-2 font-mono text-[10px] tracking-[0.16em] transition-colors hover:text-cyan-200 disabled:opacity-40 ${
+            locationStatus === "on"
+              ? "text-cyan-200"
+              : locationStatus === "denied" || locationStatus === "unavailable"
+                ? "text-cyan-300/30 line-through"
+                : "text-cyan-300/70"
+          }`}
+        >
+          LOC
         </button>
         <input
           value={value}

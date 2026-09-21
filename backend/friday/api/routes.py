@@ -15,7 +15,7 @@ from friday import agent, audit, llm, memory, observability
 from friday import identity as identity_mod
 from friday.api import dependencies as deps
 from friday.api.dependencies import PENDING, PENDING_OWNERS, guard, require_known_origin
-from friday.api.schemas import Decision, Query, RunBudget
+from friday.api.schemas import ClientContext, Decision, Query, RunBudget
 from friday.core.config import settings
 from friday.events.serializer import sse, sse_envelope
 from friday.memory import consolidate
@@ -24,6 +24,7 @@ from friday.memory import long_term
 from friday.memory import store as memory_store
 from friday.memory.store import StoreError
 from friday.planner import plan
+from friday.tools.client.metrics import CLIENT
 
 log = logging.getLogger("friday")
 
@@ -301,10 +302,12 @@ async def _run_query_events(
 async def run_query(
     query: str, session_id: str | None = None, budget: RunBudget | None = None,
     request_id: str | None = None, owner_user_id: str | None = None,
-    actor: str | None = None,
+    actor: str | None = None, client: ClientContext | None = None,
 ) -> AsyncIterator[str]:
     # Recall, remember and consolidation all scope to this owner (P3).
     long_term.OWNER.set(owner_user_id)
+    # Set every turn, None included, so no turn inherits another's device.
+    CLIENT.set(client.model_dump(exclude_none=True) if client else None)
     if not settings.events_v2:
         # P0.3 legacy flat path — removal plan: keep until FRIDAY_EVENTS_V2
         # becomes the default and one release of enveloped traffic has baked
@@ -490,7 +493,7 @@ async def query_endpoint(body: Query,
         audit.record("auth.identified", actor=caller.actor)
     return StreamingResponse(
         run_query(body.query, body.session_id, body.budget, request_id,
-                  caller.user_id, caller.actor),
+                  caller.user_id, caller.actor, body.client),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no",
                  "X-Request-ID": request_id},

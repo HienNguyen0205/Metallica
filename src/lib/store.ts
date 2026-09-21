@@ -6,6 +6,7 @@ import type { FridayState } from "@/lib/agent/stateMachine";
 // interrupted-turn path, not a bug worth warning about in dev/test.
 import type { SupportedLang } from "@/lib/audioBus";
 import type { CurrentStep } from "@/lib/agent/events";
+import type { DeviceState } from "@/lib/deviceMonitor";
 import type {
   GeoPoint,
   GlobeRoute,
@@ -71,6 +72,9 @@ export interface PendingConfirm {
   risk: "low" | "medium" | "high";
   input: Record<string, unknown>;
 }
+
+/** Location sharing — off until the operator turns it on. */
+export type LocationStatus = "off" | "pending" | "on" | "denied" | "unavailable";
 
 /** Actual rendering backend reported by the created renderer. */
 export type RenderBackend = "webgl2" | "webgpu";
@@ -160,6 +164,17 @@ export interface FridayStore {
   setLang: (lang: SupportedLang) => void;
   audioEnabled: boolean;
   toggleAudio: () => void;
+  /**
+   * The operator's shared location at full precision, with the browser's
+   * accuracy radius (m). In memory only — never written to storage — and
+   * null unless they turned it on.
+   */
+  location: { lat: number; lon: number; accuracy?: number } | null;
+  locationStatus: LocationStatus;
+  setLocation: (location: { lat: number; lon: number; accuracy?: number } | null, status: LocationStatus) => void;
+  /** Live device readings, kept current by startDeviceMonitor's event listeners. */
+  device: DeviceState;
+  setDevice: (patch: Partial<DeviceState>) => void;
   /** Facts FRIDAY just learned, newest first; HUD shows only the latest. */
   memories: MemoryNote[];
   addMemory: (note: MemoryNote) => void;
@@ -260,6 +275,11 @@ export const useFridayStore = create<FridayStore>((set, get) => ({
   },
   audioEnabled: true,
   toggleAudio: () => set({ audioEnabled: !get().audioEnabled }),
+  location: null,
+  locationStatus: "off",
+  setLocation: (location, locationStatus) => set({ location, locationStatus }),
+  device: { online: true },
+  setDevice: (patch) => set((s) => ({ device: { ...s.device, ...patch } })),
   memories: [],
   addMemory: (note) =>
     // HUD shows one line, not a log — keep the 3 most recent so the operator

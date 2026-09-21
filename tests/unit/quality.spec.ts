@@ -44,3 +44,9 @@ test("reduced follows quality override, else system", () => {
   expect(resolveReduced({ quality: "auto", systemReduced: true })).toBe(true);
   expect(resolveReduced({ quality: "auto", systemReduced: false })).toBe(false);
 });
+
+test("a strained device lowers AUTO quality but never overrides an explicit HIGH", () => {
+  expect(resolveReduced({ quality: "auto", systemReduced: false, strained: true })).toBe(true);
+  expect(resolveReduced({ quality: "high", systemReduced: false, strained: true })).toBe(false);
+  expect(resolveReduced({ quality: "low", systemReduced: false, strained: false })).toBe(true);
+});

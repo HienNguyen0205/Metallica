@@ -8,6 +8,7 @@ import { useFridayStore } from "@/lib/store";
 import { STATE_CAMERA, STATE_LOOK } from "@/lib/stateLook";
 import { createRenderer } from "@/lib/rendererBackend";
 import { isSoftwareRenderer, resolveHeavy, resolveReduced } from "@/lib/gpu";
+import { deviceAlerts } from "@/lib/deviceMonitor";
 import FridayCore from "./core/FridayCore";
 import SpatialHud from "./hud/SpatialHud";
 import FridayVisualization from "./visualization/FridayVisualization";
@@ -196,7 +197,8 @@ export default function Scene() {
   }, []);
 
 
-  const effectiveReduced = resolveReduced({ quality, systemReduced: reduced });
+  const strained = useFridayStore((s) => deviceAlerts(s.device).strained);
+  const effectiveReduced = resolveReduced({ quality, systemReduced: reduced, strained });
   const heavy = resolveHeavy({ quality, gpuClass, reduced: effectiveReduced });
 
   return (

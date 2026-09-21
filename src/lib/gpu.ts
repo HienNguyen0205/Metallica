@@ -82,13 +82,17 @@ export function resolveHeavy({
 export function resolveReduced({
   quality,
   systemReduced,
+  strained = false,
 }: {
   quality: QualityPreference;
   systemReduced: boolean;
+  /** The device is under strain (deviceAlerts): CPU pressure, low battery, 2g. */
+  strained?: boolean;
 }): boolean {
   if (quality === "low") return true;
   // `high` must not override the OS reduced-motion signal — it only forces
-  // DPR / heavy passes (see resolveHeavy), never motion itself.
+  // DPR / heavy passes (see resolveHeavy), never motion itself. Nor does a
+  // strained device override it: HIGH is the operator's explicit choice.
   if (quality === "high") return systemReduced;
-  return systemReduced;
+  return systemReduced || strained;
 }

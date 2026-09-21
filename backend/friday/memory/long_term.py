@@ -311,6 +311,12 @@ async def run_remember(payload: dict) -> dict:
     fact = str(payload.get("fact", "")).strip()[:MAX_FACT_CHARS]
     if not fact:
         return {"error": "empty fact"}
+    # A shared location is for this turn, never for keeps.
+    # ponytail: catches the coordinates only, not a place name derived from them.
+    from friday.tools.client.metrics import shared_coordinates
+
+    if any(c in fact for c in shared_coordinates()):
+        return {"error": "refused: the operator's location is not stored in memory"}
     if not store_configured():
         return {"error": "long-term memory is not configured"}
 

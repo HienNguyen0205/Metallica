@@ -10,6 +10,7 @@ import { useReducedMotion } from "@/lib/useReducedMotion";
 import { TechLabel, useMaterialize } from "../../primitives";
 import { GlobeEarth } from "./GlobeEarth";
 import { GlobeMarkers } from "./GlobeMarkers";
+import { withOperator } from "./operator";
 import { GlobeRoutes } from "./GlobeRoutes";
 import { useGlobeInteraction, GLOBE_CENTER } from "./useGlobeInteraction";
 import { useFocusRelease } from "../useFocusRelease";
@@ -43,7 +44,8 @@ export function Globe3D({ points, routes, color }: GlobeProps) {
   // An explicitly empty point list is a real empty state (§72) — the demo
   // fallback only applies when no data was provided at all. Demo content is
   // single-sourced in `lib/visualization/globeDemo` (shared with the planner).
-  const data = points ?? GLOBE_DEMO_POINTS;
+  const location = useFridayStore((s) => s.location);
+  const data = useMemo(() => withOperator(points ?? GLOBE_DEMO_POINTS, location), [points, location]);
   const inputRoutes = routes ?? GLOBE_DEMO_ROUTES;
   const reduced = useReducedMotion();
   const qualityPref = useFridayStore((s) => s.quality);

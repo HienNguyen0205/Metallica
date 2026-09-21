@@ -8,6 +8,15 @@ from .filesystem.sandbox import run_list_dir, run_read_file
 from .integrations.fetch import run_fetch_url
 from friday.rag import run_search_docs
 from .integrations.search import run_search_web
+from .client.metrics import (
+    HISTORY_METRICS,
+    preview_client_history,
+    preview_client_location,
+    preview_client_metrics,
+    run_client_history,
+    run_client_location,
+    run_client_metrics,
+)
 from .system.clock import run_current_time
 from .system.metrics import preview_metrics, run_system_metrics
 from .system.processes import preview_processes, run_process_list
@@ -29,10 +38,62 @@ def _build_default_registry() -> dict[str, Tool]:
             preview=preview_metrics,
         ),
         Tool(
+            name="get_client_metrics",
+            description=(
+                "Read the operator's OWN device as their browser reports it: CPU "
+                "core count, memory class, CPU pressure (nominal/fair/serious/"
+                "critical), battery, browser storage, network type/speed/latency, "
+                "GPU, platform, timezone, screen. Use for questions about 'my' "
+                "computer, laptop, battery, connection or device. This is not the "
+                "host - get_system_metrics reads the orchestrator's server."
+            ),
+            input_schema={"type": "object", "properties": {}, "required": []},
+            risk="low",
+            run=run_client_metrics,
+            capabilities=("client.read",),
+            preview=preview_client_metrics,
+        ),
+        Tool(
+            name="get_client_history",
+            description=(
+                "One metric of the operator's own device over the last ~10 "
+                "minutes, sampled by their browser every 10 s while the tab was "
+                "open: network latency or downlink, battery, CPU pressure, JS "
+                "heap or frame rate. Use for 'how has my connection / battery / "
+                "laptop been'. For the current value alone use get_client_metrics."
+            ),
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "metric": {"type": "string", "enum": list(HISTORY_METRICS), "description": "which reading to chart"}
+                },
+                "required": ["metric"],
+            },
+            risk="low",
+            run=run_client_history,
+            capabilities=("client.read",),
+            preview=preview_client_history,
+        ),
+        Tool(
+            name="get_client_location",
+            description=(
+                "Read the operator's location (lat/lon with the browser's "
+                "accuracy radius in metres) and timezone - only when they "
+                "turned location on. Use for 'here', 'near me', local weather or local "
+                "time. If it is not shared, say so; never guess a place."
+            ),
+            input_schema={"type": "object", "properties": {}, "required": []},
+            risk="low",
+            run=run_client_location,
+            capabilities=("client.location",),
+            preview=preview_client_location,
+        ),
+        Tool(
             name="get_current_time",
             description=(
-                "Read the clock on the host this orchestrator runs on: current "
-                "date, time, weekday and UTC offset. Use this for any question "
+                "Read the current date, time, weekday and UTC offset - the "
+                "operator's own clock when their browser sent it (source "
+                "'operator'), else the host's. Use this for any question "
                 "about what time or day it is. Never answer that from memory and "
                 "never search the web for it."
             ),
