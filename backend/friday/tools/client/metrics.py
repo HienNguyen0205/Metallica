@@ -98,7 +98,15 @@ def shared_coordinates() -> set[str]:
     loc = (CLIENT.get() or {}).get("location")
     if not loc:
         return set()
-    return {f"{round(v, d):.{d}f}".rstrip("0").rstrip(".") for v in (loc["lat"], loc["lon"]) for d in range(2, 7)}
+    out: set[str] = set()
+    for v in (loc["lat"], loc["lon"]):
+        for d in range(2, 7):
+            s = f"{round(v, d):.{d}f}".rstrip("0")
+            # 10.0012 -> "10.00" -> "10.": a bare "10" is not a coordinate, and
+            # matching it would refuse every fact that mentions ten.
+            if not s.endswith("."):
+                out.add(s)
+    return out
 
 
 def preview_client_metrics(output: dict[str, Any]) -> dict[str, Any]:
