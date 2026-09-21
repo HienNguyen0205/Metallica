@@ -60,6 +60,26 @@ class ClientLocation(BaseModel):
         return round(value, 2)
 
 
+class ClientSample(BaseModel):
+    """One ring-buffer sample; any reading may be missing."""
+
+    t: int = Field(ge=0, le=10**11)  # epoch seconds
+    #: Compute Pressure as an ordinal: 0 nominal, 1 fair, 2 serious, 3 critical.
+    pressure: int | None = Field(default=None, ge=0, le=3)
+    battery_pct: float | None = Field(default=None, ge=0, le=100)
+    rtt_ms: float | None = Field(default=None, ge=0, le=600_000)
+    downlink_mbps: float | None = Field(default=None, ge=0, le=100_000)
+    heap_mb: float | None = Field(default=None, ge=0, le=1e6)
+    fps: float | None = Field(default=None, ge=0, le=1000)
+
+
+class ClientHistory(BaseModel):
+    """The browser's ring buffer: one sample per interval while visible."""
+
+    interval_s: int = Field(ge=1, le=600)
+    samples: list[ClientSample] = Field(max_length=60)
+
+
 class ClientContext(BaseModel):
     """What the operator's browser measured about its own device — no
     permission prompt behind any of it. Every field optional and bounded:
@@ -86,6 +106,7 @@ class ClientContext(BaseModel):
     languages: list[str] | None = Field(default=None, max_length=5)
     screen: ClientScreen | None = None
     location: ClientLocation | None = None
+    history: ClientHistory | None = None
 
 
 class Query(BaseModel):

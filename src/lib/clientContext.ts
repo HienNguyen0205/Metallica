@@ -9,6 +9,7 @@
  */
 
 import { useFridayStore } from "@/lib/store";
+import { HISTORY_INTERVAL_S, history, type Sample } from "@/lib/deviceHistory";
 
 /** Wire shape — mirrors backend/friday/api/schemas.py ClientContext. */
 export interface ClientContext {
@@ -28,6 +29,7 @@ export interface ClientContext {
   screen?: { width: number; height: number; dpr: number };
   /** Only when the operator turned location on; ~1 km (2 decimals). */
   location?: { lat: number; lon: number };
+  history?: { interval_s: number; samples: Sample[] };
 }
 
 type PressureState = "nominal" | "fair" | "serious" | "critical";
@@ -49,6 +51,7 @@ export interface RawReadings {
   languages?: readonly string[];
   screen?: { width: number; height: number; dpr: number };
   location?: { lat: number; lon: number };
+  history?: { intervalS: number; samples: readonly Sample[] };
 }
 
 const PRESSURE = new Set(["nominal", "fair", "serious", "critical"]);
@@ -112,7 +115,34 @@ export function buildClientContext(r: RawReadings): ClientContext {
     screen: width && height && dpr ? { width, height, dpr } : undefined,
     // Coarsened here as well as on arrival: a finer fix never leaves the tab.
     location: lat !== undefined && lon !== undefined ? { lat: round2(lat), lon: round2(lon) } : undefined,
+    history: historyOnWire(r.history),
   });
+}
+
+/** Bounds mirror backend ClientSample; a bad sample or reading is dropped. */
+const SAMPLE_BOUNDS: Record<Exclude<keyof Sample, "t">, [number, number]> = {
+  pressure: [0, 3],
+  battery_pct: [0, 100],
+  rtt_ms: [0, 600_000],
+  downlink_mbps: [0, 100_000],
+  heap_mb: [0, 1e6],
+  fps: [0, 1000],
+};
+
+function historyOnWire(h: RawReadings["history"]): ClientContext["history"] {
+  const interval = num(h?.intervalS, 1, 600);
+  if (!h || interval === undefined) return undefined;
+  const samples = h.samples.flatMap((s) => {
+    const t = num(s.t, 0, 1e11);
+    if (t === undefined) return [];
+    const out: Sample = { t };
+    for (const [key, [lo, hi]] of Object.entries(SAMPLE_BOUNDS) as [keyof typeof SAMPLE_BOUNDS, [number, number]][]) {
+      const v = num(s[key], lo, hi);
+      if (v !== undefined) out[key] = v;
+    }
+    return [out];
+  });
+  return samples.length ? { interval_s: interval, samples: samples.slice(-60) } : undefined;
 }
 
 // --- collection (browser only) ---------------------------------------------
@@ -136,5 +166,6 @@ export async function collectClientContext(): Promise<ClientContext | undefined>
     // Offset read now, not from the snapshot: it moves at DST boundaries.
     tzOffsetMin: new Date().getTimezoneOffset(),
     location: location ?? undefined,
+    history: { intervalS: HISTORY_INTERVAL_S, samples: history },
   });
 }

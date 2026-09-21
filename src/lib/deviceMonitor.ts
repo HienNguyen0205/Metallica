@@ -11,6 +11,8 @@
 import { useFridayStore } from "@/lib/store";
 import type { RawReadings } from "@/lib/clientContext";
 import { refreshIfStale } from "@/lib/geolocation";
+import { readTelemetry } from "@/lib/telemetry";
+import { HISTORY_INTERVAL_S, history, pushSample, takeSample } from "@/lib/deviceHistory";
 
 export type DeviceState = Pick<
   RawReadings,
@@ -142,6 +144,13 @@ export function startDeviceMonitor(): () => void {
   readStorage();
   const timer = setInterval(readStorage, STORAGE_POLL_MS);
   cleanups.push(() => clearInterval(timer));
+
+  // History: one sample per interval while visible. A hidden tab adds none,
+  // so a gap in `t` is time away, not a flat line.
+  const sampler = setInterval(() => {
+    if (!document.hidden) pushSample(history, takeSample(useFridayStore.getState().device, readTelemetry(), Date.now()));
+  }, HISTORY_INTERVAL_S * 1000);
+  cleanups.push(() => clearInterval(sampler));
 
   on(document, "visibilitychange", () => {
     if (document.hidden) return;

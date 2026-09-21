@@ -9,8 +9,11 @@ from .integrations.fetch import run_fetch_url
 from friday.rag import run_search_docs
 from .integrations.search import run_search_web
 from .client.metrics import (
+    HISTORY_METRICS,
+    preview_client_history,
     preview_client_location,
     preview_client_metrics,
+    run_client_history,
     run_client_location,
     run_client_metrics,
 )
@@ -49,6 +52,27 @@ def _build_default_registry() -> dict[str, Tool]:
             run=run_client_metrics,
             capabilities=("client.read",),
             preview=preview_client_metrics,
+        ),
+        Tool(
+            name="get_client_history",
+            description=(
+                "One metric of the operator's own device over the last ~10 "
+                "minutes, sampled by their browser every 10 s while the tab was "
+                "open: network latency or downlink, battery, CPU pressure, JS "
+                "heap or frame rate. Use for 'how has my connection / battery / "
+                "laptop been'. For the current value alone use get_client_metrics."
+            ),
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "metric": {"type": "string", "enum": list(HISTORY_METRICS), "description": "which reading to chart"}
+                },
+                "required": ["metric"],
+            },
+            risk="low",
+            run=run_client_history,
+            capabilities=("client.read",),
+            preview=preview_client_history,
         ),
         Tool(
             name="get_client_location",

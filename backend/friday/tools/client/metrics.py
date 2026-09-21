@@ -23,8 +23,52 @@ async def run_client_metrics(_: dict[str, Any]) -> dict[str, Any]:
     data = CLIENT.get()
     if not data:
         return {"error": "the browser sent no device readings for this turn"}
-    # Location has its own tool and capability (client.location).
-    return {k: v for k, v in data.items() if k != "location"}
+    # Location has its own tool and capability (client.location); history
+    # has its own tool (get_client_history) and would swamp the context.
+    return {k: v for k, v in data.items() if k not in ("location", "history")}
+
+
+#: metric -> (series label, unit). The only keys get_client_history reads.
+HISTORY_METRICS: dict[str, tuple[str, str]] = {
+    "rtt_ms": ("LATENCY MS", "ms"),
+    "downlink_mbps": ("DOWNLINK MBPS", "Mb/s"),
+    "battery_pct": ("BATTERY %", "%"),
+    "pressure": ("CPU PRESSURE 0-3", "level (0 nominal, 1 fair, 2 serious, 3 critical)"),
+    "heap_mb": ("JS HEAP MB", "MB"),
+    "fps": ("FRAME RATE", "fps"),
+}
+
+
+async def run_client_history(payload: dict[str, Any]) -> dict[str, Any]:
+    metric = payload.get("metric")
+    if metric not in HISTORY_METRICS:
+        return {"error": f"unknown metric; choose one of {', '.join(HISTORY_METRICS)}"}
+    history = (CLIENT.get() or {}).get("history") or {}
+    # Samples missing this reading are skipped, never drawn as zero.
+    samples = [s for s in history.get("samples", []) if s.get(metric) is not None]
+    if len(samples) < 2:
+        return {"error": "not enough history yet: the browser samples every few seconds while the tab is open"}
+    points = [s[metric] for s in samples]
+    return {
+        "metric": metric,
+        "unit": HISTORY_METRICS[metric][1],
+        "interval_s": history.get("interval_s"),
+        "span_s": samples[-1]["t"] - samples[0]["t"],
+        "points": points,
+        "min": min(points),
+        "max": max(points),
+        "latest": points[-1],
+    }
+
+
+def preview_client_history(output: dict[str, Any]) -> dict[str, Any]:
+    label = HISTORY_METRICS[output["metric"]][0]
+    minutes = max(1, round(output.get("span_s", 0) / 60))
+    return {
+        "type": "line_3d",
+        "title": f"YOUR DEVICE · LAST {minutes} MIN",
+        "data": {"series": [{"label": label, "points": output["points"]}]},
+    }
 
 
 async def run_client_location(_: dict[str, Any]) -> dict[str, Any]:
