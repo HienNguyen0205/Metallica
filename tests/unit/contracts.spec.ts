@@ -27,7 +27,7 @@ test("events schema covers the full producer event universe incl. step", () => {
 
 test("visualization schema type universe matches the FE parser", () => {
   const types: string[] = viz.properties.type.enum;
-  for (const t of ["radial_gauge", "radar", "waveform", "network", "line_3d", "bar_3d", "globe", "timeline", "sankey_flow"]) {
+  for (const t of ["radial_gauge", "radar", "waveform", "network", "line_3d", "bar_3d", "globe", "timeline", "sankey_flow", "map"]) {
     expect(types).toContain(t);
   }
   // tolerant reader: only `type` is required
@@ -64,4 +64,14 @@ test("tool schema risk enum matches the parser and declares a policy decision", 
 test("error schema requires only a message", () => {
   expect(errorSchema.required).toEqual(["message"]);
   expect(parseFridayEvent({ event: "error", data: JSON.stringify({}) })).toMatchObject({ type: "error" });
+});
+
+test("visualization schema declares the map type and MapView on VizData", () => {
+  expect(viz.properties.type.enum).toContain("map");
+  expect(viz.definitions.VizData.properties.map).toEqual({ $ref: "#/definitions/MapView" });
+  const mv = viz.definitions.MapView;
+  expect(Object.keys(mv.properties).sort()).toEqual(["bbox", "center", "route", "zoom"]);
+  expect(viz.definitions.MapRoute.properties.profile.enum).toEqual(["auto", "motor_scooter", "bicycle", "pedestrian"]);
+  expect(viz.definitions.MapRoute.properties.waypoints.minItems).toBe(2);
+  expect(viz.definitions.MapRoute.properties.waypoints.maxItems).toBe(5);
 });

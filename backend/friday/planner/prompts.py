@@ -10,7 +10,8 @@ supply the data it renders:
 - bar_3d — comparing discrete magnitudes (use `series`, one entry)
 - timeline — an ordered sequence of events (use `events`, `at` from 0 to 1)
 - network — topology, dependencies, service graphs (use `nodes` and `links`)
-- globe — geography, regions, edge locations (use `points`)
+- globe — geography at country or world scale, regions, edge locations (use `points`)
+- map — one specific place, street, address or route at city scale or below (use `map`: `center` + `zoom`, or `bbox`, or `route`; `points` for markers)
 
 Rules:
 - Fill only the data fields the chosen type reads. Omit the rest.

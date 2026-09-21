@@ -14,6 +14,7 @@ const VIZ_OPTIONS: VisualizationType[] = [
   "network",
   "globe",
   "sankey_flow",
+  "map",
 ];
 
 /** Dev rail — materializes any visualization type with sample data on click. */

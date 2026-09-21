@@ -11,7 +11,7 @@ import {
   type VizLifecycle,
 } from "@/lib/store";
 import { STATE_LOOK } from "@/lib/stateLook";
-import { resolveVisualizationLayout } from "@/lib/visualization/layoutResolver";
+import { resolveVisualizationLayout, sceneEntries } from "@/lib/visualization/layoutResolver";
 import { TechLabel } from "../primitives";
 import { RadialGauge, Radar, Waveform } from "./vizRadial";
 import { BarChart3D, LineChart3D, Timeline3D } from "./vizCharts";
@@ -46,6 +46,7 @@ const REGISTRY: Record<VisualizationType, ComponentType<RendererProps>> = {
   network: ({ data, ...rest }) => <Network3D nodes={data.nodes} links={data.links} {...rest} />,
   globe: ({ data, ...rest }) => <Globe3D points={data.points} routes={data.routes} {...rest} />,
   sankey_flow: ({ data, ...rest }) => <SankeyFlow nodes={data.nodes} links={data.links} {...rest} />,
+  map: () => null, // drawn by the DOM map layer (spec §5)
 };
 
 function VizNode({
@@ -147,18 +148,19 @@ export default function FridayVisualization() {
     setFocus(null);
   }, [vizKey, setFocus]);
 
-  if (entries.length === 0) return null;
+  const scene = sceneEntries(entries);
+  if (scene.length === 0) return null;
 
   // §13/§14 — multiple visualizations coexist with deterministic spatial layout
   return (
     <group>
-      {entries.map((entry, i) => (
+      {scene.map((entry, i) => (
         <VizNode
           key={entry.id}
           id={entry.id}
           spec={entry.spec}
           lifecycle={entry.lifecycle}
-          count={entries.length}
+          count={scene.length}
           index={i}
           color={entry.spec.theme?.color ?? look.color}
           accent={entry.spec.theme?.accent ?? look.accent}

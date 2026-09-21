@@ -17,7 +17,8 @@ export type VisualizationType =
   | "bar_3d"
   | "globe"
   | "timeline"
-  | "sankey_flow";
+  | "sankey_flow"
+  | "map";
 
 export interface MetricDatum {
   label: string;
@@ -65,6 +66,28 @@ export interface GlobeRoute {
   latencyMs?: number;
   status?: "healthy" | "warning" | "critical";
 }
+/** Travel mode for a map route — Valhalla costing names (spec §5). */
+export type MapProfile = "auto" | "motor_scooter" | "bicycle" | "pedestrian";
+
+export interface MapWaypoint {
+  lat: number;
+  lon: number;
+  label?: string;
+}
+
+/**
+ * Where a `map` visualization looks and what it routes. A route is intent
+ * only — the map fetches the geometry from `/geo/route` itself, the same call
+ * user-driven directions make (spec §5).
+ */
+export interface MapView {
+  center?: { lat: number; lon: number };
+  /** 0–20; defaults to 14 when only `center` is given. */
+  zoom?: number;
+  /** [west, south, east, north]; wins over center/zoom. */
+  bbox?: [number, number, number, number];
+  route?: { profile: MapProfile; waypoints: MapWaypoint[] };
+}
 export interface TimelineEvent {
   label: string;
   at: number;
@@ -78,6 +101,8 @@ export interface VizData {
   points?: GeoPoint[];
   /** Globe arcs — `from`/`to` reference `points` by id/label/index. */
   routes?: GlobeRoute[];
+  /** `map` visualizations only — camera and route intent. */
+  map?: MapView;
   events?: TimelineEvent[];
   rate?: number;
 }

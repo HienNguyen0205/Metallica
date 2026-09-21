@@ -28,6 +28,7 @@ const KNOWN_VIZ: ReadonlySet<string> = new Set([
   "globe",
   "timeline",
   "sankey_flow",
+  "map",
 ]);
 
 export const STEP_KINDS = [

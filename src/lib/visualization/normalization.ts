@@ -1,4 +1,4 @@
-import type { VisualizationSpec, VizData } from "@/lib/visualization/types";
+import type { MapProfile, MapView, VisualizationSpec, VizData } from "@/lib/visualization/types";
 
 /**
  * Backend-compatible normalization — fills defaults so renderers never
@@ -44,6 +44,53 @@ function sanitizeLabel(value: unknown): string | undefined {
 
 function sanitizeUnit(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;
+}
+
+const MAP_PROFILES: ReadonlySet<string> = new Set(["auto", "motor_scooter", "bicycle", "pedestrian"]);
+
+function finiteIn(value: unknown, lo: number, hi: number): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value >= lo && value <= hi;
+}
+
+function sanitizeLatLon(value: unknown): { lat: number; lon: number } | undefined {
+  const p = value as { lat?: unknown; lon?: unknown } | null | undefined;
+  return p && finiteIn(p.lat, -90, 90) && finiteIn(p.lon, -180, 180) ? { lat: p.lat, lon: p.lon } : undefined;
+}
+
+/** `data.map` arrives off the wire like everything else — keep only what the map can use. */
+export function sanitizeMapView(value: unknown): MapView | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const v = value as Record<string, unknown>;
+  const out: MapView = {};
+  const center = sanitizeLatLon(v.center);
+  if (center) out.center = center;
+  if (finiteIn(v.zoom, 0, 20)) out.zoom = v.zoom;
+  const b = v.bbox;
+  if (
+    Array.isArray(b) &&
+    b.length === 4 &&
+    finiteIn(b[0], -180, 180) &&
+    finiteIn(b[1], -90, 90) &&
+    finiteIn(b[2], -180, 180) &&
+    finiteIn(b[3], -90, 90) &&
+    b[1] < b[3]
+  ) {
+    out.bbox = [b[0], b[1], b[2], b[3]];
+  }
+  const r = v.route as { profile?: unknown; waypoints?: unknown } | null | undefined;
+  if (r && Array.isArray(r.waypoints)) {
+    const waypoints = r.waypoints.flatMap((w) => {
+      const p = sanitizeLatLon(w);
+      if (!p) return [];
+      const label = sanitizeLabel((w as { label?: unknown }).label);
+      return [label ? { ...p, label } : p];
+    });
+    if (waypoints.length >= 2 && waypoints.length <= 5) {
+      const profile = MAP_PROFILES.has(r.profile as string) ? (r.profile as MapProfile) : "motor_scooter";
+      out.route = { profile, waypoints };
+    }
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
 }
 
 function sanitizeData(data: VisualizationSpec["data"]): VizData {
@@ -165,6 +212,7 @@ function sanitizeData(data: VisualizationSpec["data"]): VizData {
       })
     : undefined;
 
+  out.map = sanitizeMapView(out.map);
   if (typeof out.rate !== "number" || !Number.isFinite(out.rate) || out.rate < 0) out.rate = undefined;
 
   return out;

@@ -55,6 +55,21 @@ const RULES: Rule[] = [
     }),
   },
   {
+    type: "map",
+    // Street-level asks. Must precede the globe rule, whose bare \bmap\b
+    // would otherwise swallow "street map" / "bản đồ".
+    match: /directions|how do i get|chỉ đường|đường đi|đường tới|bản đồ|street map/i,
+    build: () => ({
+      type: "map",
+      title: "HOÀN KIẾM",
+      animation: "materialize",
+      data: {
+        points: [{ id: "hg", label: "HỒ GƯƠM", lat: 21.0288, lon: 105.8525 }],
+        map: { center: { lat: 21.0288, lon: 105.8525 }, zoom: 15 },
+      },
+    }),
+  },
+  {
     type: "globe",
     // "map" is word-boundaried so "heatmap" (now unmapped) cannot reach it.
     match: /where|region|location|global|\bmap\b|globe|country|latency by/i,
@@ -158,6 +173,7 @@ function cloneSpec(spec: VisualizationSpec): VisualizationSpec {
           points: spec.data.points?.map((p) => ({ ...p, metadata: p.metadata ? { ...p.metadata } : undefined })),
           routes: spec.data.routes?.map((r) => ({ ...r })),
           events: spec.data.events?.map((e) => ({ ...e })),
+          map: spec.data.map ? structuredClone(spec.data.map) : undefined,
         }
       : undefined,
     theme: spec.theme ? { ...spec.theme } : undefined,
@@ -183,6 +199,7 @@ const SAMPLES: Record<VisualizationType, () => VisualizationSpec> = {
   network: () => RULE_BY_TYPE.network.build(),
   globe: () => RULE_BY_TYPE.globe.build(),
   sankey_flow: () => RULE_BY_TYPE.sankey_flow.build(),
+  map: () => RULE_BY_TYPE.map.build(),
 };
 
 export function sampleSpec(type: VisualizationType): VisualizationSpec {
@@ -217,6 +234,8 @@ export function summarize(spec: VisualizationSpec): string {
       return "Audio channel open.";
     case "sankey_flow":
       return "Three flows live. The largest runs ads to signup.";
+    case "map":
+      return "Map is open.";
     default:
       return "System performance is normal. Disk usage is trending high.";
   }
