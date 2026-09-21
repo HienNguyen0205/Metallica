@@ -10,6 +10,9 @@ from friday.core.config import settings
 
 # §11 — in-flight approval requests, keyed by per-request id.
 PENDING: dict[str, asyncio.Future[bool]] = {}
+#: Run owner per pending decision — /confirm applies the same gate as the
+#: run endpoints. Written and popped alongside PENDING.
+PENDING_OWNERS: dict[str, str | None] = {}
 
 CONFIRM_TIMEOUT_S = 120
 

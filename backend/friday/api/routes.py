@@ -14,7 +14,7 @@ from openai import APIError, NotFoundError, RateLimitError
 from friday import agent, audit, llm, memory, observability
 from friday import identity as identity_mod
 from friday.api import dependencies as deps
-from friday.api.dependencies import PENDING, guard, require_known_origin
+from friday.api.dependencies import PENDING, PENDING_OWNERS, guard, require_known_origin
 from friday.api.schemas import Decision, Query, RunBudget
 from friday.core.config import settings
 from friday.events.serializer import sse, sse_envelope
@@ -181,6 +181,7 @@ async def _run_query_events(
         request_id = uuid.uuid4().hex
         decided: asyncio.Future[bool] = asyncio.get_running_loop().create_future()
         PENDING[request_id] = decided
+        PENDING_OWNERS[request_id] = run.owner_user_id if run else None
         actor = (run.owner_user_id if run else None) or session_id
         if run:
             REGISTRY.update_status(run.run_id, "waiting_approval")
@@ -216,6 +217,7 @@ async def _run_query_events(
             raise
         finally:
             PENDING.pop(request_id, None)
+            PENDING_OWNERS.pop(request_id, None)
             if run:
                 REGISTRY.update_status(run.run_id, "running")
 
@@ -526,10 +528,14 @@ async def query_endpoint(body: Query,
 
 
 @router.post("/confirm", dependencies=[Depends(require_known_origin)])
-async def confirm_endpoint(body: Decision) -> dict[str, Any]:
+async def confirm_endpoint(body: Decision,
+                           x_user_id: str | None = Header(default=None)) -> dict[str, Any]:
     decided = PENDING.get(body.id)
     if decided is None or decided.done():
         raise HTTPException(status_code=404, detail="no pending decision with that id")
+    # Same gate as cancel/replay: approving a tool is at least as sensitive.
+    if not identity_mod.may_access(PENDING_OWNERS.get(body.id), _caller(None, x_user_id)):
+        raise HTTPException(status_code=403, detail="not your run")
     decided.set_result(body.approved)
     return {"ok": True, "approved": body.approved}
 
