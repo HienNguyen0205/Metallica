@@ -290,6 +290,18 @@ export function computeGlobeFocusAngles(
   return { yaw, pitch };
 }
 
+/**
+ * Inverse of computeGlobeFocusAngles: the lat/lon currently facing the
+ * camera, used as the map's center at handoff (spec §3.2). Latitude is the
+ * pitch itself (so a tilt-clamped view reports the clamped latitude); yaw
+ * accumulates across spins, so longitude is wrapped to [-180, 180).
+ */
+export function viewCenterFromAngles(yaw: number, pitch: number): { lat: number; lon: number } {
+  const lat = (pitch * 180) / Math.PI;
+  const lon = -90 - (yaw * 180) / Math.PI;
+  return { lat, lon: ((((lon + 180) % 360) + 360) % 360) - 180 };
+}
+
 // ---------- terminator cycle + graticule ----------
 
 /** Seconds for one full terminator sweep. Slow enough to read as "living", fast enough to notice. */

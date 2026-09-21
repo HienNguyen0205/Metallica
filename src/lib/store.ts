@@ -21,6 +21,15 @@ import type {
   VizFocus,
   VizLifecycle,
 } from "@/lib/visualization/types";
+import {
+  INITIAL_MAP_VIEW,
+  closeMapState,
+  mapViewAfterSpec,
+  openMapState,
+  settleMapState,
+  type MapViewState,
+  type OpenMapRequest,
+} from "@/lib/mapView";
 
 export type { FridayState };
 export type { CurrentStep };
@@ -159,6 +168,11 @@ export interface FridayStore {
   globeCameraHolders: number;
   acquireGlobeCamera: () => void;
   releaseGlobeCamera: () => void;
+  /** Street map mode (spec §3). Intent only — the globe and the map layer animate from it. */
+  mapView: MapViewState;
+  openMap: (req: OpenMapRequest) => void;
+  closeMap: (center?: { lat: number; lon: number }) => void;
+  settleMap: () => void;
   /** Speech-recognition language. Hydrated from localStorage in the initializer, survives reset. */
   lang: SupportedLang;
   setLang: (lang: SupportedLang) => void;
@@ -223,6 +237,7 @@ export const useFridayStore = create<FridayStore>((set, get) => ({
             preview: !!opts?.preview,
           },
         ].slice(-3),
+        mapView: mapViewAfterSpec(s.mapView, spec),
       };
     }),
   settleVisualization: (id) =>
@@ -232,14 +247,18 @@ export const useFridayStore = create<FridayStore>((set, get) => ({
       ),
     })),
   setVisualizations: (vizs) =>
-    set({
-      // Capped like addVisualization — one bulk set must not mount unbounded
-      // CanvasTextures/Line2/labels (load-bearing on low-end GPUs).
-      visualizations: vizs.slice(-3).map((spec) => ({
-        id: nextVisualizationId++,
-        spec,
-        lifecycle: "materializing" as const,
-      })),
+    set((s) => {
+      const last = vizs.at(-1);
+      return {
+        // Capped like addVisualization — one bulk set must not mount unbounded
+        // CanvasTextures/Line2/labels (load-bearing on low-end GPUs).
+        visualizations: vizs.slice(-3).map((spec) => ({
+          id: nextVisualizationId++,
+          spec,
+          lifecycle: "materializing" as const,
+        })),
+        mapView: last ? mapViewAfterSpec(s.mapView, last) : s.mapView,
+      };
     }),
   clearVisualizations: () => set({ visualizations: [] }),
   focus: null,
@@ -264,6 +283,10 @@ export const useFridayStore = create<FridayStore>((set, get) => ({
   acquireGlobeCamera: () => set((s) => ({ globeCameraHolders: s.globeCameraHolders + 1 })),
   releaseGlobeCamera: () =>
     set((s) => ({ globeCameraHolders: Math.max(0, s.globeCameraHolders - 1) })),
+  mapView: INITIAL_MAP_VIEW,
+  openMap: (req) => set((s) => ({ mapView: openMapState(s.mapView, req) })),
+  closeMap: (center) => set((s) => ({ mapView: closeMapState(s.mapView, center) })),
+  settleMap: () => set((s) => ({ mapView: settleMapState(s.mapView) })),
   lang: INITIAL_LANG,
   setLang: (lang) => {
     try {
@@ -300,6 +323,7 @@ export const useFridayStore = create<FridayStore>((set, get) => ({
       state: "idle",
       answer: null,
       visualizations: [],
+      mapView: INITIAL_MAP_VIEW,
       focus: null,
       pendingConfirm: null,
       toolActivity: null,
