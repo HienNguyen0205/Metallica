@@ -1,0 +1,90 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://metallica.local/contracts/client.v1.json",
+  "title": "ClientContext v1 (transport input, unversioned wire)",
+  "description": "Documents the browser-measured device readings sent with POST /query as Query.client. Transport input, NOT an SSE event: no envelope, no sequence, held for the turn only (CLIENT contextvar) and visible to the model solely via get_client_metrics. Every field optional and bounded because it arrives from a public endpoint. FE pre-filters in src/lib/clientContext.ts (buildClientContext drops out-of-range readings); BE validates in backend/friday/api/schemas.py (ClientContext) and drops the WHOLE context on any invalid field (_drop_bad_client returns None rather than 422ing the question). Bounds below must match both sides. Location is precise (6 decimals ~11cm + accuracy_m) by operator choice at the LOC button; remember refuses to persist it.",
+  "type": "object",
+  "properties": {
+    "cpu_cores": { "type": "integer", "minimum": 1, "maximum": 1024 },
+    "device_memory_gb": { "type": "number", "exclusiveMinimum": 0, "maximum": 4096 },
+    "cpu_pressure": { "type": "string", "enum": ["nominal", "fair", "serious", "critical"] },
+    "battery": {
+      "type": "object",
+      "required": ["level_pct"],
+      "properties": {
+        "level_pct": { "type": "number", "minimum": 0, "maximum": 100 },
+        "charging": { "type": "boolean" }
+      }
+    },
+    "storage": {
+      "type": "object",
+      "required": ["usage_mb", "quota_mb"],
+      "properties": {
+        "usage_mb": { "type": "number", "minimum": 0, "maximum": 1000000000 },
+        "quota_mb": { "type": "number", "exclusiveMinimum": 0, "maximum": 1000000000 }
+      }
+    },
+    "network": {
+      "type": "object",
+      "properties": {
+        "effective_type": { "type": ["string", "null"], "enum": ["slow-2g", "2g", "3g", "4g", null] },
+        "downlink_mbps": { "type": "number", "minimum": 0, "maximum": 100000 },
+        "rtt_ms": { "type": "number", "minimum": 0, "maximum": 600000 }
+      }
+    },
+    "js_heap_mb": { "type": "number", "minimum": 0, "maximum": 1000000 },
+    "gpu": {
+      "type": "object",
+      "properties": {
+        "vendor": { "type": "string", "maxLength": 40 },
+        "architecture": { "type": "string", "maxLength": 40 }
+      }
+    },
+    "platform": { "type": "string", "maxLength": 40 },
+    "timezone": { "type": "string", "maxLength": 64 },
+    "utc_offset_min": { "type": "integer", "minimum": -840, "maximum": 840 },
+    "languages": { "type": "array", "items": { "type": "string", "maxLength": 40 }, "maxItems": 5 },
+    "screen": {
+      "type": "object",
+      "required": ["width", "height", "dpr"],
+      "properties": {
+        "width": { "type": "integer", "exclusiveMinimum": 0, "maximum": 20000 },
+        "height": { "type": "integer", "exclusiveMinimum": 0, "maximum": 20000 },
+        "dpr": { "type": "number", "exclusiveMinimum": 0, "maximum": 10 }
+      }
+    },
+    "location": {
+      "type": "object",
+      "required": ["lat", "lon"],
+      "properties": {
+        "lat": { "type": "number", "minimum": -90, "maximum": 90 },
+        "lon": { "type": "number", "minimum": -180, "maximum": 180 },
+        "accuracy_m": { "type": "number", "minimum": 0, "maximum": 10000000 }
+      }
+    },
+    "history": {
+      "type": "object",
+      "required": ["interval_s", "samples"],
+      "properties": {
+        "interval_s": { "type": "integer", "minimum": 1, "maximum": 600 },
+        "samples": {
+          "type": "array",
+          "maxItems": 60,
+          "items": {
+            "type": "object",
+            "required": ["t"],
+            "properties": {
+              "t": { "type": "integer", "minimum": 0, "maximum": 100000000000 },
+              "pressure": { "type": "integer", "minimum": 0, "maximum": 3 },
+              "battery_pct": { "type": "number", "minimum": 0, "maximum": 100 },
+              "rtt_ms": { "type": "number", "minimum": 0, "maximum": 600000 },
+              "downlink_mbps": { "type": "number", "minimum": 0, "maximum": 100000 },
+              "heap_mb": { "type": "number", "minimum": 0, "maximum": 1000000 },
+              "fps": { "type": "number", "minimum": 0, "maximum": 1000 }
+            }
+          }
+        }
+      }
+    }
+  }
+}

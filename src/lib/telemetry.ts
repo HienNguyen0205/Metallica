@@ -124,7 +124,9 @@ export function reportCamera(x: number, y: number, z: number) {
 }
 
 export function readTelemetry(): Telemetry {
-  return state;
+  // Defensive copy: callers must not mutate the live singleton (HUD numbers
+  // and history samples silently corrupt otherwise).
+  return { ...state, camera: [...state.camera] as [number, number, number] };
 }
 
 /** Samples the counters into React state at `hz` (default 4). */

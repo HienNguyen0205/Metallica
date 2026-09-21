@@ -94,8 +94,27 @@ test("every type has a distinct spoken summary", () => {
   expect(new Set(summaries).size, "summaries must not be copy-paste").toBe(ALL_TYPES.length);
 });
 
-test('plans "flow between ads and pay" → sankey_flow', () => {
-  expect(planVisualization("flow between ads and pay").type).toBe("sankey_flow");
+test('plans "history of deploys" → timeline (not line_3d)', () => {
+  expect(planVisualization("history of deploys").type).toBe("timeline");
+});
+
+test("timeline keywords match whole words, not substrings like login/blog/topology", () => {
+  expect(planVisualization("login latency over time").type).toBe("line_3d");
+  expect(planVisualization("trend of blog traffic").type).toBe("line_3d");
+  expect(planVisualization("technology stack health").type).not.toBe("timeline");
+  expect(planVisualization("show the error logs").type).toBe("timeline");
+  expect(planVisualization("incident timeline for today").type).toBe("timeline");
+  expect(planVisualization("recent events").type).toBe("timeline");
+});
+
+test("timeline sample events lie on the 0..1 rail", () => {
+  const events = sampleSpec("timeline").data?.events ?? [];
+  expect(events.length).toBeGreaterThan(0);
+  for (const e of events) {
+    expect(e.at).toBeGreaterThanOrEqual(0);
+    expect(e.at).toBeLessThanOrEqual(1);
+  }
+  expect(new Set(events.map((e) => e.at)).size).toBe(events.length);
 });
 
 test('plans "sankey of budget flow" → sankey_flow', () => {

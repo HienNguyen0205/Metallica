@@ -132,6 +132,15 @@ def _touch(ids: list[int]) -> None:
         log.warning("could not refresh last_used_at", exc_info=True)
 
 
+def _scoped_session(session_id: str | None, owner: str | None) -> str | None:
+    """Namespace working memory by owner so a guessed/reused session_id
+    cannot leak another user's prior turns into the prompt. Anonymous turns
+    keep the bare session_id (legacy behavior); identified turns scope it."""
+    if not session_id:
+        return None
+    return f"{owner}\x00{session_id}" if owner else session_id
+
+
 async def _run_query_events(
     query: str, session_id: str | None = None, run=None
 ) -> AsyncIterator[tuple[str, dict]]:
@@ -164,7 +173,9 @@ async def _run_query_events(
         try:
             wait_start = time.perf_counter()
             try:
-                approved = await asyncio.wait_for(decided, deps.CONFIRM_TIMEOUT_S)
+                # Read live so operators editing FRIDAY_CONFIRM_TIMEOUT_S on a
+                # running service see an effect (import-time snapshot would not).
+                approved = await asyncio.wait_for(decided, settings.confirm_timeout_s_live)
             finally:
                 observability.observe(
                     "approval_wait_ms", (time.perf_counter() - wait_start) * 1000)
@@ -201,7 +212,8 @@ async def _run_query_events(
             # passing the kwarg unconditionally would break plain generators.
             # (Same reason run_id travels by contextvar, not parameter.)
             kwargs = {"emit_steps": True} if run is not None else {}
-            async for event in agent.run(query, approve, outcome, memory.history(session_id), memories, **kwargs):
+            scoped_session = _scoped_session(session_id, run.owner_user_id if run else None)
+            async for event in agent.run(query, approve, outcome, memory.history(scoped_session), memories, **kwargs):
                 await events.put(event)
         except BaseException as err:
             failure = err
@@ -241,7 +253,7 @@ async def _run_query_events(
         result = await plan(query, outcome.text, outcome.evidence, pinned_type)
     except NotFoundError:
         log.exception("model %r not available at %s", llm.model(), llm.base_url())
-        yield ("error", {"message": f"model '{llm.model()}' unavailable at this endpoint"})
+        yield ("error", {"code": "model_unavailable", "message": f"model '{llm.model()}' unavailable at this endpoint"})
         yield ("state", {"state": "error"})
         yield ("done", {})
         return
@@ -249,20 +261,20 @@ async def _run_query_events(
         log.exception("provider rate limit hit for model %r", llm.model())
         yield (
             "error",
-            {"message": f"provider rate limit reached ({stage}){quota_detail(err)}"},
+            {"code": "provider_rate_limited", "message": f"provider rate limit reached ({stage}){quota_detail(err)}"},
         )
         yield ("state", {"state": "error"})
         yield ("done", {})
         return
     except APIError as err:
         log.exception("model call failed")
-        yield ("error", {"message": f"{stage} error: {type(err).__name__}"})
+        yield ("error", {"code": "stage_error", "message": f"{stage} error: {type(err).__name__}"})
         yield ("state", {"state": "error"})
         yield ("done", {})
         return
     except Exception:
         log.exception("query failed in %s stage", stage)
-        yield ("error", {"message": f"{stage} unavailable"})
+        yield ("error", {"code": "stage_error", "message": f"{stage} unavailable"})
         yield ("state", {"state": "error"})
         yield ("done", {})
         return
@@ -276,8 +288,8 @@ async def _run_query_events(
     answer = outcome.text or result.answer
     # Recorded only once the turn has actually produced an answer — a failed
     # turn returns above, so a provider outage cannot poison the session with
-    # an exchange that never happened.
-    memory.remember(session_id, query, answer)
+    # an exchange that never happened. Scoped like the history read above.
+    memory.remember(_scoped_session(session_id, run.owner_user_id if run else None), query, answer)
     yield ("answer", {"text": answer})
     if run is not None:
         # P2 — mirror the turn's evidence and answer claims into the run for
@@ -325,8 +337,10 @@ async def run_query(
     observability.trace_id_var.set(trace_id)
     observability.run_id_var.set(run.run_id)
     REGISTRY.set_metadata(run.run_id, {"request_id": request_id, "trace_id": trace_id})
+    # Never store raw query text: queries routinely contain PII and /audit
+    # serves them back. Length preserves the forensic signal without the data.
     audit.record("run.created", actor=actor or owner_user_id or session_id,
-                 run_id=run.run_id, reason=query[:120])
+                 run_id=run.run_id, reason=f"query len {len(query)}")
     if budget is not None and budget.max_wall_time_ms:
         run.deadline = (run.started_at or time.time()) + budget.max_wall_time_ms / 1000
     max_tools = budget.max_tool_calls if budget is not None else None
@@ -509,7 +523,12 @@ async def confirm_endpoint(body: Decision,
     # Same gate as cancel/replay: approving a tool is at least as sensitive.
     if not identity_mod.may_access(PENDING_OWNERS.get(body.id), _caller(None, x_user_id)):
         raise HTTPException(status_code=403, detail="not your run")
-    decided.set_result(body.approved)
+    try:
+        decided.set_result(body.approved)
+    except (asyncio.InvalidStateError, asyncio.CancelledError):
+        # Double-clicked Approve (or a racing cancel) already resolved it:
+        # report the outcome instead of a 500 on the most latent UX action.
+        pass
     return {"ok": True, "approved": body.approved}
 
 
@@ -557,17 +576,25 @@ async def list_memory(x_user_id: str | None = Header(default=None)) -> dict[str,
 @router.delete("/memory/{memory_id}", dependencies=[Depends(require_known_origin)])
 async def forget_memory(memory_id: int,
                         x_user_id: str | None = Header(default=None)) -> dict[str, Any]:
+    from fastapi import HTTPException as _HTTPException
+
     caller = _caller(None, x_user_id)
     cached = next((m for m in long_term.CACHE if m.id == memory_id), None)
     if cached is not None:
         if not identity_mod.may_access(cached.owner_user_id, caller):
-            raise HTTPException(status_code=403, detail="not your memory")
-        return {"ok": await long_term.forget(memory_id)}
+            raise _HTTPException(status_code=403, detail="not your memory")
+        ok = await long_term.forget(memory_id)
+        if not ok:
+            raise _HTTPException(status_code=502, detail="store refused the delete")
+        return {"ok": True}
     # Not cached (evicted, or the store was down at boot): let the store scope
     # it. Only in trust mode — an unmigrated table has no owner column, and
     # without trust every row is shared anyway.
     scoped = bool(settings.trust_identity_headers)
-    return {"ok": await long_term.forget(memory_id, scoped=scoped, owner=caller.user_id)}
+    ok = await long_term.forget(memory_id, scoped=scoped, owner=caller.user_id)
+    if not ok:
+        raise _HTTPException(status_code=502, detail="store refused the delete")
+    return {"ok": True}
 
 @router.get("/metrics", dependencies=[Depends(require_known_origin)])
 async def metrics_endpoint() -> dict[str, Any]:
@@ -577,10 +604,43 @@ async def metrics_endpoint() -> dict[str, Any]:
 
 
 @router.get("/audit", dependencies=[Depends(require_known_origin)])
-async def audit_endpoint(run_id: str | None = None, limit: int = 100) -> dict[str, Any]:
+async def audit_endpoint(run_id: str | None = None, limit: int = 100,
+                         session_id: str | None = None,
+                         x_user_id: str | None = Header(default=None)) -> dict[str, Any]:
     """P3 — recent audit entries, newest first, filterable by run. Operators
-    only (same origin gate as everything else)."""
-    return {"events": audit.recent(limit, run_id)}
+    only (same origin gate as everything else), scoped to the caller: a
+    run_id is gated like the run endpoints, and an unfiltered listing only
+    returns the caller's own entries (actor match or owned runs). Raw query
+    text is never stored (run.created carries length only)."""
+    from friday.runs import REGISTRY
+
+    caller = _caller(session_id, x_user_id)
+    if run_id is not None:
+        run = REGISTRY.get(run_id) or REGISTRY.get_stored(run_id)
+        if run is not None and not identity_mod.may_access(run.owner_user_id, caller):
+            from fastapi import HTTPException as _HTTPException
+            raise _HTTPException(status_code=403, detail="not your run")
+        return {"events": audit.recent(limit, run_id)}
+    entries = audit.recent(limit, None)
+    scoped: list[dict[str, Any]] = []
+    for e in entries:
+        rid = e.get("run_id")
+        if rid is not None:
+            run = REGISTRY.get(rid) or REGISTRY.get_stored(rid)
+            if run is not None:
+                if identity_mod.may_access(run.owner_user_id, caller):
+                    # Anonymous-owned runs are shared by design, but an
+                    # identified caller must not sweep anonymous history:
+                    # require actor match unless the run is owned by them.
+                    if caller.user_id is None or run.owner_user_id == caller.user_id or e.get("actor") == caller.actor:
+                        scoped.append(e)
+                continue
+            # Unknown run (expired from registry): fall back to actor match.
+            if e.get("actor") == caller.actor:
+                scoped.append(e)
+        elif e.get("actor") == caller.actor:
+            scoped.append(e)
+    return {"events": scoped}
 
 
 @router.get("/health")

@@ -15,6 +15,7 @@ from typing import Any
 #: construction; direct measurements and the operator's own words are not.
 _SOURCE_PROFILE: dict[str, tuple[str, float]] = {
     "search_web": ("external_source", 0.7),
+    "fetch_url": ("external_source", 0.7),
     "remember": ("user", 1.0),
     "read_note": ("user", 1.0),
 }

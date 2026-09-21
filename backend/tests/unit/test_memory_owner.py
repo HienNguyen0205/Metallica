@@ -83,13 +83,51 @@ def test_consolidation_prunes_only_the_turn_owners_memories() -> None:
             await consolidate.run()
 
         asyncio.run(as_alice())
-        assert seen == [{2}], seen
+        # The shared pool still prunes on identified turns (it would otherwise
+        # grow without bound once any identified traffic exists), but in its
+        # own pass: judged beside alice's facts, one of hers could "contradict"
+        # a shared fact and delete it for everyone. Bob's rows never appear.
+        assert seen == [{2}, {1}], seen
+
+        seen.clear()
+
+        async def anonymous():
+            lt.OWNER.set(None)
+            await consolidate.run()
+
+        asyncio.run(anonymous())
+        assert seen == [{1}], seen
     finally:
         consolidate.choose_drops = orig
+
+
+def test_a_drop_is_honoured_only_inside_its_own_pass() -> None:
+    seed()
+    forgotten: list[int] = []
+
+    async def drop_everything(memories):
+        return [1, 2, 3]  # the model names ids outside the group it was shown
+
+    async def fake_forget(memory_id, **_):
+        forgotten.append(memory_id)
+        return True
+
+    orig = (consolidate.choose_drops, lt.forget)
+    consolidate.choose_drops, lt.forget = drop_everything, fake_forget
+    try:
+        async def as_alice():
+            lt.OWNER.set("alice")
+            return await consolidate.run()
+
+        assert asyncio.run(as_alice()) == 2
+        assert sorted(forgotten) == [1, 2], "bob's row (3) must never be dropped"
+    finally:
+        consolidate.choose_drops, lt.forget = orig
 
 
 if __name__ == "__main__":
     test_visibility_mirrors_run_ownership()
     test_writes_carry_the_turn_owner_and_only_see_visible_memories()
     test_consolidation_prunes_only_the_turn_owners_memories()
+    test_a_drop_is_honoured_only_inside_its_own_pass()
     print("ok")

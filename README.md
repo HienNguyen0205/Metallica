@@ -239,7 +239,7 @@ These backend variables are listed for reference — the orchestrator lives in
 `backend/` in this repo. It owns the SSE event contract (`state`, `viz`, `answer`,
 `confirm`, `done`) that `src/lib/agentStream.ts` consumes, and the model call
 that picks a visualization. The renderer contract it emits must stay in lockstep
-with `VisualizationSpec` in `src/lib/store.ts`.
+with `VisualizationSpec` in `src/lib/visualization/types.ts` (re-exported by `src/lib/store.ts`).
 
 ## Architecture
 
@@ -319,6 +319,9 @@ materials by splicing strings into GLSL, which a node material never runs:
 | drei `<Line>` (Line2 + `LineMaterial`) | three's WebGPU `Line2` + `Line2NodeMaterial` |
 | drei `MeshDistortMaterial` | `createCoreMaterial()`, TSL noise displacement |
 
+Shader-splicing drei pieces above were replaced; layout helpers (`Billboard`,
+`AdaptiveDpr`/`AdaptiveEvents`) are retained.
+
 Also degrading, unchanged:
 
 - Software renderers (SwiftShader / llvmpipe) are detected and the heavy pass —
@@ -375,11 +378,11 @@ All visualizations support optional drill-down focus unless
 Testing strategy and helper utilities are documented in
 [`docs/TESTING.md`](docs/TESTING.md). Summary:
 
-- **Unit project** (`tests/unit`, 24 specs) — runs the zustand store and the
+- **Unit project** (`tests/unit`, 36 specs) — runs the zustand store and the
   viz planner directly under Playwright's runner; no browser, no server, no
   build. Includes the contract gate (`contracts`, `eventContract`,
   `envelopedFlow`) and the resume/cancel flows.
-- **UI project** (`tests/ui`, 6 suites) — drives the production build in Chromium and
+- **UI project** (`tests/ui`, 5 suites) — drives the production build in Chromium and
   asserts *pixel statistics*, not just DOM: center-weighted luma composition,
   cyan-ratio (is the hologram actually painting?), perceptible frame diffs,
   GL context health across all 10 states, ≥ 24 fps on real GPUs, WCAG AA

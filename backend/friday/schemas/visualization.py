@@ -1,4 +1,10 @@
-"""Renderer contract — mirrored from src/lib/store.ts."""
+"""Renderer contract — mirrored from src/lib/visualization/types.ts.
+
+Strictness note: VisualizationPlan (title + data + answer required) is
+model-output validation, not wire validation. The canonical wire contract
+(contracts/visualization/visualization.v1.json) requires only `type` — the
+tolerant reader accepts minimal specs the planner would reject.
+"""
 
 from typing import Literal
 
@@ -37,6 +43,25 @@ class GeoPoint(BaseModel):
     lat: float
     lon: float
     label: str | None = Field(default=None, description="short code, e.g. HAN")
+    id: str | None = None
+    value: float | None = None
+    status: Literal["healthy", "warning", "critical", "offline"] | None = None
+    color: str | None = None
+    metadata: dict | None = None
+
+
+class GlobeRoute(BaseModel):
+    """Curved data connection between two globe markers; from/to reference
+    points by id/label (string) or index (number)."""
+
+    model_config = {"populate_by_name": True}
+
+    id: str
+    from_: str | int = Field(alias="from")
+    to: str | int
+    value: float | None = None
+    latencyMs: float | None = None
+    status: Literal["healthy", "warning", "critical"] | None = None
 
 
 class TimelineEvent(BaseModel):
@@ -52,6 +77,7 @@ class VizData(BaseModel):
     nodes: list[NodeDatum] | None = None
     links: list[list[int]] | None = None
     points: list[GeoPoint] | None = None
+    routes: list[GlobeRoute] | None = None
     events: list[TimelineEvent] | None = None
     rate: float | None = None
 

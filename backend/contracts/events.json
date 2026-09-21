@@ -9,7 +9,8 @@
     "viz",
     "answer",
     "done",
-    "error"
+    "error",
+    "step"
   ],
-  "description": "SSE event contract v1"
+  "description": "SSE event contract v1 — mirrors contracts/events.v1.json event enum + backend/friday/events/types.py ALL_EVENTS"
 }

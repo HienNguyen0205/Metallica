@@ -7,14 +7,25 @@ test is the event contract and the approval wiring, not the model.
 """
 
 import asyncio
+import os
 import json
 from contextlib import contextmanager
 
 from friday.api import routes
-from friday.api import dependencies as deps
 from friday import agent, main, tools
 from friday.core import config as core_config
 from friday.schema import VisualizationPlan, VizData
+
+
+def _set_confirm_timeout(value):
+    """Swap FRIDAY_CONFIRM_TIMEOUT_S, which the route reads live on every
+    approval; returns the previous value (None = unset) for restoring."""
+    old = os.environ.get("FRIDAY_CONFIRM_TIMEOUT_S")
+    if value is None:
+        os.environ.pop("FRIDAY_CONFIRM_TIMEOUT_S", None)
+    else:
+        os.environ["FRIDAY_CONFIRM_TIMEOUT_S"] = str(value)
+    return old
 
 PLAN = VisualizationPlan(
     type="radial_gauge",
@@ -235,12 +246,12 @@ def _run_with_decision(decision: bool | None) -> tuple[list[tuple[str, dict]], l
         return events
 
     original_agent, agent.run = agent.run, gated_agent
-    original_timeout, deps.CONFIRM_TIMEOUT_S = deps.CONFIRM_TIMEOUT_S, 0.3
+    original_timeout = _set_confirm_timeout(0.3)
     try:
         return asyncio.run(drive()), verdicts
     finally:
         agent.run = original_agent
-        deps.CONFIRM_TIMEOUT_S = original_timeout
+        _set_confirm_timeout(original_timeout)
 
 
 def test_high_risk_call_is_announced_before_it_runs() -> None:
@@ -298,13 +309,13 @@ def test_v2_denial_records_failed_step_in_registry() -> None:
         return events
 
     original_agent, agent.run = agent.run, gated_agent
-    original_timeout, deps.CONFIRM_TIMEOUT_S = deps.CONFIRM_TIMEOUT_S, 0.3
+    original_timeout = _set_confirm_timeout(0.3)
     try:
         with events_v2(True):
             events = asyncio.run(drive())
     finally:
         agent.run = original_agent
-        deps.CONFIRM_TIMEOUT_S = original_timeout
+        _set_confirm_timeout(original_timeout)
 
     assert decided_verdicts == [False]
     names = [n for n, _ in events]

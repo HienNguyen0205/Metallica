@@ -69,6 +69,26 @@ const RULES: Rule[] = [
     }),
   },
   {
+    type: "timeline",
+    // Above line_3d/bar_3d on purpose: "history of deploys" contains
+    // "history" and would otherwise plan line_3d, never reaching this rule.
+    // Whole words: this rule sits above line_3d/bar_3d, so a bare substring
+    // "log" stole "login latency over time" and "blog traffic trend".
+    match: /\b(?:events?|logs?|timelines?|incidents?)\b|history of/i,
+    build: () => ({
+      type: "timeline",
+      title: "EVENT SEQUENCE",
+      animation: "materialize",
+      data: {
+        events: [
+          { label: "DEPLOY", at: 0 },
+          { label: "ALERT", at: 0.5 },
+          { label: "MITIGATED", at: 1 },
+        ],
+      },
+    }),
+  },
+  {
     type: "line_3d",
     match: /trend|history|over time|last hour|graph of|timeseries|time series/i,
     build: () => ({
@@ -91,22 +111,6 @@ const RULES: Rule[] = [
       title: "DISTRIBUTION",
       animation: "materialize",
       data: { series: [{ label: "REQ", points: [34, 58, 22, 71, 47, 63, 39] }] },
-    }),
-  },
-  {
-    type: "timeline",
-    match: /event|log|timeline|incident|history of/i,
-    build: () => ({
-      type: "timeline",
-      title: "EVENT SEQUENCE",
-      animation: "materialize",
-      data: {
-        events: [
-          { label: "DEPLOY", at: 0 },
-          { label: "ALERT", at: 1 },
-          { label: "MITIGATED", at: 2 },
-        ],
-      },
     }),
   },
   {

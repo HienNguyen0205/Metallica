@@ -9,7 +9,6 @@ import json
 import os
 
 from friday.api import routes
-from friday.api import dependencies as deps
 from friday import observability
 from friday.observability import (
     estimate_cost_usd,
@@ -17,6 +16,17 @@ from friday.observability import (
     reset,
     snapshot,
 )
+
+
+def _set_confirm_timeout(value):
+    """Swap FRIDAY_CONFIRM_TIMEOUT_S, which the route reads live on every
+    approval; returns the previous value (None = unset) for restoring."""
+    old = os.environ.get("FRIDAY_CONFIRM_TIMEOUT_S")
+    if value is None:
+        os.environ.pop("FRIDAY_CONFIRM_TIMEOUT_S", None)
+    else:
+        os.environ["FRIDAY_CONFIRM_TIMEOUT_S"] = str(value)
+    return old
 
 
 class _Usage:
@@ -196,7 +206,7 @@ def test_approval_wait_and_reconnect_and_metrics_endpoint() -> None:
         old_flag = _v2()
         original_plan = routes.plan
         routes.plan = fake_plan
-        original_timeout, deps.CONFIRM_TIMEOUT_S = deps.CONFIRM_TIMEOUT_S, 5.0
+        original_timeout = _set_confirm_timeout(5.0)
         import dataclasses
         from friday.tools import registry as registry_mod
 
@@ -228,7 +238,7 @@ def test_approval_wait_and_reconnect_and_metrics_endpoint() -> None:
         finally:
             _unpatch_llm(original)
             routes.plan = original_plan
-            deps.CONFIRM_TIMEOUT_S = original_timeout
+            _set_confirm_timeout(original_timeout)
             registry_mod.REGISTRY["write_note"] = orig_write
             from friday.core import config as core_config
             core_config.settings.events_v2 = old_flag

@@ -120,10 +120,15 @@ export interface RunReplay {
   events: Array<{ sequence: number; event: string; payload: Record<string, unknown> }>;
 }
 
-export async function fetchRunEvents(runId: string, afterSequence: number): Promise<RunReplay> {
+export async function fetchRunEvents(
+  runId: string,
+  afterSequence: number,
+  signal?: AbortSignal,
+): Promise<RunReplay> {
   const API = getApiBase();
   const res = await fetch(
     `${API}/runs/${encodeURIComponent(runId)}/events?after_sequence=${afterSequence}`,
+    { signal },
   );
   if (!res.ok) throw new Error(`replay ${res.status}`);
   const body = (await res.json()) as {

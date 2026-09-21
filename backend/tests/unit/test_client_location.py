@@ -75,6 +75,29 @@ def test_remember_refuses_to_store_the_coordinates() -> None:
         lt.store_configured = orig
 
 
+def test_a_near_whole_coordinate_does_not_block_every_number() -> None:
+    # lat 10.0012 rounds to "10.00" at 2 decimals; stripped to a bare "10" it
+    # refused any fact containing "10" ("deploys at 10am").
+    orig = lt.store_configured
+    lt.store_configured = lambda: True
+    embed_orig, insert_orig = lt.embed, lt.store_insert
+
+    async def fake_embed(texts):
+        return [[1.0, 0.0] for _ in texts]
+
+    lt.embed = fake_embed
+    lt.store_insert = lambda fact, prov, emb, owner=None: {"id": 5, "fact": fact, "provenance": prov}
+    try:
+        ctx = {"location": {"lat": 10.0012, "lon": 106.7}}
+        ok = turn(ctx, lambda: lt.run_remember({"fact": "Deploys happen at 10am on Fridays"}))
+        assert "error" not in ok, ok
+        refused = turn(ctx, lambda: lt.run_remember({"fact": "Home is at 10.001, 106.7"}))
+        assert "error" in refused, refused
+    finally:
+        lt.store_configured, lt.embed, lt.store_insert = orig, embed_orig, insert_orig
+        lt.clear()
+
+
 def test_registered_with_its_own_capability() -> None:
     tool = registry.get("get_client_location")
     assert tool is not None and tool.risk == "low"

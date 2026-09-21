@@ -46,7 +46,10 @@ class Settings(BaseSettings):
     granted_capabilities: str = Field(default="*", alias="FRIDAY_GRANTED_CAPABILITIES")
     # ---- P3 identity ----
     trust_identity_headers: bool = Field(default=False, alias="FRIDAY_TRUST_IDENTITY_HEADERS")
-    identity_header: str = Field(default="X-User-Id", alias="FRIDAY_IDENTITY_HEADER")
+    # NOTE: the run endpoints bind `X-User-Id` directly (see api/routes.py).
+    # There is no supported custom header name; FRIDAY_IDENTITY_HEADER is
+    # intentionally not a setting so operators cannot set a variable with
+    # silently no effect.
 
     # ---- §22 abuse limits — see api/dependencies.py ----
     # Sized against the provider's free tier, not against demand: one query is
