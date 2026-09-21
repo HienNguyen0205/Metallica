@@ -4,7 +4,7 @@ import { useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
 import { DoubleSide, type Group } from "three";
 import { useFridayStore, type NodeDatum } from "@/lib/store";
-import { makeFocus, releaseFocus, toggleFocus } from "@/lib/visualization/focus";
+import { makeFocus, toggleFocus } from "@/lib/visualization/focus";
 import { useFocusRelease } from "./useFocusRelease";
 import { usePick } from "./usePick";
 import { HairLine, TechLabel, useMaterialize } from "../primitives";
@@ -130,7 +130,7 @@ export function Network3D({ nodes = DEFAULT_NODES, links, color, accent, interac
 
   const focus = useFridayStore((s) => s.focus);
   const setFocus = useFridayStore((s) => s.setFocus);
-  useFocusRelease("network");
+  const releaseOnMiss = useFocusRelease("network");
 
   const positions = useMemo(
     () => data.map((_, i) => spherePosition(i, data.length, 2.7)),
@@ -176,10 +176,7 @@ export function Network3D({ nodes = DEFAULT_NODES, links, color, accent, interac
   return (
     <group
       ref={ref}
-      onPointerMissed={() => {
-        const s = useFridayStore.getState();
-        s.setFocus(releaseFocus(s.focus, "network"));
-      }}
+      onPointerMissed={releaseOnMiss}
     >
       <group ref={spin}>
         {edges.map(([a, b], i) => {

@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
 import { DoubleSide, Vector3, type Group } from "three";
 import { useFridayStore, type NodeDatum } from "@/lib/store";
-import { makeFocus, releaseFocus, toggleFocus } from "@/lib/visualization/focus";
+import { makeFocus, toggleFocus } from "@/lib/visualization/focus";
 import { useFocusRelease } from "./useFocusRelease";
 import { usePick } from "./usePick";
 import { HairLine, TechLabel, useMaterialize } from "../primitives";
@@ -165,7 +165,7 @@ export function SankeyFlow({
 
   const focus = useFridayStore((s) => s.focus);
   const setFocus = useFridayStore((s) => s.setFocus);
-  useFocusRelease("sankey");
+  const releaseOnMiss = useFocusRelease("sankey");
   const selectedId = focus && focus.owner === "sankey" ? focus.key : null;
   const anySelected = selectedId !== null;
 
@@ -218,14 +218,7 @@ export function SankeyFlow({
   return (
     <group
       ref={ref}
-      onPointerMissed={
-        interactive
-          ? () => {
-              const s = useFridayStore.getState();
-              s.setFocus(releaseFocus(s.focus, "sankey"));
-            }
-          : undefined
-      }
+      onPointerMissed={interactive ? releaseOnMiss : undefined}
     >
       {edges.map(([a, b], i) => {
         const touches =

@@ -5,7 +5,7 @@ import { useFrame, type ThreeEvent } from "@react-three/fiber";
 import { Color, DoubleSide, Object3D, type Group, type InstancedMesh } from "three";
 import { useFridayStore, type SeriesDatum, type TimelineEvent } from "@/lib/store";
 import { STATE_LOOK } from "@/lib/stateLook";
-import { makeFocus, releaseFocus, toggleFocus } from "@/lib/visualization/focus";
+import { makeFocus, toggleFocus } from "@/lib/visualization/focus";
 import { useFocusRelease } from "./useFocusRelease";
 import { useClickGate, useHoverCursor, usePick } from "./usePick";
 import { HairLine, TechLabel, useMaterialize } from "../primitives";
@@ -152,7 +152,7 @@ export function LineChart3D({ series = DEFAULT_SERIES, color, accent, interactiv
 
   const focus = useFridayStore((s) => s.focus);
   const setFocus = useFridayStore((s) => s.setFocus);
-  useFocusRelease("line");
+  const releaseOnMiss = useFocusRelease("line");
   const selectedKey = focus && focus.owner === "line" ? focus.key : null;
 
   const handleSelect = (si: number, i: number, s: SeriesDatum) => {
@@ -177,14 +177,7 @@ export function LineChart3D({ series = DEFAULT_SERIES, color, accent, interactiv
       ref={ref}
       position={CHART_ANCHOR}
       rotation={[0, -0.16, 0]}
-      onPointerMissed={
-        interactive
-          ? () => {
-              const s = useFridayStore.getState();
-              s.setFocus(releaseFocus(s.focus, "line"));
-            }
-          : undefined
-      }
+      onPointerMissed={interactive ? releaseOnMiss : undefined}
     >
       <ChartFloor color={color} max={max} />
       {data.map((s, si) => {
@@ -305,7 +298,7 @@ export function BarChart3D({ series = DEFAULT_SERIES, color, accent, interactive
   // --- native focus (owner "bar", key "<series>-<category>") ---
   const focus = useFridayStore((s) => s.focus);
   const setFocus = useFridayStore((s) => s.setFocus);
-  useFocusRelease("bar");
+  const releaseOnMiss = useFocusRelease("bar");
   const [hovered, setHovered] = useState<{ si: number; i: number } | null>(null);
   const gate = useClickGate();
   useHoverCursor(hovered !== null);
@@ -385,14 +378,7 @@ export function BarChart3D({ series = DEFAULT_SERIES, color, accent, interactive
   return (
     <group
       ref={ref}
-      onPointerMissed={
-        interactive
-          ? () => {
-              const st = useFridayStore.getState();
-              st.setFocus(releaseFocus(st.focus, "bar"));
-            }
-          : undefined
-      }
+      onPointerMissed={interactive ? releaseOnMiss : undefined}
     >
       {data.map((s, si) => (
         <instancedMesh
@@ -701,7 +687,7 @@ export function Timeline3D({ events = DEFAULT_EVENTS, color, accent, interactive
   const focus = useFridayStore((s) => s.focus);
   const setFocus = useFridayStore((s) => s.setFocus);
   const state = useFridayStore((s) => s.state);
-  useFocusRelease("timeline");
+  const releaseOnMiss = useFocusRelease("timeline");
   const selectedId = focus && focus.owner === "timeline" ? focus.key : null;
 
   const reduced = useMemo(
@@ -732,14 +718,7 @@ export function Timeline3D({ events = DEFAULT_EVENTS, color, accent, interactive
       ref={ref}
       position={[0, -0.1, 1.2]}
       rotation={[0.05, -0.12, 0]}
-      onPointerMissed={
-        interactive
-          ? () => {
-              const s = useFridayStore.getState();
-              s.setFocus(releaseFocus(s.focus, "timeline"));
-            }
-          : undefined
-      }
+      onPointerMissed={interactive ? releaseOnMiss : undefined}
     >
       {/* base rail across the whole span, then the brighter "elapsed" fill up
           to NOW — the scrubber reads as time spent, not a decorative line */}

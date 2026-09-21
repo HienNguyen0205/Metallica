@@ -9,7 +9,6 @@ import {
   anyFocusedBy,
   isFocusedBy,
   makeFocus,
-  releaseFocus,
   toggleFocus,
 } from "@/lib/visualization/focus";
 import { useFocusRelease } from "./useFocusRelease";
@@ -184,7 +183,7 @@ function MetricNode({
 export function RadialGauge({ metrics = [], color, interactive = true }: VizProps) {
   const focus = useFridayStore((s) => s.focus);
   const setFocus = useFridayStore((s) => s.setFocus);
-  useFocusRelease("gauge");
+  const releaseOnMiss = useFocusRelease("gauge");
 
   const handleSelect = (m: MetricDatum) => {
     const key = m.label.toUpperCase();
@@ -199,14 +198,7 @@ export function RadialGauge({ metrics = [], color, interactive = true }: VizProp
   const anySelected = anyFocusedBy(focus, "gauge");
   return (
     <group
-      onPointerMissed={
-        interactive
-          ? () => {
-              const s = useFridayStore.getState();
-              s.setFocus(releaseFocus(s.focus, "gauge"));
-            }
-          : undefined
-      }
+      onPointerMissed={interactive ? releaseOnMiss : undefined}
     >
       {metrics.map((m, i) => (
         <MetricNode
@@ -283,7 +275,7 @@ export function Radar({ metrics = [], color, accent, interactive = true }: VizPr
 
   const focus = useFridayStore((s) => s.focus);
   const setFocus = useFridayStore((s) => s.setFocus);
-  useFocusRelease("radar");
+  const releaseOnMiss = useFocusRelease("radar");
   const selectedId = focus && focus.owner === "radar" ? focus.key : null;
 
   useFrame((_, delta) => {
@@ -314,14 +306,7 @@ export function Radar({ metrics = [], color, accent, interactive = true }: VizPr
     // and a line edge-on — face-locked it is a true circle everywhere.
     <group
       ref={ref}
-      onPointerMissed={
-        interactive
-          ? () => {
-              const s = useFridayStore.getState();
-              s.setFocus(releaseFocus(s.focus, "radar"));
-            }
-          : undefined
-      }
+      onPointerMissed={interactive ? releaseOnMiss : undefined}
     >
       <Billboard>
         {[0.9, 1.5, 2.1, 2.6].map((r) => (
