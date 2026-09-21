@@ -98,6 +98,9 @@ export default defineConfig({
           // they are how these tests drive states and visualizations, so turn
           // them back on for the run.
           NEXT_PUBLIC_DEV_RAILS: "1",
+          // Any non-empty key: the map UI tests stub api.maptiler.com with
+          // page.route, so no real key (and no network) is involved.
+          NEXT_PUBLIC_MAPTILER_KEY: "test-key",
         },
         timeout: 420_000,
         reuseExistingServer: !process.env.CI,
