@@ -135,9 +135,46 @@ def test_a_foreign_origin_cannot_read_or_erase_what_friday_knows():
     assert client.delete("/memory/1", headers=headers).status_code == 403
 
 
+def test_browser_may_send_delete_cross_origin():
+    """The HUD's forget button is a cross-origin DELETE: CORS must allow it,
+    or the browser's preflight fails and the memory silently survives."""
+    res = client.options(
+        "/memory/1",
+        headers={"origin": "http://localhost:3000", "access-control-request-method": "DELETE"},
+    )
+    assert res.status_code == 200, res.text
+    assert "DELETE" in res.headers.get("access-control-allow-methods", "")
+
+
+def test_identified_callers_see_and_delete_only_shared_or_their_own():
+    from friday.core import config as core_config
+
+    rows = [dict(ROWS[0]), {**ROWS[1], "owner_user_id": "alice"}]
+    seed_cache(*ROWS)
+    lt.CACHE[1].owner_user_id = "alice"
+    store_returns(rows)
+    deleted = []
+    lt.store_delete = lambda memory_id, **kw: deleted.append((memory_id, kw))
+    old = core_config.settings.trust_identity_headers
+    core_config.settings.trust_identity_headers = True
+    try:
+        as_bob = {"x-user-id": "bob"}
+        listed = {m["id"] for m in client.get("/memory", headers=as_bob).json()["memories"]}
+        assert listed == {1}, listed
+        assert {m["id"] for m in client.get("/memory", headers={"x-user-id": "alice"}).json()["memories"]} == {1, 2}
+        assert client.delete("/memory/2", headers=as_bob).status_code == 403
+        assert deleted == [], "a refused delete must not reach the store"
+        # An id the cache cannot vouch for is deleted scoped to what bob may see.
+        assert client.delete("/memory/77", headers=as_bob).json() == {"ok": True}
+        assert deleted == [(77, {"scoped": True, "owner": "bob"})], deleted
+    finally:
+        core_config.settings.trust_identity_headers = old
+
+
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
         if name.startswith("test_"):
             fn()
             print(f"ok  {name}")
     print("all memory API tests passed")
+

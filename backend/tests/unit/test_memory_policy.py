@@ -88,7 +88,7 @@ def _stub_memory(next_id=None):
     async def fake_embed(texts):
         return [[1.0, 0.0] for _ in texts]
 
-    def fake_insert(fact, prov, emb):
+    def fake_insert(fact, prov, emb, owner=None):
         row = {"id": box[0], "fact": fact, "provenance": prov,
                "created_at": "2026-01-01", "last_used_at": "2026-01-01"}
         box[0] += 1

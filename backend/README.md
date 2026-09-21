@@ -331,7 +331,7 @@ number.
 
 A high-risk call emits `confirm` and **blocks**. The stream stays open while the
 UI shows the tool name and its exact arguments; `POST /confirm {id, approved}`
-releases it. Silence is not consent — after `CONFIRM_TIMEOUT_S` (120s) the call
+releases it. Silence is not consent — after `FRIDAY_CONFIRM_TIMEOUT_S` (default 120s) the call
 is refused and the model is told it was denied.
 
 ## Cancellation and budgets
@@ -532,10 +532,18 @@ sessions, arguments or facts. Covered by
 
 Identity is plumbing, not login: requests without a trusted identity header
 are anonymous and `session_id` stays their boundary. Runs record
-`owner_user_id`; the cancel/replay endpoints refuse mismatched callers
-(403) while anonymous-owned runs behave exactly as before. Headers count
-only with `FRIDAY_TRUST_IDENTITY_HEADERS=true` (a proxy must strip them —
-blind trust would let anyone be anyone).
+`owner_user_id`; the cancel/replay/confirm endpoints refuse mismatched
+callers (403) while anonymous-owned runs behave exactly as before. Headers
+count only with `FRIDAY_TRUST_IDENTITY_HEADERS=true` (a proxy must strip them
+— blind trust would let anyone be anyone).
+
+Long-term memory follows the same rule: a memory written in an identified
+user's turn belongs to them — recalled, listed, deduplicated, superseded and
+consolidated only within their own set plus the shared (owner NULL) ones.
+**Before turning trust mode on, run the `alter table` in
+`supabase_schema.sql`** to add `friday_memory.owner_user_id`; without it,
+identified users' `remember` calls fail (logged, the turn continues).
+Anonymous deployments need no migration.
 
 `friday/audit.py` is an append-only ring (1000 entries): run lifecycle, tool
 execution, policy denials, approval requested/resolved, memory created and

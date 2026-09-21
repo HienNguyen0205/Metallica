@@ -33,7 +33,7 @@ def stub_planner():
     async def fake_plan(q, a, evidence, pinned_type=None):
         return PLAN
 
-    main.plan = fake_plan
+    routes.plan = fake_plan
 
 
 def test_a_relevant_memory_reaches_the_system_prompt():

@@ -10,8 +10,13 @@ from friday.core.config import settings
 
 # §11 — in-flight approval requests, keyed by per-request id.
 PENDING: dict[str, asyncio.Future[bool]] = {}
+#: Run owner per pending decision — /confirm applies the same gate as the
+#: run endpoints. Written and popped alongside PENDING.
+PENDING_OWNERS: dict[str, str | None] = {}
 
-CONFIRM_TIMEOUT_S = 120
+#: How long a high-risk tool waits for /confirm before counting as denied.
+#: Read once at import from FRIDAY_CONFIRM_TIMEOUT_S (default 120s).
+CONFIRM_TIMEOUT_S = settings.confirm_timeout_s_live
 
 #: §22 — sliding window for both caps below.
 WINDOW_S = 3600.0

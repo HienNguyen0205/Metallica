@@ -10,6 +10,8 @@ import asyncio
 import json
 from contextlib import contextmanager
 
+from friday.api import routes
+from friday.api import dependencies as deps
 from friday import agent, main, tools
 from friday.core import config as core_config
 from friday.schema import VisualizationPlan, VizData
@@ -48,7 +50,7 @@ def stub_planner():
         return PLAN.model_copy(update={"type": pinned_type}) if pinned_type else PLAN
 
     PINNED.clear()
-    main.plan = fake_plan
+    routes.plan = fake_plan
 
 
 # ---------- transport ----------
@@ -233,12 +235,12 @@ def _run_with_decision(decision: bool | None) -> tuple[list[tuple[str, dict]], l
         return events
 
     original_agent, agent.run = agent.run, gated_agent
-    original_timeout, main.CONFIRM_TIMEOUT_S = main.CONFIRM_TIMEOUT_S, 0.3
+    original_timeout, deps.CONFIRM_TIMEOUT_S = deps.CONFIRM_TIMEOUT_S, 0.3
     try:
         return asyncio.run(drive()), verdicts
     finally:
         agent.run = original_agent
-        main.CONFIRM_TIMEOUT_S = original_timeout
+        deps.CONFIRM_TIMEOUT_S = original_timeout
 
 
 def test_high_risk_call_is_announced_before_it_runs() -> None:
@@ -296,13 +298,13 @@ def test_v2_denial_records_failed_step_in_registry() -> None:
         return events
 
     original_agent, agent.run = agent.run, gated_agent
-    original_timeout, main.CONFIRM_TIMEOUT_S = main.CONFIRM_TIMEOUT_S, 0.3
+    original_timeout, deps.CONFIRM_TIMEOUT_S = deps.CONFIRM_TIMEOUT_S, 0.3
     try:
         with events_v2(True):
             events = asyncio.run(drive())
     finally:
         agent.run = original_agent
-        main.CONFIRM_TIMEOUT_S = original_timeout
+        deps.CONFIRM_TIMEOUT_S = original_timeout
 
     assert decided_verdicts == [False]
     names = [n for n, _ in events]
@@ -458,7 +460,7 @@ def test_v2_on_provider_error_marks_run_failed() -> None:
         raise RuntimeError("planner down")
 
     original_agent, agent.run = agent.run, fake_agent
-    original_plan, main.plan = main.plan, boom_plan
+    original_plan, routes.plan = routes.plan, boom_plan
     try:
         with events_v2(True):
             async def drain():
@@ -466,7 +468,7 @@ def test_v2_on_provider_error_marks_run_failed() -> None:
             frames = asyncio.run(drain())
     finally:
         agent.run = original_agent
-        main.plan = original_plan
+        routes.plan = original_plan
 
     names = [n for n, _, _ in frames]
     assert "error" in names and names[-1] == "done", names

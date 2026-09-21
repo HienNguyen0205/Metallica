@@ -115,7 +115,7 @@ def run_case(case: dict) -> dict:
     async def fake_embed(texts):
         return [[1.0, 0.0] for _ in texts]
 
-    def fake_insert(fact, prov, emb):
+    def fake_insert(fact, prov, emb, owner=None):
         row = {"id": len(inserted) + 1, "fact": fact, "provenance": prov,
                "created_at": "t", "last_used_at": "t"}
         inserted.append(row)

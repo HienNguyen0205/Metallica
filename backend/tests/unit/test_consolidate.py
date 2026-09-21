@@ -156,7 +156,6 @@ def _drive_run_query_once():
     synchronously by the stub the instant `run_query` calls it, so this does
     not depend on the dispatched task ever actually being scheduled.
     """
-    import friday.main as main_mod
     from friday import agent
     from friday.api import routes
     from friday.schema import VisualizationPlan, VizData
@@ -178,10 +177,10 @@ def _drive_run_query_once():
         yield agent.AgentEvent("state", {"state": "processing"})
 
     original_run = consolidate.run
-    original_plan = main_mod.plan
+    original_plan = routes.plan
     original_agent_run = agent.run
     consolidate.run = fake_run
-    main_mod.plan = fake_plan
+    routes.plan = fake_plan
     agent.run = fake_agent
     try:
         async def drain():
@@ -190,7 +189,7 @@ def _drive_run_query_once():
         asyncio.run(drain())
     finally:
         consolidate.run = original_run
-        main_mod.plan = original_plan
+        routes.plan = original_plan
         agent.run = original_agent_run
 
     return dispatched

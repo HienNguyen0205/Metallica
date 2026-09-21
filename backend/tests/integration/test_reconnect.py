@@ -62,8 +62,8 @@ async def drive_full(query: str = "reconnect me") -> tuple[list, str]:
 
 def setup():
     INVOCATIONS.clear()
-    original_plan = main.plan
-    main.plan = fake_plan
+    original_plan = routes.plan
+    routes.plan = fake_plan
     old_flag = v2_on()
     original = agent.run
     agent.run = counting_agent
@@ -72,7 +72,7 @@ def setup():
 
 def teardown(original, original_plan, old_flag):
     agent.run = original
-    main.plan = original_plan
+    routes.plan = original_plan
     v2_off(old_flag)
 
 
@@ -146,8 +146,8 @@ def test_replay_live_run_is_partial_and_nonterminal() -> None:
         await asyncio.sleep(30)
 
     async def scenario():
-        original_plan = main.plan
-        main.plan = fake_plan
+        original_plan = routes.plan
+        routes.plan = fake_plan
         old_flag = v2_on()
         original = agent.run
         agent.run = slow_agent
@@ -176,7 +176,7 @@ def test_replay_live_run_is_partial_and_nonterminal() -> None:
             assert REGISTRY.get(rid).status == "cancelled"
         finally:
             agent.run = original
-            main.plan = original_plan
+            routes.plan = original_plan
             v2_off(old_flag)
 
     asyncio.run(scenario())

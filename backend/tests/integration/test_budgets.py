@@ -8,6 +8,7 @@ timeout and output caps hold at the agent loop.
 import asyncio
 import json
 
+from friday.api import routes
 from friday import agent, main
 from friday.api.schemas import RunBudget
 from friday.core import config as core_config
@@ -58,8 +59,8 @@ def test_wall_time_budget_exceeded() -> None:
         result.text = "too slow"
 
     async def scenario():
-        original_plan = main.plan
-        main.plan = fake_plan
+        original_plan = routes.plan
+        routes.plan = fake_plan
         old_flag = v2_on()
         original = agent.run
         agent.run = chatty_agent
@@ -67,7 +68,7 @@ def test_wall_time_budget_exceeded() -> None:
             frames = await drain("slow turn", RunBudget(max_wall_time_ms=120))
         finally:
             agent.run = original
-            main.plan = original_plan
+            routes.plan = original_plan
             v2_off(old_flag)
 
         names = [n for n, _, _ in frames]
@@ -94,8 +95,8 @@ def test_tool_calls_budget_exceeded() -> None:
         result.text = "spam"
 
     async def scenario():
-        original_plan = main.plan
-        main.plan = fake_plan
+        original_plan = routes.plan
+        routes.plan = fake_plan
         old_flag = v2_on()
         original = agent.run
         agent.run = spammy_agent
@@ -103,7 +104,7 @@ def test_tool_calls_budget_exceeded() -> None:
             frames = await drain("spammy turn", RunBudget(max_tool_calls=2))
         finally:
             agent.run = original
-            main.plan = original_plan
+            routes.plan = original_plan
             v2_off(old_flag)
 
         names = [n for n, _, _ in frames]
@@ -123,8 +124,8 @@ def test_no_budget_means_no_ceiling() -> None:
         yield agent.AgentEvent("state", {"state": "processing"})
 
     async def scenario():
-        original_plan = main.plan
-        main.plan = fake_plan
+        original_plan = routes.plan
+        routes.plan = fake_plan
         old_flag = v2_on()
         original = agent.run
         agent.run = quick_agent
@@ -132,7 +133,7 @@ def test_no_budget_means_no_ceiling() -> None:
             frames = await drain("free turn", None)
         finally:
             agent.run = original
-            main.plan = original_plan
+            routes.plan = original_plan
             v2_off(old_flag)
 
         names = [n for n, _, _ in frames]

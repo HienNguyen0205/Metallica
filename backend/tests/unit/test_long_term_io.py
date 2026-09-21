@@ -57,7 +57,7 @@ def stub(*, rows=None, insert_row=None, fail=None, vectors=None):
             raise store.StoreError("down")
         return rows or []
 
-    def _insert(fact, provenance, embedding):
+    def _insert(fact, provenance, embedding, owner=None):
         THREADS.append(threading.current_thread().name)
         if fail == "insert":
             raise store.StoreError("down")

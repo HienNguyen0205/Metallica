@@ -14,7 +14,7 @@ from openai import APIError, NotFoundError, RateLimitError
 from friday import agent, audit, llm, memory, observability
 from friday import identity as identity_mod
 from friday.api import dependencies as deps
-from friday.api.dependencies import PENDING, guard, require_known_origin
+from friday.api.dependencies import PENDING, PENDING_OWNERS, guard, require_known_origin
 from friday.api.schemas import Decision, Query, RunBudget
 from friday.core.config import settings
 from friday.events.serializer import sse, sse_envelope
@@ -23,41 +23,7 @@ from friday.memory import embed as embed_mod
 from friday.memory import long_term
 from friday.memory import store as memory_store
 from friday.memory.store import StoreError
-
-# Keep CONFIRM_TIMEOUT_S readable for old imports, but resolve dynamically
-CONFIRM_TIMEOUT_S = deps.CONFIRM_TIMEOUT_S
-
-
-def _get_confirm_timeout() -> float:
-    # Tests monkey-patch friday.main.CONFIRM_TIMEOUT_S; respect that live value.
-    try:
-        import friday.main as main_mod
-
-        val = getattr(main_mod, "CONFIRM_TIMEOUT_S", None)
-        if isinstance(val, (int, float)):
-            return float(val)
-    except ImportError:
-        pass
-    return float(deps.CONFIRM_TIMEOUT_S)
-
-
-async def _get_plan():
-    # Tests monkey-patch friday.main.plan; respect that if set.
-    try:
-        import friday.main as main_mod
-
-        maybe = getattr(main_mod, "plan", None)
-        # If main.plan was overridden to a fake, use it (check if it's not the original import)
-        if maybe is not None:
-            import friday.planner as planner_mod
-
-            if maybe is not planner_mod.plan:
-                return maybe
-    except ImportError:
-        pass
-    from friday.planner import plan as real_plan
-
-    return real_plan
+from friday.planner import plan
 
 log = logging.getLogger("friday")
 
@@ -143,7 +109,7 @@ async def recall_block(query: str) -> str:
         observability.observe("memory_latency_ms",
                               (time.perf_counter() - mem_start) * 1000,
                               {"op": "recall_embed"})
-        hits = long_term.top_k(vectors[0], long_term.TOP_K_DEFAULT)
+        hits = long_term.top_k(vectors[0], long_term.TOP_K_DEFAULT, owner=long_term.OWNER.get())
         if hits:
             asyncio.get_running_loop().run_in_executor(None, _touch, [m.id for m in hits])
         return long_term.render_block(hits)
@@ -157,9 +123,12 @@ async def recall_block(query: str) -> str:
 
 
 def _touch(ids: list[int]) -> None:
-    from friday.memory.store import touch
-
-    touch(ids)
+    # Runs on an executor thread whose future nobody awaits: an exception
+    # escaping here would surface only as asyncio's "never retrieved".
+    try:
+        memory_store.touch(ids)
+    except Exception:
+        log.warning("could not refresh last_used_at", exc_info=True)
 
 
 async def _run_query_events(
@@ -181,6 +150,7 @@ async def _run_query_events(
         request_id = uuid.uuid4().hex
         decided: asyncio.Future[bool] = asyncio.get_running_loop().create_future()
         PENDING[request_id] = decided
+        PENDING_OWNERS[request_id] = run.owner_user_id if run else None
         actor = (run.owner_user_id if run else None) or session_id
         if run:
             REGISTRY.update_status(run.run_id, "waiting_approval")
@@ -193,7 +163,7 @@ async def _run_query_events(
         try:
             wait_start = time.perf_counter()
             try:
-                approved = await asyncio.wait_for(decided, _get_confirm_timeout())
+                approved = await asyncio.wait_for(decided, deps.CONFIRM_TIMEOUT_S)
             finally:
                 observability.observe(
                     "approval_wait_ms", (time.perf_counter() - wait_start) * 1000)
@@ -216,6 +186,7 @@ async def _run_query_events(
             raise
         finally:
             PENDING.pop(request_id, None)
+            PENDING_OWNERS.pop(request_id, None)
             if run:
                 REGISTRY.update_status(run.run_id, "running")
 
@@ -266,8 +237,7 @@ async def _run_query_events(
             raise failure
 
         stage = "planner"
-        plan_fn = await _get_plan()
-        result = await plan_fn(query, outcome.text, outcome.evidence, pinned_type)
+        result = await plan(query, outcome.text, outcome.evidence, pinned_type)
     except NotFoundError:
         log.exception("model %r not available at %s", llm.model(), llm.base_url())
         yield ("error", {"message": f"model '{llm.model()}' unavailable at this endpoint"})
@@ -333,6 +303,8 @@ async def run_query(
     request_id: str | None = None, owner_user_id: str | None = None,
     actor: str | None = None,
 ) -> AsyncIterator[str]:
+    # Recall, remember and consolidation all scope to this owner (P3).
+    long_term.OWNER.set(owner_user_id)
     if not settings.events_v2:
         # P0.3 legacy flat path — removal plan: keep until FRIDAY_EVENTS_V2
         # becomes the default and one release of enveloped traffic has baked
@@ -454,7 +426,7 @@ async def run_query(
         await agen.aclose()
 
 
-@router.post("/runs/{run_id}/cancel", dependencies=[Depends(guard)])
+@router.post("/runs/{run_id}/cancel", dependencies=[Depends(require_known_origin)])
 async def cancel_run(run_id: str,
                      x_user_id: str | None = Header(default=None)) -> dict[str, Any]:
     """P1.5 — cancel a live run. Idempotent: cancelling a finished run
@@ -480,7 +452,7 @@ async def cancel_run(run_id: str,
     return {"ok": True, "run_id": run_id, "status": run.status, "cancelled": False}
 
 
-@router.get("/runs/{run_id}/events", dependencies=[Depends(guard)])
+@router.get("/runs/{run_id}/events", dependencies=[Depends(require_known_origin)])
 async def replay_run(run_id: str, after_sequence: int = 0,
                      x_user_id: str | None = Header(default=None)) -> dict[str, Any]:
     """P1.10 — reconnect/resume. Returns enveloped frames already emitted for
@@ -525,17 +497,21 @@ async def query_endpoint(body: Query,
     )
 
 
-@router.post("/confirm", dependencies=[Depends(guard)])
-async def confirm_endpoint(body: Decision) -> dict[str, Any]:
+@router.post("/confirm", dependencies=[Depends(require_known_origin)])
+async def confirm_endpoint(body: Decision,
+                           x_user_id: str | None = Header(default=None)) -> dict[str, Any]:
     decided = PENDING.get(body.id)
     if decided is None or decided.done():
         raise HTTPException(status_code=404, detail="no pending decision with that id")
+    # Same gate as cancel/replay: approving a tool is at least as sensitive.
+    if not identity_mod.may_access(PENDING_OWNERS.get(body.id), _caller(None, x_user_id)):
+        raise HTTPException(status_code=403, detail="not your run")
     decided.set_result(body.approved)
     return {"ok": True, "approved": body.approved}
 
 
-@router.get("/memory", dependencies=[Depends(guard)])
-async def list_memory() -> dict[str, Any]:
+@router.get("/memory", dependencies=[Depends(require_known_origin)])
+async def list_memory(x_user_id: str | None = Header(default=None)) -> dict[str, Any]:
     """Mọi thứ FRIDAY nhớ. Không tính vào rate limit — không có model call nào.
 
     Đọc thẳng từ store chứ không từ cache. Đây là màn hình xem lại, không phải
@@ -547,6 +523,7 @@ async def list_memory() -> dict[str, Any]:
     Vector không nằm trong response: 768 số float không nói gì với người đọc và
     làm payload phình lên vô ích.
     """
+    caller = _caller(None, x_user_id)
     try:
         rows = await asyncio.to_thread(memory_store.select_all)
     except StoreError:
@@ -560,7 +537,7 @@ async def list_memory() -> dict[str, Any]:
                     "created_at": m.created_at,
                     "last_used_at": m.last_used_at,
                 }
-                for m in long_term.CACHE
+                for m in long_term.visible(caller.user_id)
             ],
             "from_cache": True,
         }
@@ -568,23 +545,35 @@ async def list_memory() -> dict[str, Any]:
         "memories": [
             {key: row.get(key) for key in ("id", "fact", "provenance", "created_at", "last_used_at")}
             for row in rows
+            if identity_mod.may_access(row.get("owner_user_id"), caller)
         ],
         "from_cache": False,
     }
 
 
-@router.delete("/memory/{memory_id}", dependencies=[Depends(guard)])
-async def forget_memory(memory_id: int) -> dict[str, Any]:
-    return {"ok": await long_term.forget(memory_id)}
+@router.delete("/memory/{memory_id}", dependencies=[Depends(require_known_origin)])
+async def forget_memory(memory_id: int,
+                        x_user_id: str | None = Header(default=None)) -> dict[str, Any]:
+    caller = _caller(None, x_user_id)
+    cached = next((m for m in long_term.CACHE if m.id == memory_id), None)
+    if cached is not None:
+        if not identity_mod.may_access(cached.owner_user_id, caller):
+            raise HTTPException(status_code=403, detail="not your memory")
+        return {"ok": await long_term.forget(memory_id)}
+    # Not cached (evicted, or the store was down at boot): let the store scope
+    # it. Only in trust mode — an unmigrated table has no owner column, and
+    # without trust every row is shared anyway.
+    scoped = bool(settings.trust_identity_headers)
+    return {"ok": await long_term.forget(memory_id, scoped=scoped, owner=caller.user_id)}
 
-@router.get("/metrics", dependencies=[Depends(guard)])
+@router.get("/metrics", dependencies=[Depends(require_known_origin)])
 async def metrics_endpoint() -> dict[str, Any]:
     """P3 — counters and latency summaries as JSON. Label values are
     component/status/model names only; never queries, sessions or facts."""
     return observability.snapshot()
 
 
-@router.get("/audit", dependencies=[Depends(guard)])
+@router.get("/audit", dependencies=[Depends(require_known_origin)])
 async def audit_endpoint(run_id: str | None = None, limit: int = 100) -> dict[str, Any]:
     """P3 — recent audit entries, newest first, filterable by run. Operators
     only (same origin gate as everything else)."""

@@ -14,12 +14,16 @@ import os
 import urllib.error
 import urllib.request
 from typing import Any
+from urllib.parse import quote
 from urllib.request import urlopen  # test thay thẳng tên này
 
 log = logging.getLogger("friday.memory")
 
 TABLE = "friday_memory"
-COLUMNS = "id,fact,provenance,embedding,created_at,last_used_at"
+#: `*`, not a column list: `owner_user_id` arrived later, and naming it would
+#: fail every read on a table that never ran the migration. Rows without it
+#: are shared memories, which is what they always were.
+COLUMNS = "*"
 TIMEOUT_S = 10.0
 
 #: Trần số dòng một lần nạp. Phải khớp long_term.MAX_MEMORIES: cache không giữ
@@ -95,16 +99,28 @@ def select_all() -> list[dict[str, Any]]:
     return rows
 
 
-def insert(fact: str, provenance: str, embedding: list[float]) -> dict[str, Any]:
+def insert(fact: str, provenance: str, embedding: list[float], owner: str | None = None) -> dict[str, Any]:
     body = {"fact": fact, "provenance": provenance, "embedding": _vector_literal(embedding)}
+    # Sent only when set, for the same reason as COLUMNS: anonymous writes keep
+    # working on an unmigrated table. Identified writes need the migration.
+    if owner is not None:
+        body["owner_user_id"] = owner
     rows = _request("POST", TABLE, body, prefer="return=representation") or []
     if not rows:
         raise StoreError("insert returned no row")
     return rows[0]
 
 
-def delete(memory_id: int) -> None:
-    _request("DELETE", f"{TABLE}?id=eq.{int(memory_id)}")
+def delete(memory_id: int, *, scoped: bool = False, owner: str | None = None) -> None:
+    """`scoped` limits the delete to rows `owner` may see (shared, or theirs)
+    — for ids the cache cannot vouch for. Needs the migration."""
+    path = f"{TABLE}?id=eq.{int(memory_id)}"
+    if scoped:
+        if owner is None:
+            path += "&owner_user_id=is.null"
+        else:
+            path += f"&or=(owner_user_id.is.null,owner_user_id.eq.{quote(owner, safe='')})"
+    _request("DELETE", path)
 
 
 def touch(ids: list[int]) -> None:
