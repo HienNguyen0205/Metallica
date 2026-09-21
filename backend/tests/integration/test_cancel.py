@@ -5,16 +5,27 @@ waiting approval, after completion, duplicate, and unknown runs.
 """
 
 import asyncio
+import os
 import json
 
 from fastapi import HTTPException
 
-from friday.api import dependencies as deps
 from friday import agent, main
 from friday.api import routes
 from friday.core import config as core_config
 from friday.runs import REGISTRY
 from friday.schema import VizData, VisualizationPlan
+
+
+def _set_confirm_timeout(value):
+    """Swap FRIDAY_CONFIRM_TIMEOUT_S, which the route reads live on every
+    approval; returns the previous value (None = unset) for restoring."""
+    old = os.environ.get("FRIDAY_CONFIRM_TIMEOUT_S")
+    if value is None:
+        os.environ.pop("FRIDAY_CONFIRM_TIMEOUT_S", None)
+    else:
+        os.environ["FRIDAY_CONFIRM_TIMEOUT_S"] = str(value)
+    return old
 
 PLAN = VisualizationPlan(
     type="radial_gauge",
@@ -150,7 +161,7 @@ def test_cancel_while_waiting_approval() -> None:
         old_flag = v2_on()
         original_agent = agent.run
         agent.run = gated_agent
-        original_timeout, deps.CONFIRM_TIMEOUT_S = deps.CONFIRM_TIMEOUT_S, 60.0
+        original_timeout = _set_confirm_timeout(60.0)
         try:
             frames: list = []
             task = asyncio.create_task(drive(frames))
@@ -176,7 +187,7 @@ def test_cancel_while_waiting_approval() -> None:
         finally:
             agent.run = original_agent
             routes.plan = original_plan
-            deps.CONFIRM_TIMEOUT_S = original_timeout
+            _set_confirm_timeout(original_timeout)
             v2_off(old_flag)
 
     asyncio.run(scenario())

@@ -164,7 +164,9 @@ async def _run_query_events(
         try:
             wait_start = time.perf_counter()
             try:
-                approved = await asyncio.wait_for(decided, deps.CONFIRM_TIMEOUT_S)
+                # Read live so operators editing FRIDAY_CONFIRM_TIMEOUT_S on a
+                # running service see an effect (import-time snapshot would not).
+                approved = await asyncio.wait_for(decided, settings.confirm_timeout_s_live)
             finally:
                 observability.observe(
                     "approval_wait_ms", (time.perf_counter() - wait_start) * 1000)
