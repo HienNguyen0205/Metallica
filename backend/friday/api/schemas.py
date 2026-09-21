@@ -6,6 +6,8 @@ import logging
 
 from pydantic import BaseModel, Field, ValidationError, field_validator
 
+from friday.schemas.visualization import LatLon
+
 
 class RunBudget(BaseModel):
     """Per-run ceilings (P1.6). Wall-time and tool calls are enforced;
@@ -145,3 +147,10 @@ class Decision(BaseModel):
     #: cannot be used to probe arbitrary keys.
     id: str = Field(max_length=64, pattern="^[A-Za-z0-9_-]+$")
     approved: bool
+
+
+class RouteRequest(BaseModel):
+    """POST /geo/route — validated here so Valhalla only sees sane input."""
+
+    waypoints: list[LatLon] = Field(min_length=2, max_length=5)
+    profile: Literal["auto", "motor_scooter", "bicycle", "pedestrian"] = "motor_scooter"

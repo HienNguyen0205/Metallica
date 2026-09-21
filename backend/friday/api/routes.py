@@ -8,15 +8,16 @@ from collections.abc import AsyncIterator
 from typing import Any
 
 from fastapi import APIRouter, Depends, Header, HTTPException
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from openai import APIError, NotFoundError, RateLimitError
 
 from friday import agent, audit, llm, memory, observability
 from friday import identity as identity_mod
 from friday.api import dependencies as deps
 from friday.api.dependencies import PENDING, PENDING_OWNERS, guard, require_known_origin
-from friday.api.schemas import ClientContext, Decision, Query, RunBudget
+from friday.api.schemas import ClientContext, Decision, Query, RouteRequest, RunBudget
 from friday.core.config import settings
+from friday.geo import valhalla
 from friday.events.serializer import sse, sse_envelope
 from friday.memory import consolidate
 from friday.memory import embed as embed_mod
@@ -641,6 +642,19 @@ async def audit_endpoint(run_id: str | None = None, limit: int = 100,
         elif e.get("actor") == caller.actor:
             scoped.append(e)
     return {"events": scoped}
+
+
+@router.post("/geo/route", dependencies=[Depends(require_known_origin)])
+async def geo_route(body: RouteRequest) -> Any:
+    """Spec §6.3 — one route question for the map UI and nothing else.
+    No model call behind it, so the origin gate is the only guard needed."""
+    try:
+        # Looked up on the module so tests can swap valhalla.route.
+        return await valhalla.route([w.model_dump() for w in body.waypoints], body.profile)
+    except valhalla.RoutingUnavailable:
+        return JSONResponse(status_code=503, content={"error": "routing_unavailable"})
+    except valhalla.NoRoute:
+        return JSONResponse(status_code=422, content={"error": "no_route"})
 
 
 @router.get("/health")
