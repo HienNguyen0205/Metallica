@@ -22,6 +22,8 @@ export interface ClientContext {
   gpu?: { vendor?: string; architecture?: string };
   platform?: string;
   timezone?: string;
+  /** Minutes east of UTC now — the clock tool builds the operator's time from it. */
+  utc_offset_min?: number;
   languages?: string[];
   screen?: { width: number; height: number; dpr: number };
   /** Only when the operator turned location on; ~1 km (2 decimals). */
@@ -42,6 +44,8 @@ export interface RawReadings {
   gpu?: { vendor?: string; architecture?: string };
   platform?: string;
   timezone?: string;
+  /** Date#getTimezoneOffset(): minutes WEST of UTC. */
+  tzOffsetMin?: number;
   languages?: readonly string[];
   screen?: { width: number; height: number; dpr: number };
   location?: { lat: number; lon: number };
@@ -103,6 +107,7 @@ export function buildClientContext(r: RawReadings): ClientContext {
     gpu: gpu && Object.keys(gpu).length ? gpu : undefined,
     platform: str(r.platform),
     timezone: str(r.timezone, 64),
+    utc_offset_min: num(r.tzOffsetMin, -840, 840) !== undefined ? -r.tzOffsetMin! || 0 : undefined,
     languages: langs?.length ? langs.slice(0, 5) : undefined,
     screen: width && height && dpr ? { width, height, dpr } : undefined,
     // Coarsened here as well as on arrival: a finer fix never leaves the tab.
@@ -176,6 +181,7 @@ export async function collectClientContext(): Promise<ClientContext | undefined>
       gpu,
       platform: nav.userAgentData?.platform,
       timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+      tzOffsetMin: new Date().getTimezoneOffset(),
       languages: navigator.languages,
       screen: { width: screen.width, height: screen.height, dpr: devicePixelRatio },
       location: useFridayStore.getState().location ?? undefined,

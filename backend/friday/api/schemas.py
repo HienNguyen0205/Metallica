@@ -80,6 +80,9 @@ class ClientContext(BaseModel):
     gpu: ClientGpu | None = None
     platform: str | None = Field(default=None, max_length=40)
     timezone: str | None = Field(default=None, max_length=64)
+    #: Minutes east of UTC right now (-getTimezoneOffset()); lets the clock
+    #: tool read the operator's time with the stdlib, no tz database needed.
+    utc_offset_min: int | None = Field(default=None, ge=-840, le=840)
     languages: list[str] | None = Field(default=None, max_length=5)
     screen: ClientScreen | None = None
     location: ClientLocation | None = None

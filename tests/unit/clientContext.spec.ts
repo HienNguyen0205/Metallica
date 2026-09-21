@@ -75,3 +75,9 @@ test("a shared location is rounded to ~1 km before it leaves the browser", () =>
   expect(buildClientContext({ location: { lat: 95, lon: 0 } }).location).toBeUndefined();
   expect(buildClientContext({ location: { lat: Number.NaN, lon: 1 } }).location).toBeUndefined();
 });
+
+test("the UTC offset is sent east-positive, the way the clock tool reads it", () => {
+  // getTimezoneOffset() is west-positive: Asia/Saigon reports -420.
+  expect(buildClientContext({ tzOffsetMin: -420 }).utc_offset_min).toBe(420);
+  expect(buildClientContext({ tzOffsetMin: 9999 }).utc_offset_min).toBeUndefined();
+});

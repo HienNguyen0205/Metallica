@@ -30,6 +30,28 @@ def test_the_time_it_reports_carries_an_offset():
     assert output["weekday"] == parsed.strftime("%A"), output
 
 
+def test_the_operators_clock_wins_when_their_browser_sent_it():
+    """The HUD shows the operator's time; the tool must agree with it, not
+    with a server that may sit in another timezone."""
+    from friday.api.schemas import ClientContext
+    from friday.tools.client.metrics import CLIENT
+
+    async def as_operator():
+        CLIENT.set(ClientContext(timezone="Asia/Saigon", utc_offset_min=420).model_dump(exclude_none=True))
+        return await REGISTRY["get_current_time"].run({})
+
+    output = asyncio.run(as_operator())
+    assert output["utc_offset"] == "+0700", output
+    assert output["timezone"] == "Asia/Saigon", output
+    assert output["source"] == "operator", output
+    assert datetime.fromisoformat(output["iso"]).utcoffset().total_seconds() == 7 * 3600
+
+
+def test_without_client_data_it_reads_the_host_and_says_so():
+    output = asyncio.run(REGISTRY["get_current_time"].run({}))
+    assert output["source"] == "host", output
+
+
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
         if name.startswith("test_"):

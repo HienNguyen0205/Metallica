@@ -67,8 +67,9 @@ def _build_default_registry() -> dict[str, Tool]:
         Tool(
             name="get_current_time",
             description=(
-                "Read the clock on the host this orchestrator runs on: current "
-                "date, time, weekday and UTC offset. Use this for any question "
+                "Read the current date, time, weekday and UTC offset - the "
+                "operator's own clock when their browser sent it (source "
+                "'operator'), else the host's. Use this for any question "
                 "about what time or day it is. Never answer that from memory and "
                 "never search the web for it."
             ),
