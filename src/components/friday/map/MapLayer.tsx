@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Map as MlMap, Marker, NavigationControl, ScaleControl } from "maplibre-gl";
+import { Map as MlMap, Marker, NavigationControl, ScaleControl, type MapMouseEvent } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import "./map.css";
 import { useFridayStore } from "@/lib/store";
@@ -12,6 +12,8 @@ import type { MapProfile } from "@/lib/visualization/types";
 import { STATUS_COLORS, markerLabel, statusOf } from "../visualization/globe/geo";
 import { devRailsEnabled } from "../hud/devRails";
 import { styleUrl, type Endpoint, type MapStyleId, type Place } from "./mapApi";
+import { MapSearch } from "./MapSearch";
+import { ContextMenu, PlacePanel, myLocationEndpoint, type MenuState } from "./PlacePanel";
 
 const ENTER_MS = 900;
 const LEAVE_MS = 500;
@@ -82,6 +84,7 @@ export default function MapStage() {
   const [buildings, setBuildings] = useState(false);
   const [place, setPlace] = useState<Place | null>(null);
   const [directions, setDirections] = useState<DirectionsValue | null>(null);
+  const [menu, setMenu] = useState<MenuState | null>(null);
   const mode = useFridayStore((s) => s.mapView.mode);
   const rev = useFridayStore((s) => s.mapView.rev);
   const points = useFridayStore((s) => s.mapView.points);
@@ -195,13 +198,14 @@ export default function MapStage() {
       if (e.key !== "Escape" || e.defaultPrevented) return;
       const el = e.target as HTMLElement | null;
       if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable)) return;
-      if (directions) setDirections(null);
+      if (menu) setMenu(null);
+      else if (directions) setDirections(null);
       else if (place) setPlace(null);
       else leave();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [directions, place, leave]);
+  }, [menu, directions, place, leave]);
 
   // Markers carried over from the globe / spec. Hidden while directions draw their own A/B.
   useEffect(() => {
@@ -221,6 +225,53 @@ export default function MapStage() {
     });
     return () => markers.forEach((m) => m.remove());
   }, [map, points, directions]);
+
+  // POI click → place card; right click → context menu; empty click closes both.
+  useEffect(() => {
+    if (!map) return;
+    const onClick = (e: MapMouseEvent) => {
+      setMenu(null);
+      const hit = map
+        .queryRenderedFeatures(e.point)
+        .find((f) => f.layer.type === "symbol" && typeof f.properties?.name === "string");
+      if (!hit) return;
+      const props = hit.properties as Record<string, unknown>;
+      const at = hit.geometry.type === "Point" ? (hit.geometry.coordinates as [number, number]) : [e.lngLat.lng, e.lngLat.lat];
+      setPlace({
+        label: String(props["name:vi"] ?? props.name),
+        address: "",
+        category: typeof props.class === "string" ? props.class : undefined,
+        lat: at[1],
+        lon: at[0],
+      });
+    };
+    const onContext = (e: MapMouseEvent) => setMenu({ x: e.point.x, y: e.point.y, lat: e.lngLat.lat, lon: e.lngLat.lng });
+    const onMove = (e: MapMouseEvent) => {
+      const over = map.queryRenderedFeatures(e.point).some((f) => f.layer.type === "symbol" && f.properties?.name);
+      map.getCanvas().style.cursor = over ? "pointer" : "";
+    };
+    map.on("click", onClick);
+    map.on("contextmenu", onContext);
+    map.on("mousemove", onMove);
+    return () => {
+      map.off("click", onClick);
+      map.off("contextmenu", onContext);
+      map.off("mousemove", onMove);
+    };
+  }, [map]);
+
+  const getNear = useCallback(() => {
+    const c = map?.getCenter();
+    return c ? { lat: c.lat, lon: c.lng } : null;
+  }, [map]);
+  const directionsTo = (to: Endpoint) => {
+    setPlace(null);
+    setDirections((d) => ({ profile: d?.profile ?? "motor_scooter", stops: [d?.stops[0] ?? myLocationEndpoint(), to] }));
+  };
+  const directionsFrom = (from: Endpoint) => {
+    setPlace(null);
+    setDirections((d) => ({ profile: d?.profile ?? "motor_scooter", stops: [from, d?.stops.at(-1) ?? null] }));
+  };
 
   // My location: blue dot, halo sized to the browser's accuracy radius.
   useEffect(() => {
@@ -266,11 +317,31 @@ export default function MapStage() {
   const visible = ready && (mode === "entering" || mode === "map");
   const duration = reduced ? REDUCED_MS : mode === "leaving" ? LEAVE_MS : ENTER_MS;
 
+  // Right-clicks on markers never reach the canvas, so the layer catches them
+  // too (anything outside the map container, e.g. the search box, is ignored).
+  const onLayerContextMenu = (e: React.MouseEvent) => {
+    if (!map || !containerRef.current?.contains(e.target as Node)) return;
+    e.preventDefault();
+    const r = containerRef.current.getBoundingClientRect();
+    let lat: number;
+    let lon: number;
+    try {
+      const ll = map.unproject([e.clientX - r.left, e.clientY - r.top]);
+      lat = ll.lat;
+      lon = ll.lng;
+    } catch {
+      lat = map.getCenter().lat; // transform not ready; the click is near the middle anyway
+      lon = map.getCenter().lng;
+    }
+    setMenu({ x: e.clientX - r.left, y: e.clientY - r.top, lat, lon });
+  };
+
   return (
     <div
       data-testid="map-layer"
       data-mode={mode}
       className="friday-map absolute inset-0"
+      onContextMenu={onLayerContextMenu}
       style={{
         opacity: visible ? 1 : 0,
         filter: visible || reduced ? "none" : "blur(12px)",
@@ -279,16 +350,36 @@ export default function MapStage() {
         pointerEvents: mode === "leaving" ? "none" : "auto",
       }}
     >
-      <div ref={containerRef} className="absolute inset-0" />
+      <div ref={containerRef} className="absolute inset-0" style={{ position: "absolute", inset: 0 }} />
 
       <div className="absolute left-4 top-16 z-10 flex items-start gap-2">
         <button type="button" className="friday-map-chip" aria-label="Quay lại địa cầu" onClick={leave}>
           ← Địa cầu
         </button>
-        {/* Task 7 mounts MapSearch here; Task 8 adds the directions toggle. */}
+        <MapSearch
+          label="Tìm kiếm địa điểm"
+          placeholder="Tìm kiếm địa điểm…"
+          getNear={getNear}
+          onPick={(p) => {
+            setMenu(null);
+            setPlace(p);
+            map?.flyTo({ center: [p.lon, p.lat], zoom: Math.max(map.getZoom(), 16) });
+          }}
+        />
       </div>
 
-      {/* Task 7 mounts PlacePanel / ContextMenu here; Task 8 mounts DirectionsPanel. */}
+      {place && !directions && (
+        <PlacePanel place={place} onClose={() => setPlace(null)} onDirectionsTo={directionsTo} onDirectionsFrom={directionsFrom} />
+      )}
+      {menu && (
+        <ContextMenu
+          menu={menu}
+          onClose={() => setMenu(null)}
+          onFrom={directionsFrom}
+          onTo={directionsTo}
+          onWhatsHere={(lat, lon) => setPlace({ label: "Vị trí đã ghim", address: "", lat, lon })}
+        />
+      )}
 
       <button type="button" className="friday-map-fab absolute bottom-40 right-3 z-10" aria-label="Vị trí của tôi" onClick={locate}>
         ◎
