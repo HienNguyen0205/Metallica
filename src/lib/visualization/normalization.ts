@@ -74,6 +74,16 @@ function sanitizeData(data: VisualizationSpec["data"]): VizData {
         return [{ ...s, label: sanitizeLabel(s.label) ?? `SERIES-${i}`, points: s.points.map((p) => (typeof p === "number" && Number.isFinite(p) ? Math.max(0, p) : 0)) }];
       })
     : undefined;
+  // Line/bar key React nodes and legend rows by label; a repeat collided.
+  if (out.series) {
+    const seen = new Set<string>();
+    for (const s of out.series) {
+      let label = s.label;
+      for (let n = 2; seen.has(label); n++) label = `${s.label}-${n}`;
+      seen.add(label);
+      s.label = label;
+    }
+  }
 
   // Clone node/point/event arrays so callers never share mutable wire data.
   // Ids and labels are coerced: nodes key React + raycast tags off them.

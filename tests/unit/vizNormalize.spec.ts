@@ -116,3 +116,17 @@ test("series points below zero clamp to 0 — charts draw up from a zero baselin
   });
   expect(out.data?.series?.[0]?.points).toEqual([0, 3, 0]);
 });
+
+test("duplicate series labels get a suffix — charts key and legend by label", () => {
+  const out = normalizeVisualization({
+    type: "line_3d",
+    data: {
+      series: [
+        { label: "CPU", points: [1] },
+        { label: "CPU", points: [2] },
+        { label: "CPU", points: [3] },
+      ],
+    },
+  });
+  expect(out.data?.series?.map((s) => s.label)).toEqual(["CPU", "CPU-2", "CPU-3"]);
+});
