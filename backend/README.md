@@ -331,7 +331,7 @@ number.
 
 A high-risk call emits `confirm` and **blocks**. The stream stays open while the
 UI shows the tool name and its exact arguments; `POST /confirm {id, approved}`
-releases it. Silence is not consent — after `CONFIRM_TIMEOUT_S` (120s) the call
+releases it. Silence is not consent — after `FRIDAY_CONFIRM_TIMEOUT_S` (default 120s) the call
 is refused and the model is told it was denied.
 
 ## Cancellation and budgets
