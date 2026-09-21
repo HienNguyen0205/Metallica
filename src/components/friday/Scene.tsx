@@ -177,6 +177,7 @@ export default function Scene() {
   const [denseDisplay, setDenseDisplay] = useState(false);
   const setRenderBackend = useFridayStore((s) => s.setRenderBackend);
   const quality = useFridayStore((s) => s.quality);
+  const mapMode = useFridayStore((s) => s.mapView.mode);
 
   useEffect(() => {
     // Subscribed, not read once: devicePixelRatio changes when the window is
@@ -204,6 +205,9 @@ export default function Scene() {
   return (
     <Canvas
       key={ctxKey}
+      // The map covers the scene once it has landed; stop spending GPU on
+      // frames nobody sees (spec §3.3). Entering/leaving keep animating.
+      frameloop={mapMode === "map" ? "demand" : "always"}
       /* Was capped at 1.75, so a devicePixelRatio-2 display rendered at 87.5%
          of native and was upscaled — measurably soft, and the most common
          "looks blurry on a big screen" cause. AdaptiveDpr still walks this

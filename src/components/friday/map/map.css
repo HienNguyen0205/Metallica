@@ -1,0 +1,93 @@
+/* Street map (spec §4). Tailwind styles the panels; this file only covers
+   what Tailwind cannot reach: MapLibre's own controls, DOM markers, the
+   handoff transition. */
+
+.friday-map {
+  transition-property: opacity, filter, transform;
+  transition-timing-function: cubic-bezier(0.2, 0.7, 0.2, 1);
+  background: #02050a;
+}
+
+.friday-map-chip,
+.friday-map-fab,
+.friday-map-panel,
+.friday-map .maplibregl-ctrl-group {
+  background: rgb(8 20 30 / 0.82);
+  backdrop-filter: blur(10px);
+  border: 1px solid rgb(56 232 255 / 0.25);
+  color: #e5f6ff;
+  box-shadow: 0 4px 18px rgb(0 0 0 / 0.45);
+}
+
+.friday-map-chip {
+  border-radius: 9999px;
+  padding: 0.45rem 0.9rem;
+  font-size: 0.8rem;
+}
+
+.friday-map-panel {
+  border-radius: 12px;
+}
+
+.friday-map-fab {
+  width: 40px;
+  height: 40px;
+  border-radius: 9999px;
+  font-size: 1.1rem;
+}
+
+.friday-map .maplibregl-ctrl-group {
+  border-radius: 10px;
+}
+.friday-map .maplibregl-ctrl-group button + button {
+  border-top-color: rgb(56 232 255 / 0.18);
+}
+.friday-map .maplibregl-ctrl-icon {
+  filter: invert(1) hue-rotate(180deg);
+}
+.friday-map .maplibregl-ctrl-scale {
+  background: rgb(8 20 30 / 0.7);
+  color: #e5f6ff;
+  border-color: #38e8ff;
+}
+.friday-map .maplibregl-ctrl-attrib {
+  background: rgb(8 20 30 / 0.7);
+  color: #9fb8c6;
+}
+.friday-map .maplibregl-ctrl-attrib a {
+  color: #9fb8c6;
+}
+
+.friday-map-pin {
+  width: 18px;
+  height: 18px;
+  border-radius: 50% 50% 50% 0;
+  transform: rotate(-45deg);
+  background: var(--pin, #38e8ff);
+  border: 2px solid #eafcff;
+  box-shadow: 0 0 12px var(--pin, #38e8ff);
+  cursor: pointer;
+}
+
+.friday-map-me {
+  width: 16px;
+  height: 16px;
+  border-radius: 9999px;
+  background: #4a8cff;
+  border: 2px solid #fff;
+  box-shadow: 0 0 0 calc(var(--halo, 18px) / 2) rgb(74 140 255 / 0.18);
+}
+
+.friday-map-stop {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 9999px;
+  background: #38e8ff;
+  color: #02050a;
+  font-weight: 700;
+  font-size: 0.8rem;
+  border: 2px solid #eafcff;
+  cursor: grab;
+}

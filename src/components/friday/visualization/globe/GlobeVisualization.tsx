@@ -73,7 +73,9 @@ export function Globe3D({ points, routes, color }: GlobeProps) {
     return hit ? { lat: hit.lat, lon: hit.lon } : null;
   }, [data, focus]);
 
-  const { spinRef, handlers, focusOn } = useGlobeInteraction({ getFocusTarget });
+  const mapPoints = points ?? GLOBE_DEMO_POINTS;
+  const getPoints = useCallback(() => mapPoints, [mapPoints]);
+  const { spinRef, handlers, focusOn } = useGlobeInteraction({ getFocusTarget, getPoints });
 
   const handleFocusMarker = useCallback(
     (p: GeoPoint, index: number) => {

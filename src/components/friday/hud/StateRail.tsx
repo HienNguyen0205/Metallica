@@ -24,6 +24,7 @@ export function StateRail() {
 
   return (
     <div
+      data-map-hide
       className="pointer-events-auto absolute right-8 top-28 hidden flex-col items-end gap-1.5 font-mono text-[10px] tracking-[0.16em] md:flex"
       id="state-rail"
     >
