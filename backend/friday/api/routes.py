@@ -454,7 +454,7 @@ async def run_query(
         await agen.aclose()
 
 
-@router.post("/runs/{run_id}/cancel", dependencies=[Depends(guard)])
+@router.post("/runs/{run_id}/cancel", dependencies=[Depends(require_known_origin)])
 async def cancel_run(run_id: str,
                      x_user_id: str | None = Header(default=None)) -> dict[str, Any]:
     """P1.5 — cancel a live run. Idempotent: cancelling a finished run
@@ -480,7 +480,7 @@ async def cancel_run(run_id: str,
     return {"ok": True, "run_id": run_id, "status": run.status, "cancelled": False}
 
 
-@router.get("/runs/{run_id}/events", dependencies=[Depends(guard)])
+@router.get("/runs/{run_id}/events", dependencies=[Depends(require_known_origin)])
 async def replay_run(run_id: str, after_sequence: int = 0,
                      x_user_id: str | None = Header(default=None)) -> dict[str, Any]:
     """P1.10 — reconnect/resume. Returns enveloped frames already emitted for
@@ -525,7 +525,7 @@ async def query_endpoint(body: Query,
     )
 
 
-@router.post("/confirm", dependencies=[Depends(guard)])
+@router.post("/confirm", dependencies=[Depends(require_known_origin)])
 async def confirm_endpoint(body: Decision) -> dict[str, Any]:
     decided = PENDING.get(body.id)
     if decided is None or decided.done():
@@ -534,7 +534,7 @@ async def confirm_endpoint(body: Decision) -> dict[str, Any]:
     return {"ok": True, "approved": body.approved}
 
 
-@router.get("/memory", dependencies=[Depends(guard)])
+@router.get("/memory", dependencies=[Depends(require_known_origin)])
 async def list_memory() -> dict[str, Any]:
     """Mọi thứ FRIDAY nhớ. Không tính vào rate limit — không có model call nào.
 
@@ -573,18 +573,18 @@ async def list_memory() -> dict[str, Any]:
     }
 
 
-@router.delete("/memory/{memory_id}", dependencies=[Depends(guard)])
+@router.delete("/memory/{memory_id}", dependencies=[Depends(require_known_origin)])
 async def forget_memory(memory_id: int) -> dict[str, Any]:
     return {"ok": await long_term.forget(memory_id)}
 
-@router.get("/metrics", dependencies=[Depends(guard)])
+@router.get("/metrics", dependencies=[Depends(require_known_origin)])
 async def metrics_endpoint() -> dict[str, Any]:
     """P3 — counters and latency summaries as JSON. Label values are
     component/status/model names only; never queries, sessions or facts."""
     return observability.snapshot()
 
 
-@router.get("/audit", dependencies=[Depends(guard)])
+@router.get("/audit", dependencies=[Depends(require_known_origin)])
 async def audit_endpoint(run_id: str | None = None, limit: int = 100) -> dict[str, Any]:
     """P3 — recent audit entries, newest first, filterable by run. Operators
     only (same origin gate as everything else)."""
