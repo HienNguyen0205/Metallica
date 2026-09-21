@@ -10,6 +10,7 @@ one session cannot see another's.
 import asyncio
 import json
 
+from friday.api import routes
 from friday import agent, main, memory
 from friday.schema import VisualizationPlan, VizData
 
@@ -40,7 +41,7 @@ def run_turn(query: str, session: str | None, answer: str) -> list[dict]:
         return PLAN
 
     agent_original, agent.run = agent.run, fake_agent
-    main.plan = fake_plan
+    routes.plan = fake_plan
     try:
 
         async def drain():

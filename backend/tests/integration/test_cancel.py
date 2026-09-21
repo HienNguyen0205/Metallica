@@ -9,6 +9,7 @@ import json
 
 from fastapi import HTTPException
 
+from friday.api import dependencies as deps
 from friday import agent, main
 from friday.api import routes
 from friday.core import config as core_config
@@ -44,8 +45,8 @@ def stub_planner():
     async def fake_plan(query, answer, evidence, pinned_type=None):
         return PLAN
 
-    original = main.plan
-    main.plan = fake_plan
+    original = routes.plan
+    routes.plan = fake_plan
     return original
 
 
@@ -98,7 +99,7 @@ def test_cancel_while_thinking() -> None:
             assert second == {"ok": True, "run_id": rid, "status": "cancelled", "cancelled": False}, second
         finally:
             agent.run = original
-            main.plan = original_plan
+            routes.plan = original_plan
             v2_off(old_flag)
 
     asyncio.run(scenario())
@@ -132,7 +133,7 @@ def test_cancel_during_tool() -> None:
             assert REGISTRY.get(rid).status == "cancelled"
         finally:
             agent.run = original
-            main.plan = original_plan
+            routes.plan = original_plan
             v2_off(old_flag)
 
     asyncio.run(scenario())
@@ -149,7 +150,7 @@ def test_cancel_while_waiting_approval() -> None:
         old_flag = v2_on()
         original_agent = agent.run
         agent.run = gated_agent
-        original_timeout, main.CONFIRM_TIMEOUT_S = main.CONFIRM_TIMEOUT_S, 60.0
+        original_timeout, deps.CONFIRM_TIMEOUT_S = deps.CONFIRM_TIMEOUT_S, 60.0
         try:
             frames: list = []
             task = asyncio.create_task(drive(frames))
@@ -174,8 +175,8 @@ def test_cancel_while_waiting_approval() -> None:
             assert REGISTRY.get(rid).status == "cancelled"
         finally:
             agent.run = original_agent
-            main.plan = original_plan
-            main.CONFIRM_TIMEOUT_S = original_timeout
+            routes.plan = original_plan
+            deps.CONFIRM_TIMEOUT_S = original_timeout
             v2_off(old_flag)
 
     asyncio.run(scenario())
@@ -203,7 +204,7 @@ def test_cancel_after_completion_is_a_terminal_report() -> None:
             assert second == first, "duplicate cancel is idempotent"
         finally:
             agent.run = original
-            main.plan = original_plan
+            routes.plan = original_plan
             v2_off(old_flag)
 
     asyncio.run(scenario())

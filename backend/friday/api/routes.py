@@ -23,41 +23,7 @@ from friday.memory import embed as embed_mod
 from friday.memory import long_term
 from friday.memory import store as memory_store
 from friday.memory.store import StoreError
-
-# Keep CONFIRM_TIMEOUT_S readable for old imports, but resolve dynamically
-CONFIRM_TIMEOUT_S = deps.CONFIRM_TIMEOUT_S
-
-
-def _get_confirm_timeout() -> float:
-    # Tests monkey-patch friday.main.CONFIRM_TIMEOUT_S; respect that live value.
-    try:
-        import friday.main as main_mod
-
-        val = getattr(main_mod, "CONFIRM_TIMEOUT_S", None)
-        if isinstance(val, (int, float)):
-            return float(val)
-    except ImportError:
-        pass
-    return float(deps.CONFIRM_TIMEOUT_S)
-
-
-async def _get_plan():
-    # Tests monkey-patch friday.main.plan; respect that if set.
-    try:
-        import friday.main as main_mod
-
-        maybe = getattr(main_mod, "plan", None)
-        # If main.plan was overridden to a fake, use it (check if it's not the original import)
-        if maybe is not None:
-            import friday.planner as planner_mod
-
-            if maybe is not planner_mod.plan:
-                return maybe
-    except ImportError:
-        pass
-    from friday.planner import plan as real_plan
-
-    return real_plan
+from friday.planner import plan
 
 log = logging.getLogger("friday")
 
@@ -194,7 +160,7 @@ async def _run_query_events(
         try:
             wait_start = time.perf_counter()
             try:
-                approved = await asyncio.wait_for(decided, _get_confirm_timeout())
+                approved = await asyncio.wait_for(decided, deps.CONFIRM_TIMEOUT_S)
             finally:
                 observability.observe(
                     "approval_wait_ms", (time.perf_counter() - wait_start) * 1000)
@@ -268,8 +234,7 @@ async def _run_query_events(
             raise failure
 
         stage = "planner"
-        plan_fn = await _get_plan()
-        result = await plan_fn(query, outcome.text, outcome.evidence, pinned_type)
+        result = await plan(query, outcome.text, outcome.evidence, pinned_type)
     except NotFoundError:
         log.exception("model %r not available at %s", llm.model(), llm.base_url())
         yield ("error", {"message": f"model '{llm.model()}' unavailable at this endpoint"})

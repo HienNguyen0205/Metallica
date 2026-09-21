@@ -10,6 +10,7 @@ import json
 import os
 from typing import get_args
 
+from friday.api import routes
 from friday.events.emitter import EventEmitter
 from friday.events.serializer import sse_envelope
 from friday.events.types import ALL_EVENTS, EventKind
@@ -153,7 +154,7 @@ def test_run_query_transcript_validates_against_contracts() -> None:
         return [c async for c in main.run_query("contract turn")]
 
     original_agent, agent.run = agent.run, fake_agent
-    original_plan, main.plan = main.plan, fake_plan
+    original_plan, routes.plan = routes.plan, fake_plan
     old_flag = core_config.settings.events_v2
     core_config.settings.events_v2 = True
     try:
@@ -162,7 +163,7 @@ def test_run_query_transcript_validates_against_contracts() -> None:
         frames = asyncio.run(drain())
     finally:
         agent.run = original_agent
-        main.plan = original_plan
+        routes.plan = original_plan
         core_config.settings.events_v2 = old_flag
 
     assert len(frames) >= 5, "a turn is state/tool/steps/viz/answer/done at minimum"

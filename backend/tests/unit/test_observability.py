@@ -8,6 +8,8 @@ import asyncio
 import json
 import os
 
+from friday.api import routes
+from friday.api import dependencies as deps
 from friday import observability
 from friday.observability import (
     estimate_cost_usd,
@@ -144,8 +146,8 @@ def test_full_turn_records_run_tool_and_verify_metrics() -> None:
     async def scenario():
         original = _patch_llm([("tool", "get_system_metrics", {}), "CPU 73 percent."])
         old_flag = _v2()
-        original_plan = main.plan
-        main.plan = fake_plan
+        original_plan = routes.plan
+        routes.plan = fake_plan
         reset()
         try:
             frames = []
@@ -157,7 +159,7 @@ def test_full_turn_records_run_tool_and_verify_metrics() -> None:
             return frames
         finally:
             _unpatch_llm(original)
-            main.plan = original_plan
+            routes.plan = original_plan
             core_old = old_flag
             from friday.core import config as core_config
             core_config.settings.events_v2 = core_old
@@ -192,9 +194,9 @@ def test_approval_wait_and_reconnect_and_metrics_endpoint() -> None:
         original = _patch_llm([("tool", "write_note", {"name": "x", "body": "y"}),
                                "Saved."])
         old_flag = _v2()
-        original_plan = main.plan
-        main.plan = fake_plan
-        original_timeout, main.CONFIRM_TIMEOUT_S = main.CONFIRM_TIMEOUT_S, 5.0
+        original_plan = routes.plan
+        routes.plan = fake_plan
+        original_timeout, deps.CONFIRM_TIMEOUT_S = deps.CONFIRM_TIMEOUT_S, 5.0
         import dataclasses
         from friday.tools import registry as registry_mod
 
@@ -225,8 +227,8 @@ def test_approval_wait_and_reconnect_and_metrics_endpoint() -> None:
             return frames, metrics
         finally:
             _unpatch_llm(original)
-            main.plan = original_plan
-            main.CONFIRM_TIMEOUT_S = original_timeout
+            routes.plan = original_plan
+            deps.CONFIRM_TIMEOUT_S = original_timeout
             registry_mod.REGISTRY["write_note"] = orig_write
             from friday.core import config as core_config
             core_config.settings.events_v2 = old_flag

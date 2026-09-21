@@ -8,6 +8,7 @@ import asyncio
 
 from fastapi import HTTPException
 
+from friday.api import routes
 from friday import audit, identity
 from friday.audit import clear, recent, record, scrub
 from friday.identity import UserIdentity, may_access, resolve_identity
@@ -74,7 +75,7 @@ def test_run_lifecycle_is_audited_with_owner() -> None:
         old_flag = core_config.settings.events_v2
         core_config.settings.events_v2 = True
         original_agent, agent_mod.run = agent_mod.run, quick_agent
-        original_plan, main.plan = main.plan, fake_plan
+        original_plan, routes.plan = routes.plan, fake_plan
         clear()
         try:
             frames = []
@@ -85,7 +86,7 @@ def test_run_lifecycle_is_audited_with_owner() -> None:
             return frames
         finally:
             agent_mod.run = original_agent
-            main.plan = original_plan
+            routes.plan = original_plan
             core_config.settings.events_v2 = old_flag
 
     frames = asyncio.run(scenario())
