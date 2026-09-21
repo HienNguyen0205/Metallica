@@ -108,3 +108,11 @@ test("timeline events: non-finite `at` dropped, rest clamped to [0,1] and sorted
     { label: "LATE", at: 1 },
   ]);
 });
+
+test("series points below zero clamp to 0 — charts draw up from a zero baseline", () => {
+  const out = normalizeVisualization({
+    type: "bar_3d",
+    data: { series: [{ label: "P&L", points: [-5, 3, -0.1] }] },
+  });
+  expect(out.data?.series?.[0]?.points).toEqual([0, 3, 0]);
+});

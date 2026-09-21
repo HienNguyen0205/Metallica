@@ -66,10 +66,12 @@ function sanitizeData(data: VisualizationSpec["data"]): VizData {
     : undefined;
 
   // A series with no renderable points would crash max()/min() downstream.
+  // ponytail: negatives clamp to 0 — line/bar axes run 0..max and a negative
+  // bar flipped under the baseline; add a min..max axis if signed data matters.
   out.series = Array.isArray(out.series)
     ? out.series.flatMap((s, i) => {
         if (!s || !Array.isArray(s.points) || s.points.length === 0) return [];
-        return [{ ...s, label: sanitizeLabel(s.label) ?? `SERIES-${i}`, points: s.points.map((p) => (typeof p === "number" && Number.isFinite(p) ? p : 0)) }];
+        return [{ ...s, label: sanitizeLabel(s.label) ?? `SERIES-${i}`, points: s.points.map((p) => (typeof p === "number" && Number.isFinite(p) ? Math.max(0, p) : 0)) }];
       })
     : undefined;
 
