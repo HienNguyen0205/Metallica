@@ -6,6 +6,7 @@ import type { FridayState } from "@/lib/agent/stateMachine";
 // interrupted-turn path, not a bug worth warning about in dev/test.
 import type { SupportedLang } from "@/lib/audioBus";
 import type { CurrentStep } from "@/lib/agent/events";
+import type { DeviceState } from "@/lib/deviceMonitor";
 import type {
   GeoPoint,
   GlobeRoute,
@@ -170,6 +171,9 @@ export interface FridayStore {
   location: { lat: number; lon: number } | null;
   locationStatus: LocationStatus;
   setLocation: (location: { lat: number; lon: number } | null, status: LocationStatus) => void;
+  /** Live device readings, kept current by startDeviceMonitor's event listeners. */
+  device: DeviceState;
+  setDevice: (patch: Partial<DeviceState>) => void;
   /** Facts FRIDAY just learned, newest first; HUD shows only the latest. */
   memories: MemoryNote[];
   addMemory: (note: MemoryNote) => void;
@@ -273,6 +277,8 @@ export const useFridayStore = create<FridayStore>((set, get) => ({
   location: null,
   locationStatus: "off",
   setLocation: (location, locationStatus) => set({ location, locationStatus }),
+  device: { online: true },
+  setDevice: (patch) => set((s) => ({ device: { ...s.device, ...patch } })),
   memories: [],
   addMemory: (note) =>
     // HUD shows one line, not a log — keep the 3 most recent so the operator

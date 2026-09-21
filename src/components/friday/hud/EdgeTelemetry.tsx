@@ -2,6 +2,7 @@
 
 import { useFridayStore } from "@/lib/store";
 import { useTelemetry } from "@/lib/telemetry";
+import { deviceAlerts } from "@/lib/deviceMonitor";
 
 /** §3 — thin telemetry at the screen edges. No panels, no boxes. */
 export function EdgeTelemetry() {
@@ -13,6 +14,8 @@ export function EdgeTelemetry() {
   const setQuality = useFridayStore((s) => s.setQuality);
   const t = useTelemetry();
   const liveMode = useFridayStore((s) => s.liveMode);
+  const device = useFridayStore((s) => s.device);
+  const alerts = deviceAlerts(device);
   // Link telemetry only shows while a turn is in flight — once the backend
   // finishes, the frame belongs to the core again, not to numbers.
   const busy = liveMode !== "idle";
@@ -31,6 +34,18 @@ export function EdgeTelemetry() {
           <span>FRAME · {t.frameMs > 0 ? `${t.frameMs.toFixed(1)}MS` : "—"}</span>
           <span>MEMORY · {memory}</span>
         </>
+      )}
+      {/* Device alerts appear only while they hold — the edge stays quiet
+          on a healthy machine. */}
+      {alerts.offline && <span className="text-amber-300/90">NETWORK · OFFLINE</span>}
+      {!alerts.offline && alerts.constrained && (
+        <span className="text-amber-300/90">
+          NETWORK · {device.connection?.saveData ? "SAVE-DATA" : device.connection?.effectiveType?.toUpperCase()}
+        </span>
+      )}
+      {alerts.pressureHigh && <span className="text-amber-300/90">CPU · {device.pressure?.toUpperCase()}</span>}
+      {alerts.lowPower && (
+        <span className="text-amber-300/90">POWER · {Math.round((device.battery?.level ?? 0) * 100)}%</span>
       )}
       <span data-testid="hud-focus" className={focus ? "text-cyan-200" : undefined}>
         {focus ? `FOCUS · ${focus.label} ${focus.detail}` : "FOCUS · --"}

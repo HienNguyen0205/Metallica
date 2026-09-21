@@ -7,6 +7,7 @@ import { useFridayStore } from "@/lib/store";
 import { sampleSpec } from "@/lib/vizPlanner";
 import { toAccessibleSummary } from "@/components/friday/visualization/globe/geo";
 import { getApiBase } from "@/lib/api/session";
+import { startDeviceMonitor } from "@/lib/deviceMonitor";
 import type { VisualizationType } from "@/lib/visualization/types";
 
 const Scene = dynamic(() => import("@/components/friday/Scene"), { ssr: false });
@@ -41,6 +42,7 @@ function GlobeA11y() {
 }
 
 export default function SceneIsland() {
+  useEffect(() => startDeviceMonitor(), []);
   useEffect(() => {
     let cancelled = false;
     const ctrl = new AbortController();

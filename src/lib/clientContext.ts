@@ -39,7 +39,7 @@ export interface RawReadings {
   pressure?: string;
   battery?: { level: number; charging: boolean };
   storage?: { usage: number; quota: number };
-  connection?: { effectiveType?: string; downlink?: number; rtt?: number };
+  connection?: { effectiveType?: string; downlink?: number; rtt?: number; saveData?: boolean };
   heapBytes?: number;
   gpu?: { vendor?: string; architecture?: string };
   platform?: string;
@@ -117,76 +117,24 @@ export function buildClientContext(r: RawReadings): ClientContext {
 
 // --- collection (browser only) ---------------------------------------------
 
-/** Compute Pressure only reports changes, so the latest state is kept here. */
-let pressure: string | undefined;
-let pressureStarted = false;
-/** Started once; later questions race the same promise, so a first-call
- *  timeout (adapter creation can take longer than the budget) is not final. */
-let gpuInfo: Promise<RawReadings["gpu"] | undefined> | undefined;
-
-function watchPressure() {
-  if (pressureStarted || typeof window === "undefined" || !("PressureObserver" in window)) return;
-  pressureStarted = true;
-  try {
-    type Rec = { state: string };
-    const Observer = (window as unknown as {
-      PressureObserver: new (cb: (records: Rec[]) => void) => { observe(source: string, opts?: object): Promise<void> };
-    }).PressureObserver;
-    const observer = new Observer((records) => {
-      pressure = records.at(-1)?.state;
-    });
-    observer.observe("cpu", { sampleInterval: 2000 }).catch(() => {});
-  } catch {
-    // Unsupported or blocked by Permissions-Policy — simply no reading.
-  }
-}
-
-/** Resolve within `ms` or give up — a slow API must not delay the question. */
-function within<T>(p: Promise<T> | undefined, ms = 250): Promise<T | undefined> {
-  if (!p) return Promise.resolve(undefined);
-  return Promise.race([p.catch(() => undefined), new Promise<undefined>((r) => setTimeout(r, ms))]);
-}
-
-type Nav = Navigator & {
-  deviceMemory?: number;
-  connection?: { effectiveType?: string; downlink?: number; rtt?: number };
-  getBattery?: () => Promise<{ level: number; charging: boolean }>;
-  gpu?: { requestAdapter(): Promise<{ info?: { vendor?: string; architecture?: string } } | null> };
-  userAgentData?: { platform?: string };
-};
-
+/**
+ * Snapshot for a /query. The readings are already current in the store —
+ * startDeviceMonitor keeps them so from the browser's own events — so this
+ * awaits nothing and cannot delay the question.
+ */
 export async function collectClientContext(): Promise<ClientContext | undefined> {
   if (typeof navigator === "undefined" || typeof window === "undefined") return undefined;
-  watchPressure();
-  const nav = navigator as Nav;
-  try {
-    gpuInfo ??= nav.gpu
-      ?.requestAdapter()
-      .then((a) => (a?.info ? { vendor: a.info.vendor, architecture: a.info.architecture } : undefined))
-      .catch(() => undefined);
-    const [battery, storage, gpu] = await Promise.all([
-      within(nav.getBattery?.()),
-      within(navigator.storage?.estimate?.()),
-      within(gpuInfo),
-    ]);
-    const heap = (performance as Performance & { memory?: { usedJSHeapSize: number } }).memory;
-    return buildClientContext({
-      cores: nav.hardwareConcurrency,
-      deviceMemory: nav.deviceMemory,
-      pressure,
-      battery: battery ? { level: battery.level, charging: battery.charging } : undefined,
-      storage: storage ? { usage: storage.usage ?? 0, quota: storage.quota ?? 0 } : undefined,
-      connection: nav.connection,
-      heapBytes: heap?.usedJSHeapSize,
-      gpu,
-      platform: nav.userAgentData?.platform,
-      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-      tzOffsetMin: new Date().getTimezoneOffset(),
-      languages: navigator.languages,
-      screen: { width: screen.width, height: screen.height, dpr: devicePixelRatio },
-      location: useFridayStore.getState().location ?? undefined,
-    });
-  } catch {
-    return undefined;
-  }
+  const { device, location } = useFridayStore.getState();
+  const nav = navigator as Navigator & { deviceMemory?: number; userAgentData?: { platform?: string } };
+  const heap = (performance as Performance & { memory?: { usedJSHeapSize: number } }).memory;
+  return buildClientContext({
+    ...device,
+    cores: nav.hardwareConcurrency,
+    deviceMemory: nav.deviceMemory,
+    heapBytes: heap?.usedJSHeapSize,
+    platform: nav.userAgentData?.platform,
+    // Offset read now, not from the snapshot: it moves at DST boundaries.
+    tzOffsetMin: new Date().getTimezoneOffset(),
+    location: location ?? undefined,
+  });
 }

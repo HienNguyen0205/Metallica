@@ -45,8 +45,9 @@ export interface QueryOptions {
 export async function streamQuery(query: string, opts: QueryOptions): Promise<void> {
   const { signal, onEvent, onError } = opts;
   const API = getApiBase();
-  // Bounded (each API races a 250ms timer) and never throws: the readings are
-  // for get_client_metrics, and must not delay or fail the question.
+  // A snapshot of readings the device monitor already holds: awaits nothing,
+  // never throws — they are for get_client_metrics and must not delay or
+  // fail the question.
   const client = opts.client ?? (await collectClientContext());
 
   let response: Response;

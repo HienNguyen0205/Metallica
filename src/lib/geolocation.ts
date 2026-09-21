@@ -10,6 +10,9 @@ import { useFridayStore } from "@/lib/store";
 
 const round2 = (v: number) => Math.round(v * 100) / 100;
 
+/** When the current fix was taken; drives refreshIfStale. */
+let fixedAt = 0;
+
 export function shareLocation(): void {
   const { setLocation } = useFridayStore.getState();
   if (typeof navigator === "undefined" || !navigator.geolocation) {
@@ -18,11 +21,20 @@ export function shareLocation(): void {
   }
   setLocation(null, "pending");
   navigator.geolocation.getCurrentPosition(
-    (pos) => setLocation({ lat: round2(pos.coords.latitude), lon: round2(pos.coords.longitude) }, "on"),
+    (pos) => {
+      fixedAt = Date.now();
+      setLocation({ lat: round2(pos.coords.latitude), lon: round2(pos.coords.longitude) }, "on");
+    },
     (err) => setLocation(null, err.code === err.PERMISSION_DENIED ? "denied" : "unavailable"),
     // Coarse on purpose: city-level is all any tool needs, and it is fast.
     { enableHighAccuracy: false, maximumAge: 10 * 60_000, timeout: 10_000 },
   );
+}
+
+/** Re-fix a shared location older than `maxAgeMs` — called when the tab comes
+ *  back into view, never on a timer (no continuous tracking). */
+export function refreshIfStale(maxAgeMs: number): void {
+  if (useFridayStore.getState().locationStatus === "on" && Date.now() - fixedAt > maxAgeMs) shareLocation();
 }
 
 export function stopSharing(): void {
