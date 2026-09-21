@@ -123,9 +123,12 @@ async def recall_block(query: str) -> str:
 
 
 def _touch(ids: list[int]) -> None:
-    from friday.memory.store import touch
-
-    touch(ids)
+    # Runs on an executor thread whose future nobody awaits: an exception
+    # escaping here would surface only as asyncio's "never retrieved".
+    try:
+        memory_store.touch(ids)
+    except Exception:
+        log.warning("could not refresh last_used_at", exc_info=True)
 
 
 async def _run_query_events(
