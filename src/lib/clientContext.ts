@@ -8,6 +8,8 @@
  * model sees it only if it calls the tool. Nothing here is persisted.
  */
 
+import { useFridayStore } from "@/lib/store";
+
 /** Wire shape — mirrors backend/friday/api/schemas.py ClientContext. */
 export interface ClientContext {
   cpu_cores?: number;
@@ -22,6 +24,8 @@ export interface ClientContext {
   timezone?: string;
   languages?: string[];
   screen?: { width: number; height: number; dpr: number };
+  /** Only when the operator turned location on; ~1 km (2 decimals). */
+  location?: { lat: number; lon: number };
 }
 
 type PressureState = "nominal" | "fair" | "serious" | "critical";
@@ -40,6 +44,7 @@ export interface RawReadings {
   timezone?: string;
   languages?: readonly string[];
   screen?: { width: number; height: number; dpr: number };
+  location?: { lat: number; lon: number };
 }
 
 const PRESSURE = new Set(["nominal", "fair", "serious", "critical"]);
@@ -50,6 +55,7 @@ const MAX_STR = 40;
 const num = (v: unknown, min: number, max: number): number | undefined =>
   typeof v === "number" && Number.isFinite(v) && v >= min && v <= max ? v : undefined;
 const round1 = (v: number) => Math.round(v * 10) / 10;
+const round2 = (v: number) => Math.round(v * 100) / 100;
 const str = (v: unknown, max = MAX_STR): string | undefined =>
   typeof v === "string" && v.length > 0 ? v.slice(0, max) : undefined;
 
@@ -79,6 +85,8 @@ export function buildClientContext(r: RawReadings): ClientContext {
   const height = num(r.screen?.height, 1, 20_000);
   const dpr = num(r.screen?.dpr, 0.01, 10);
   const heap = num(r.heapBytes, 0, 1e12);
+  const lat = num(r.location?.lat, -90, 90);
+  const lon = num(r.location?.lon, -180, 180);
   const langs = r.languages?.filter((l) => typeof l === "string" && l.length > 0).map((l) => l.slice(0, MAX_STR));
 
   return compact({
@@ -97,6 +105,8 @@ export function buildClientContext(r: RawReadings): ClientContext {
     timezone: str(r.timezone, 64),
     languages: langs?.length ? langs.slice(0, 5) : undefined,
     screen: width && height && dpr ? { width, height, dpr } : undefined,
+    // Coarsened here as well as on arrival: a finer fix never leaves the tab.
+    location: lat !== undefined && lon !== undefined ? { lat: round2(lat), lon: round2(lon) } : undefined,
   });
 }
 
@@ -168,6 +178,7 @@ export async function collectClientContext(): Promise<ClientContext | undefined>
       timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
       languages: navigator.languages,
       screen: { width: screen.width, height: screen.height, dpr: devicePixelRatio },
+      location: useFridayStore.getState().location ?? undefined,
     });
   } catch {
     return undefined;

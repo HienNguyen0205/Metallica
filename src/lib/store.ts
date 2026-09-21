@@ -72,6 +72,9 @@ export interface PendingConfirm {
   input: Record<string, unknown>;
 }
 
+/** Location sharing — off until the operator turns it on. */
+export type LocationStatus = "off" | "pending" | "on" | "denied" | "unavailable";
+
 /** Actual rendering backend reported by the created renderer. */
 export type RenderBackend = "webgl2" | "webgpu";
 
@@ -160,6 +163,13 @@ export interface FridayStore {
   setLang: (lang: SupportedLang) => void;
   audioEnabled: boolean;
   toggleAudio: () => void;
+  /**
+   * The operator's shared location, ~1 km (2 decimals). In memory only —
+   * never written to storage — and null unless they turned it on.
+   */
+  location: { lat: number; lon: number } | null;
+  locationStatus: LocationStatus;
+  setLocation: (location: { lat: number; lon: number } | null, status: LocationStatus) => void;
   /** Facts FRIDAY just learned, newest first; HUD shows only the latest. */
   memories: MemoryNote[];
   addMemory: (note: MemoryNote) => void;
@@ -260,6 +270,9 @@ export const useFridayStore = create<FridayStore>((set, get) => ({
   },
   audioEnabled: true,
   toggleAudio: () => set({ audioEnabled: !get().audioEnabled }),
+  location: null,
+  locationStatus: "off",
+  setLocation: (location, locationStatus) => set({ location, locationStatus }),
   memories: [],
   addMemory: (note) =>
     // HUD shows one line, not a log — keep the 3 most recent so the operator

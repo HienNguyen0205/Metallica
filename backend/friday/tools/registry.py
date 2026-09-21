@@ -8,7 +8,12 @@ from .filesystem.sandbox import run_list_dir, run_read_file
 from .integrations.fetch import run_fetch_url
 from friday.rag import run_search_docs
 from .integrations.search import run_search_web
-from .client.metrics import preview_client_metrics, run_client_metrics
+from .client.metrics import (
+    preview_client_location,
+    preview_client_metrics,
+    run_client_location,
+    run_client_metrics,
+)
 from .system.clock import run_current_time
 from .system.metrics import preview_metrics, run_system_metrics
 from .system.processes import preview_processes, run_process_list
@@ -44,6 +49,20 @@ def _build_default_registry() -> dict[str, Tool]:
             run=run_client_metrics,
             capabilities=("client.read",),
             preview=preview_client_metrics,
+        ),
+        Tool(
+            name="get_client_location",
+            description=(
+                "Read the operator's approximate location (about 1 km) and "
+                "timezone, as their browser shares it - only when they turned "
+                "location on. Use for 'here', 'near me', local weather or local "
+                "time. If it is not shared, say so; never guess a place."
+            ),
+            input_schema={"type": "object", "properties": {}, "required": []},
+            risk="low",
+            run=run_client_location,
+            capabilities=("client.location",),
+            preview=preview_client_location,
         ),
         Tool(
             name="get_current_time",

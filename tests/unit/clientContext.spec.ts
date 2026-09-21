@@ -69,3 +69,9 @@ test("streamQuery sends the client context with the question", async () => {
   expect(body.query).toBe("my battery?");
   expect(body.client).toEqual({ cpu_cores: 8 });
 });
+
+test("a shared location is rounded to ~1 km before it leaves the browser", () => {
+  expect(buildClientContext({ location: { lat: 10.776889, lon: 106.700806 } }).location).toEqual({ lat: 10.78, lon: 106.7 });
+  expect(buildClientContext({ location: { lat: 95, lon: 0 } }).location).toBeUndefined();
+  expect(buildClientContext({ location: { lat: Number.NaN, lon: 1 } }).location).toBeUndefined();
+});

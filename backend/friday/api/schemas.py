@@ -46,6 +46,20 @@ class ClientScreen(BaseModel):
     dpr: float = Field(gt=0, le=10)
 
 
+class ClientLocation(BaseModel):
+    """Shared only when the operator turns location on. Rounded here, on
+    arrival, to two decimals (~1 km) whatever the browser sent: nothing
+    downstream — tool output, run evidence — ever holds a finer fix."""
+
+    lat: float = Field(ge=-90, le=90)
+    lon: float = Field(ge=-180, le=180)
+
+    @field_validator("lat", "lon")
+    @classmethod
+    def _coarse(cls, value: float) -> float:
+        return round(value, 2)
+
+
 class ClientContext(BaseModel):
     """What the operator's browser measured about its own device — no
     permission prompt behind any of it. Every field optional and bounded:
@@ -68,6 +82,7 @@ class ClientContext(BaseModel):
     timezone: str | None = Field(default=None, max_length=64)
     languages: list[str] | None = Field(default=None, max_length=5)
     screen: ClientScreen | None = None
+    location: ClientLocation | None = None
 
 
 class Query(BaseModel):

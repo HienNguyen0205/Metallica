@@ -29,10 +29,13 @@ function VizDeepLink() {
 /** Screen-reader mirror of the canvas globe — WebGL is never parsed by AT. */
 function GlobeA11y() {
   const globeData = useFridayStore((s) => s.visualizations.find((e) => e.spec.type === "globe")?.spec.data);
+  const located = useFridayStore((s) => s.location !== null);
   if (!globeData) return null;
   return (
     <p className="sr-only" role="status">
       {toAccessibleSummary(globeData)}
+      {/* The canvas draws a YOU marker (globe/operator.ts); say so here too. */}
+      {located ? " Your approximate location is marked as YOU." : ""}
     </p>
   );
 }

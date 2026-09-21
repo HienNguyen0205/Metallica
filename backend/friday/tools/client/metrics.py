@@ -23,7 +23,35 @@ async def run_client_metrics(_: dict[str, Any]) -> dict[str, Any]:
     data = CLIENT.get()
     if not data:
         return {"error": "the browser sent no device readings for this turn"}
-    return dict(data)
+    # Location has its own tool and capability (client.location).
+    return {k: v for k, v in data.items() if k != "location"}
+
+
+async def run_client_location(_: dict[str, Any]) -> dict[str, Any]:
+    data = CLIENT.get() or {}
+    loc = data.get("location")
+    if not loc:
+        return {"error": "the operator has not shared their location"}
+    out: dict[str, Any] = {"lat": loc["lat"], "lon": loc["lon"]}
+    if data.get("timezone"):
+        out["timezone"] = data["timezone"]
+    # Rounded to two decimals on arrival (schemas.ClientLocation).
+    out["precision_km"] = 1
+    return out
+
+
+def preview_client_location(output: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "type": "globe",
+        "title": "YOUR LOCATION",
+        "data": {"points": [{"id": "you", "label": "YOU", "lat": output["lat"], "lon": output["lon"]}]},
+    }
+
+
+def shared_coordinates() -> tuple[str, str] | None:
+    """This turn's shared coordinates as the strings a fact would quote."""
+    loc = (CLIENT.get() or {}).get("location")
+    return (str(loc["lat"]), str(loc["lon"])) if loc else None
 
 
 def preview_client_metrics(output: dict[str, Any]) -> dict[str, Any]:
