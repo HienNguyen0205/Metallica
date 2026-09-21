@@ -328,7 +328,7 @@ def test_memory_write_and_delete_are_timed() -> None:
     orig = (lt.embed, lt.store_configured, lt.store_insert, lt.store_delete)
     lt.embed = fake_embed
     lt.store_configured = lambda: True
-    lt.store_insert = lambda fact, prov, emb: {"id": 1, "fact": fact,
+    lt.store_insert = lambda fact, prov, emb, owner=None: {"id": 1, "fact": fact,
                                                "provenance": prov}
     lt.store_delete = lambda mid: None
     lt.clear()

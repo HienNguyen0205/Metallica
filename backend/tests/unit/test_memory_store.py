@@ -45,12 +45,37 @@ def test_credentials_ride_on_every_request():
 
 
 def test_select_asks_for_every_column_the_cache_needs():
+    # `*` rather than a list: a named owner_user_id would fail every read on a
+    # table that predates the column. `*` still returns every column below.
     sink = []
     store.urlopen = capture([], sink)
     store.select_all()
-    url = sink[0].full_url
-    for column in ("id", "fact", "provenance", "embedding", "created_at", "last_used_at"):
-        assert column in url, f"{column} missing from {url}"
+    assert "select=*" in sink[0].full_url, sink[0].full_url
+
+
+def test_insert_sends_the_owner_only_when_there_is_one():
+    import json
+
+    for owner, expected in ((None, False), ("alice", True)):
+        sink = []
+        store.urlopen = capture([{"id": 1}], sink)
+        store.insert("f", "user", [1.0], owner)
+        body = json.loads(sink[0].data)
+        assert ("owner_user_id" in body) is expected, body
+        if owner:
+            assert body["owner_user_id"] == "alice"
+
+
+def test_scoped_delete_limits_to_rows_the_caller_may_see():
+    sink = []
+    store.urlopen = capture([], sink)
+    store.delete(5, scoped=True, owner="a b")
+    store.delete(6, scoped=True, owner=None)
+    store.delete(7)
+    urls = [r.full_url for r in sink]
+    assert urls[0].endswith("?id=eq.5&or=(owner_user_id.is.null,owner_user_id.eq.a%20b)"), urls[0]
+    assert urls[1].endswith("?id=eq.6&owner_user_id=is.null"), urls[1]
+    assert urls[2].endswith("?id=eq.7"), urls[2]
 
 
 def test_select_is_ordered_and_capped():

@@ -72,7 +72,7 @@ class _ScriptedProvider(BaseHTTPRequestHandler):
 def stub_memory():
     lt.clear()
     lt.store_configured = lambda: True
-    lt.store_insert = lambda fact, prov, emb: {
+    lt.store_insert = lambda fact, prov, emb, owner=None: {
         "id": 1, "fact": fact, "provenance": prov,
         "created_at": "2026-01-01", "last_used_at": "2026-01-01",
     }

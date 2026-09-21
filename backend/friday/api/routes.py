@@ -143,7 +143,7 @@ async def recall_block(query: str) -> str:
         observability.observe("memory_latency_ms",
                               (time.perf_counter() - mem_start) * 1000,
                               {"op": "recall_embed"})
-        hits = long_term.top_k(vectors[0], long_term.TOP_K_DEFAULT)
+        hits = long_term.top_k(vectors[0], long_term.TOP_K_DEFAULT, owner=long_term.OWNER.get())
         if hits:
             asyncio.get_running_loop().run_in_executor(None, _touch, [m.id for m in hits])
         return long_term.render_block(hits)
@@ -335,6 +335,8 @@ async def run_query(
     request_id: str | None = None, owner_user_id: str | None = None,
     actor: str | None = None,
 ) -> AsyncIterator[str]:
+    # Recall, remember and consolidation all scope to this owner (P3).
+    long_term.OWNER.set(owner_user_id)
     if not settings.events_v2:
         # P0.3 legacy flat path — removal plan: keep until FRIDAY_EVENTS_V2
         # becomes the default and one release of enveloped traffic has baked
@@ -541,7 +543,7 @@ async def confirm_endpoint(body: Decision,
 
 
 @router.get("/memory", dependencies=[Depends(require_known_origin)])
-async def list_memory() -> dict[str, Any]:
+async def list_memory(x_user_id: str | None = Header(default=None)) -> dict[str, Any]:
     """Mọi thứ FRIDAY nhớ. Không tính vào rate limit — không có model call nào.
 
     Đọc thẳng từ store chứ không từ cache. Đây là màn hình xem lại, không phải
@@ -553,6 +555,7 @@ async def list_memory() -> dict[str, Any]:
     Vector không nằm trong response: 768 số float không nói gì với người đọc và
     làm payload phình lên vô ích.
     """
+    caller = _caller(None, x_user_id)
     try:
         rows = await asyncio.to_thread(memory_store.select_all)
     except StoreError:
@@ -566,7 +569,7 @@ async def list_memory() -> dict[str, Any]:
                     "created_at": m.created_at,
                     "last_used_at": m.last_used_at,
                 }
-                for m in long_term.CACHE
+                for m in long_term.visible(caller.user_id)
             ],
             "from_cache": True,
         }
@@ -574,14 +577,26 @@ async def list_memory() -> dict[str, Any]:
         "memories": [
             {key: row.get(key) for key in ("id", "fact", "provenance", "created_at", "last_used_at")}
             for row in rows
+            if identity_mod.may_access(row.get("owner_user_id"), caller)
         ],
         "from_cache": False,
     }
 
 
 @router.delete("/memory/{memory_id}", dependencies=[Depends(require_known_origin)])
-async def forget_memory(memory_id: int) -> dict[str, Any]:
-    return {"ok": await long_term.forget(memory_id)}
+async def forget_memory(memory_id: int,
+                        x_user_id: str | None = Header(default=None)) -> dict[str, Any]:
+    caller = _caller(None, x_user_id)
+    cached = next((m for m in long_term.CACHE if m.id == memory_id), None)
+    if cached is not None:
+        if not identity_mod.may_access(cached.owner_user_id, caller):
+            raise HTTPException(status_code=403, detail="not your memory")
+        return {"ok": await long_term.forget(memory_id)}
+    # Not cached (evicted, or the store was down at boot): let the store scope
+    # it. Only in trust mode — an unmigrated table has no owner column, and
+    # without trust every row is shared anyway.
+    scoped = bool(settings.trust_identity_headers)
+    return {"ok": await long_term.forget(memory_id, scoped=scoped, owner=caller.user_id)}
 
 @router.get("/metrics", dependencies=[Depends(require_known_origin)])
 async def metrics_endpoint() -> dict[str, Any]:

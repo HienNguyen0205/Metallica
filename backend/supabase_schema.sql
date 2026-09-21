@@ -7,8 +7,14 @@ create table if not exists friday_memory (
   provenance   text        not null check (provenance in ('user', 'tool')),
   embedding    vector(768) not null,
   created_at   timestamptz not null default now(),
-  last_used_at timestamptz not null default now()
+  last_used_at timestamptz not null default now(),
+  -- P3: identified owner; NULL = shared, visible to every caller. Required
+  -- only when FRIDAY_TRUST_IDENTITY_HEADERS is on.
+  owner_user_id text
 );
+
+-- Migration for tables created before owner_user_id existed.
+alter table friday_memory add column if not exists owner_user_id text;
 
 -- Defense in depth: the backend uses the service key (bypasses RLS), so all
 -- protection currently rests on one secret. Enable RLS with a default-deny so

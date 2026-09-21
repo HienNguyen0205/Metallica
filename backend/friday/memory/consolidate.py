@@ -69,15 +69,20 @@ async def run() -> int:
     global TURN_COUNTER
     TURN_COUNTER = 0
 
-    if not lt.CACHE:
+    # This turn's owner's memories only: judged side by side, one user's fact
+    # would "contradict" another's and get it dropped.
+    owner = lt.OWNER.get()
+    mine = [m for m in lt.CACHE if m.owner_user_id == owner]
+    if not mine:
         return 0
     try:
-        drops = await choose_drops(list(lt.CACHE))
+        drops = await choose_drops(mine)
     except Exception:
         log.warning("consolidation failed; memories left as they were", exc_info=True)
         return 0
 
-    removed = sum([1 for memory_id in drops if await lt.forget(memory_id)])
+    allowed = {m.id for m in mine}
+    removed = sum([1 for memory_id in drops if memory_id in allowed and await lt.forget(memory_id)])
     if removed:
         log.info("consolidation dropped %d memories", removed)
     return removed

@@ -80,9 +80,22 @@ class Memory:
     confidence: float = 1.0
     updated_at: str = ""
     ttl_s: int | None = None
+    #: Identified user this memory belongs to; None is shared (see visible()).
+    owner_user_id: str | None = None
 
 
 CACHE: list[Memory] = []
+
+#: Owner of the current turn — run_query sets it, and writes (remember,
+#: supersede, consolidation) read it. Tasks spawned by the turn copy it.
+OWNER: ContextVar[str | None] = ContextVar("memory_owner", default=None)
+
+
+def visible(owner: str | None) -> list[Memory]:
+    """What a caller may read: shared memories plus their own — the same
+    rule identity.may_access applies to runs. With trust headers off every
+    caller is anonymous and every memory is shared, as before."""
+    return [m for m in CACHE if m.owner_user_id is None or m.owner_user_id == owner]
 
 
 def clear() -> None:
@@ -105,8 +118,8 @@ def similarity(a: list[float], b: list[float]) -> float:
     return sum(x * y for x, y in zip(a, b))
 
 
-def top_k(query_vector: list[float], k: int = TOP_K_DEFAULT) -> list[Memory]:
-    scored = [(similarity(m.embedding, query_vector), m) for m in CACHE]
+def top_k(query_vector: list[float], k: int = TOP_K_DEFAULT, owner: str | None = None) -> list[Memory]:
+    scored = [(similarity(m.embedding, query_vector), m) for m in visible(owner)]
     hits = [(score, m) for score, m in scored if score >= SIMILARITY_FLOOR]
     hits.sort(key=lambda pair: pair[0], reverse=True)
     return [m for _, m in hits[:k]]
@@ -212,6 +225,7 @@ def _row_to_memory(row: dict) -> Memory:
         confidence=float(row.get("confidence", memory_policy.confidence_for(provenance))),
         updated_at=str(row.get("updated_at", created)),
         ttl_s=row.get("ttl_s"),
+        owner_user_id=row.get("owner_user_id"),
     )
 
 
@@ -237,18 +251,21 @@ async def add(fact: str, provenance: str, embedding: list[float] | None = None) 
     from friday import memory_policy
 
     started = time.perf_counter()
+    owner = OWNER.get()
     try:
         vectors = [embedding] if embedding is not None else await embed([fact])
-        proposal = memory_policy.propose(fact, provenance, vectors[0], CACHE)
+        # Only what this owner can see: another user's fact must never count
+        # as this one's duplicate, nor be superseded (deleted) by it.
+        proposal = memory_policy.propose(fact, provenance, vectors[0], visible(owner))
         if proposal.action == "reject":
             log.info("memory proposal rejected: %s", proposal.reason)
             return None
         if proposal.action == "duplicate":
-            return next((m for m in CACHE if m.id == proposal.duplicate_of), None)
+            return next((m for m in visible(owner) if m.id == proposal.duplicate_of), None)
         if proposal.action == "supersede" and proposal.replaces is not None:
             await forget(proposal.replaces)
-        row = await asyncio.to_thread(store_insert, fact, provenance, vectors[0])
-        memory = _row_to_memory({**row, "embedding": vectors[0],
+        row = await asyncio.to_thread(store_insert, fact, provenance, vectors[0], owner)
+        memory = _row_to_memory({**row, "embedding": vectors[0], "owner_user_id": owner,
                                  "type": proposal.memory_type,
                                  "confidence": proposal.confidence})
         CACHE.append(memory)
@@ -262,7 +279,7 @@ async def add(fact: str, provenance: str, embedding: list[float] | None = None) 
                               (time.perf_counter() - started) * 1000, {"op": "write"})
 
 
-async def forget(memory_id: int) -> bool:
+async def forget(memory_id: int, *, scoped: bool = False, owner: str | None = None) -> bool:
     """Xoá vĩnh viễn khỏi store, rồi dọn cache. False nghĩa là store từ chối.
 
     Store trước, cache sau, và không phụ thuộc cache: xoá là biện pháp bảo vệ
@@ -274,7 +291,10 @@ async def forget(memory_id: int) -> bool:
     started = time.perf_counter()
     try:
         try:
-            await asyncio.to_thread(store_delete, memory_id)
+            if scoped:
+                await asyncio.to_thread(store_delete, memory_id, scoped=True, owner=owner)
+            else:
+                await asyncio.to_thread(store_delete, memory_id)
         except StoreError:
             log.warning("could not delete memory %s from the store", memory_id, exc_info=True)
             return False
@@ -298,7 +318,7 @@ async def run_remember(payload: dict) -> dict:
 
     # Cheap pre-screen before spending an embedding call: injection and empty
     # checks need no vector. add() re-runs the full gate with the real one.
-    pre = memory_policy.propose(fact, current_provenance(), [], CACHE)
+    pre = memory_policy.propose(fact, current_provenance(), [], visible(OWNER.get()))
     if pre.action == "reject":
         log.info("memory proposal rejected: %s", pre.reason)
         return {"error": f"memory proposal rejected: {pre.reason}"}

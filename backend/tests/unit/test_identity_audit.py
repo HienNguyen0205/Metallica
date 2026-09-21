@@ -160,7 +160,7 @@ def test_memory_writes_are_audited() -> None:
     orig = (lt.embed, lt.store_configured, lt.store_insert, lt.store_delete)
     lt.embed = fake_embed
     lt.store_configured = lambda: True
-    lt.store_insert = lambda fact, prov, emb: {"id": 9, "fact": fact, "provenance": prov}
+    lt.store_insert = lambda fact, prov, emb, owner=None: {"id": 9, "fact": fact, "provenance": prov}
     lt.store_delete = lambda mid: None
     lt.clear()
     clear()
