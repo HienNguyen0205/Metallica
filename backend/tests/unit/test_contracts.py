@@ -213,6 +213,19 @@ def test_run_query_transcript_validates_against_contracts() -> None:
     assert run.turn_id == "turn_1" and run.final_answer == "CPU is at 73 percent."
 
 
+def test_map_view_matches_canonical_schema() -> None:
+    from friday.schemas.visualization import MapRoute, MapView, VizData
+
+    schema = load("visualization", "visualization.v1.json")
+    assert "map" in set(get_args(VisualizationType))
+    assert "map" in schema["properties"]["type"]["enum"]
+    assert set(MapView.model_fields) == set(schema["definitions"]["MapView"]["properties"])
+    assert "map" in VizData.model_fields
+    profiles = schema["definitions"]["MapRoute"]["properties"]["profile"]["enum"]
+    assert list(get_args(MapRoute.model_fields["profile"].annotation)) == profiles
+    assert MapRoute.model_fields["profile"].default == "motor_scooter"
+
+
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
         if name.startswith("test_") and callable(fn):

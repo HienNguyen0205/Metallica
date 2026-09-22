@@ -2,6 +2,10 @@
 
 from friday.schemas.visualization import (
     GeoPoint,
+    LatLon,
+    MapRoute,
+    MapView,
+    MapWaypoint,
     MetricDatum,
     NodeDatum,
     SeriesDatum,
@@ -13,6 +17,10 @@ from friday.schemas.visualization import (
 
 __all__ = [
     "GeoPoint",
+    "LatLon",
+    "MapRoute",
+    "MapView",
+    "MapWaypoint",
     "MetricDatum",
     "NodeDatum",
     "SeriesDatum",

@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { normalizeVisualization } from "@/lib/visualization/normalization";
+import { normalizeVisualization, sanitizeMapView } from "@/lib/visualization/normalization";
 import { resolveVisualizationLayout } from "@/lib/visualization/layoutResolver";
 
 test("normalize does not mutate the caller's data object", () => {
@@ -129,4 +129,47 @@ test("duplicate series labels get a suffix — charts key and legend by label", 
     },
   });
   expect(out.data?.series?.map((s) => s.label)).toEqual(["CPU", "CPU-2", "CPU-3"]);
+});
+
+test("map view keeps valid center, zoom, bbox and route", () => {
+  const view = sanitizeMapView({
+    center: { lat: 21.03, lon: 105.85 },
+    zoom: 15,
+    bbox: [105.8, 21.0, 105.9, 21.1],
+    route: {
+      profile: "bicycle",
+      waypoints: [
+        { lat: 21.0288, lon: 105.8525, label: "HỒ GƯƠM" },
+        { lat: 21.0368, lon: 105.8346 },
+      ],
+    },
+  });
+  expect(view).toEqual({
+    center: { lat: 21.03, lon: 105.85 },
+    zoom: 15,
+    bbox: [105.8, 21.0, 105.9, 21.1],
+    route: {
+      profile: "bicycle",
+      waypoints: [
+        { lat: 21.0288, lon: 105.8525, label: "HỒ GƯƠM" },
+        { lat: 21.0368, lon: 105.8346 },
+      ],
+    },
+  });
+});
+
+test("map view drops out-of-range and malformed fields", () => {
+  expect(sanitizeMapView(null)).toBeUndefined();
+  expect(sanitizeMapView({ center: { lat: 91, lon: 0 }, zoom: 30 })).toBeUndefined();
+  expect(sanitizeMapView({ bbox: [0, 10, 1, 5] })).toBeUndefined(); // south above north
+  // a route needs 2-5 valid waypoints; an unknown profile falls back to motorbike
+  expect(sanitizeMapView({ route: { profile: "rocket", waypoints: [{ lat: 1, lon: 1 }] } })).toBeUndefined();
+  expect(
+    sanitizeMapView({ route: { profile: "rocket", waypoints: [{ lat: 1, lon: 1 }, { lat: 2, lon: "x" }, { lat: 3, lon: 3 }] } }),
+  ).toEqual({ route: { profile: "motor_scooter", waypoints: [{ lat: 1, lon: 1 }, { lat: 3, lon: 3 }] } });
+});
+
+test("normalizeVisualization sanitizes data.map", () => {
+  const spec = normalizeVisualization({ type: "map", data: { map: { zoom: 99, center: { lat: 1, lon: 2 } } } });
+  expect(spec.data?.map).toEqual({ center: { lat: 1, lon: 2 } });
 });

@@ -99,3 +99,9 @@ body {
     rgba(2, 5, 10, 0.55) 100%
   );
 }
+
+/* Street map mode (spec §4.1): decorative layers would sit on top of the map. */
+html[data-map="on"] [data-map-hide],
+html[data-map="on"] .scanlines::before {
+  display: none;
+}

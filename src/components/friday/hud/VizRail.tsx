@@ -14,6 +14,7 @@ const VIZ_OPTIONS: VisualizationType[] = [
   "network",
   "globe",
   "sankey_flow",
+  "map",
 ];
 
 /** Dev rail — materializes any visualization type with sample data on click. */
@@ -28,6 +29,7 @@ export function VizRail() {
 
   return (
     <div
+      data-map-hide
       className="pointer-events-auto absolute left-8 top-28 hidden flex-col items-start gap-1.5 font-mono text-[10px] tracking-[0.16em] md:flex"
       id="viz-rail"
     >

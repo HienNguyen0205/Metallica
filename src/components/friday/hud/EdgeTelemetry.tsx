@@ -27,7 +27,7 @@ export function EdgeTelemetry() {
   return (
     // One column on the right edge. Link telemetry used to sit bottom-left —
     // exactly where the core docks under a visualization, so the two overlapped.
-    <div className="pointer-events-none absolute bottom-28 right-8 hidden flex-col items-end gap-1.5 font-mono text-[10px] tracking-[0.18em] text-cyan-300/75 md:flex">
+    <div data-map-hide className="pointer-events-none absolute bottom-28 right-8 hidden flex-col items-end gap-1.5 font-mono text-[10px] tracking-[0.18em] text-cyan-300/75 md:flex">
       {busy && (
         <>
           <span>UPLINK · {uplink}</span>

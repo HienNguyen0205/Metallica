@@ -9,6 +9,7 @@
     "dev": "next dev",
     "dev:frontend": "next dev",
     "dev:backend": "python -m uvicorn friday.main:app --port 8000 --reload --app-dir backend",
+    "dev:valhalla": "docker compose -f docker/valhalla/compose.yml up -d",
     "dev:full": "node -e \"const{spawn}=require('child_process');for(const a of[['run','dev:backend'],['run','dev:frontend']]){const p=spawn('npm',a,{stdio:'inherit',shell:true});p.on('exit',c=>{if(c)process.exit(c)})}\"",
     "build": "next build",
     "start": "next start",
@@ -29,6 +30,7 @@
   "dependencies": {
     "@react-three/drei": "^10.7.8",
     "@react-three/fiber": "^9.7.0",
+    "maplibre-gl": "^6.10.0",
     "next": "^16.3.3",
     "react": "19.2.8",
     "react-dom": "19.2.8",

@@ -20,6 +20,7 @@ VisualizationType = Literal[
     "globe",
     "timeline",
     "sankey_flow",
+    "map",
 ]
 
 
@@ -69,6 +70,31 @@ class TimelineEvent(BaseModel):
     at: float = Field(description="position along the axis, 0.0 to 1.0")
 
 
+class LatLon(BaseModel):
+    lat: float = Field(ge=-90, le=90)
+    lon: float = Field(ge=-180, le=180)
+
+
+class MapWaypoint(LatLon):
+    label: str | None = None
+
+
+class MapRoute(BaseModel):
+    """Route intent: the map fetches geometry from /geo/route itself."""
+
+    profile: Literal["auto", "motor_scooter", "bicycle", "pedestrian"] = "motor_scooter"
+    waypoints: list[MapWaypoint] = Field(min_length=2, max_length=5)
+
+
+class MapView(BaseModel):
+    center: LatLon | None = None
+    zoom: float | None = Field(default=None, ge=0, le=20)
+    bbox: list[float] | None = Field(
+        default=None, min_length=4, max_length=4, description="[west, south, east, north]"
+    )
+    route: MapRoute | None = None
+
+
 class VizData(BaseModel):
     """Every field optional: each renderer reads only the ones it needs."""
 
@@ -78,6 +104,7 @@ class VizData(BaseModel):
     links: list[list[int]] | None = None
     points: list[GeoPoint] | None = None
     routes: list[GlobeRoute] | None = None
+    map: MapView | None = None
     events: list[TimelineEvent] | None = None
     rate: float | None = None
 

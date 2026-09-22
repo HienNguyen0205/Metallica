@@ -3,6 +3,8 @@ import {
   arcHeightFor,
   arcPointAt,
   buildArcPoints,
+  computeGlobeFocusAngles,
+  viewCenterFromAngles,
   latLonToVector3,
   markerDetail,
   markerRadius,
@@ -162,4 +164,25 @@ test("quality resolver degrades particles and post work first", () => {
 
 test("sun direction is a unit vector", () => {
   expect(Math.hypot(...SUN_DIRECTION)).toBeCloseTo(1, 9);
+});
+
+test("viewCenterFromAngles inverts computeGlobeFocusAngles", () => {
+  for (const lat of [-40, 0, 21.03, 45]) {
+    for (const lon of [-170, -90, 0, 45, 105.85, 179]) {
+      const { yaw, pitch } = computeGlobeFocusAngles(lat, lon, 0);
+      const c = viewCenterFromAngles(yaw, pitch);
+      expect(Math.abs(c.lat - lat)).toBeLessThan(1e-9);
+      const dLon = ((c.lon - lon + 540) % 360) - 180;
+      expect(Math.abs(dLon)).toBeLessThan(1e-9);
+    }
+  }
+});
+
+test("viewCenterFromAngles wraps spun yaw and reports the clamped latitude", () => {
+  const { yaw, pitch } = computeGlobeFocusAngles(80, 10, 0, 0.85);
+  const c = viewCenterFromAngles(yaw + Math.PI * 6, pitch);
+  expect(Math.abs(c.lat - (0.85 * 180) / Math.PI)).toBeLessThan(1e-9);
+  expect(Math.abs(c.lon - 10)).toBeLessThan(1e-9);
+  expect(c.lon).toBeGreaterThanOrEqual(-180);
+  expect(c.lon).toBeLessThan(180);
 });

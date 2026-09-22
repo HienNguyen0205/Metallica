@@ -5,6 +5,7 @@ import {
   CORE_HIDE_NEAR,
   CORE_HIDE_RELEASE,
   decideCoreHidden,
+  sceneEntries,
   shouldDockCore,
 } from "@/lib/visualization/layoutResolver";
 import type { VisualizationSpec } from "@/lib/visualization/types";
@@ -77,4 +78,11 @@ test("hide gate is strictly inside the release gate", () => {
 test("decideCoreHidden is stable on a non-finite distance", () => {
   expect(decideCoreHidden(NaN, false)).toBe(false);
   expect(decideCoreHidden(NaN, true)).toBe(true);
+});
+
+test("a map spec takes no scene slot and never docks the core", () => {
+  expect(sceneEntries([entry({ type: "map" }), entry({ type: "globe" })]).map((e) => e.spec.type)).toEqual(["globe"]);
+  expect(shouldDockCore([entry({ type: "map" })])).toBe(false);
+  // globe + map: the globe is alone on stage, so it is centered and docks the core
+  expect(shouldDockCore([entry({ type: "globe" }), entry({ type: "map" })])).toBe(true);
 });

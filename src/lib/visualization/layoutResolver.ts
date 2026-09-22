@@ -14,6 +14,12 @@ export interface LayoutContext {
  * Deterministic spatial layout resolver.
  * No CSS grid — positions are in world units around the central core.
  */
+
+/** Entries drawn in the 3D scene — a `map` spec renders in the DOM map layer, never here. */
+export function sceneEntries<T extends Pick<VisualizationEntry, "spec">>(entries: T[]): T[] {
+  return entries.filter((e) => e.spec.type !== "map");
+}
+
 export function resolveVisualizationLayout(
   spec: VisualizationSpec,
   ctx: LayoutContext,
@@ -103,11 +109,12 @@ const CENTER_STAGE_HALF = 1.5;
  * whose latest entry sits on the rim keep the core where it is.
  */
 export function shouldDockCore(entries: Pick<VisualizationEntry, "spec">[]): boolean {
-  const latest = entries.at(-1);
+  const scene = sceneEntries(entries);
+  const latest = scene.at(-1);
   if (!latest) return false;
   const { position } = resolveVisualizationLayout(latest.spec, {
-    count: entries.length,
-    index: entries.length - 1,
+    count: scene.length,
+    index: scene.length - 1,
   });
   return (
     Math.abs(position[0]) <= CENTER_STAGE_HALF && Math.abs(position[1]) <= CENTER_STAGE_HALF

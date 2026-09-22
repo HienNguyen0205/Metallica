@@ -5,8 +5,10 @@ import { useFrame, type ThreeEvent } from "@react-three/fiber";
 import { Vector3 } from "three";
 import type { Group } from "three";
 import { useFridayStore } from "@/lib/store";
+import type { GeoPoint } from "@/lib/store";
+import { HANDOFF_ZOOM, pushOverZoom, type OverZoom } from "@/lib/mapView";
 import { reportCamera } from "@/lib/telemetry";
-import { computeGlobeFocusAngles } from "./geo";
+import { computeGlobeFocusAngles, viewCenterFromAngles } from "./geo";
 
 /** Rotation speed (rad/s) per FRIDAY state — motion carries meaning (§42). */
 const STATE_SPIN: Record<string, number> = {
@@ -24,6 +26,8 @@ const STATE_SPIN: Record<string, number> = {
 
 const MIN_DIST = 4.4;
 const MAX_DIST = 9.5;
+/** How far the camera dives while the map crossfades in — past MIN_DIST on purpose (spec §3.3). */
+const ENTER_DIST = 3.2;
 const HOME_DIST = 7.2;
 const FOCUS_DIST = 4.9;
 const MAX_TILT = 0.85;
@@ -70,10 +74,13 @@ export interface GlobeInteraction {
 export function useGlobeInteraction({
   autoRotate = true,
   getFocusTarget,
+  getPoints,
 }: {
   autoRotate?: boolean;
   /** Resolves the currently selected marker for the `F` key. */
   getFocusTarget?: () => GlobeFocusTarget | null;
+  /** Points the map should keep showing after the handoff. */
+  getPoints?: () => GeoPoint[];
 } = {}): GlobeInteraction {
   const spinRef = useRef<Group | null>(null);
   const instanceId = useMemo(() => Symbol("globe"), []);
@@ -101,6 +108,7 @@ export function useGlobeInteraction({
   const focusAnim = useRef<{ yaw: number; pitch: number } | null>(null);
   const reduced = useRef(false);
   const didInitDist = useRef(false);
+  const overZoom = useRef<OverZoom>({ amount: 0, at: 0 });
 
   useEffect(() => {
     const mq = window.matchMedia("(prefers-reduced-motion: reduce)");
@@ -156,9 +164,33 @@ export function useGlobeInteraction({
     focusAnim.current = { yaw: 0, pitch: 0.12 };
   }, [touch]);
 
+  /** Input that keeps pushing inward at MIN_DIST accumulates toward the map handoff (spec §3.2). */
+  const pushPastLimit = useCallback(
+    (push: number) => {
+      const store = useFridayStore.getState();
+      if (store.mapView.mode !== "globe") return;
+      const { next, fire } = pushOverZoom(overZoom.current, push, performance.now());
+      overZoom.current = next;
+      if (!fire) return;
+      const center = getFocusTarget?.() ?? viewCenterFromAngles(yaw.current, pitch.current);
+      store.openMap({ center, zoom: HANDOFF_ZOOM, source: "zoom", points: getPoints?.() });
+    },
+    [getFocusTarget, getPoints],
+  );
+
+  // Coming back from the map: face where the map was looking.
+  useEffect(
+    () =>
+      useFridayStore.subscribe((s, prev) => {
+        if (s.mapView.mode === "leaving" && prev.mapView.mode !== "leaving") focusOn(s.mapView.center);
+      }),
+    [focusOn],
+  );
+
   // Keyboard alternatives (§41) — ignored while typing.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (useFridayStore.getState().mapView.mode !== "globe") return; // the map owns the keyboard (spec §3.6)
       const el = e.target as HTMLElement | null;
       if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable)) return;
       if (e.metaKey || e.ctrlKey || e.altKey) return;
@@ -183,6 +215,7 @@ export function useGlobeInteraction({
         case "+":
         case "=":
           touch();
+          if (distTarget.current <= MIN_DIST) pushPastLimit(0.34);
           distTarget.current = Math.max(MIN_DIST, distTarget.current / 1.12);
           break;
         case "-":
@@ -216,7 +249,7 @@ export function useGlobeInteraction({
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [focusOn, getFocusTarget, reset, touch]);
+  }, [focusOn, getFocusTarget, reset, touch, pushPastLimit]);
 
   useFrame(({ camera }, rawDelta) => {
     const spin = spinRef.current;
@@ -274,6 +307,7 @@ export function useGlobeInteraction({
     }
     // Camera-based zoom: dolly along the current view direction toward the
     // globe center — the camera flies, the planet never rescales (§13).
+    if (useFridayStore.getState().mapView.mode === "entering") distTarget.current = ENTER_DIST;
     dist.current += (distTarget.current - dist.current) * Math.min(1, delta * 5);
     tmpDir.copy(camera.position).sub(GLOBE_CENTER);
     if (tmpDir.lengthSq() < 1e-6) tmpDir.set(0, 0, 1);
@@ -312,6 +346,7 @@ export function useGlobeInteraction({
           const [a, b] = [...pinch.current.values()];
           const pinchNow = Math.hypot(a[0] - b[0], a[1] - b[1]);
           if (pinchDist.current > 0 && pinchNow > 0) {
+            if (distTarget.current <= MIN_DIST && pinchNow > pinchDist.current) pushPastLimit((pinchNow / pinchDist.current - 1) * 2);
             // Spread fingers → fly closer (distance shrinks).
             distTarget.current = Math.max(
               MIN_DIST,
@@ -341,11 +376,13 @@ export function useGlobeInteraction({
         touch();
       },
       onWheel: (e) => {
+        const atLimit = distTarget.current <= MIN_DIST;
         // Wheel up (negative deltaY) flies the camera in.
         distTarget.current = Math.max(
           MIN_DIST,
           Math.min(MAX_DIST, distTarget.current * (1 + e.nativeEvent.deltaY * 0.001)),
         );
+        if (atLimit && e.nativeEvent.deltaY < 0) pushPastLimit(-e.nativeEvent.deltaY / 400);
         touch();
       },
       onDoubleClick: () => {
@@ -353,7 +390,7 @@ export function useGlobeInteraction({
         reset();
       },
     }),
-    [touch, reset],
+    [touch, reset, pushPastLimit],
   );
 
   return { spinRef, handlers, focusOn, reset };

@@ -411,3 +411,26 @@ POST /query ─▶ run_query ─▶ _run_query_events ─▶ agent.run ─▶ to
 Shared contracts in `contracts/` are the source of truth both sides validate
 against (see `tests/unit/contracts.spec.ts` and
 `backend/tests/unit/test_contracts.py`).
+
+## 16. Street map layer
+
+The street map sits **between the canvas and the HUD**: a full-screen
+MapLibre GL layer that fades in over the R3F globe once the user zooms past
+the globe's limit (over-zoom accumulator in `src/lib/mapView.ts`) or the
+agent emits a `map` spec. Zooming back out past `LEAVE_ZOOM` hands back to
+the globe; `HANDOFF_ZOOM` is the MapLibre zoom tuned so the two globes match
+size during the crossfade.
+
+- **`mapView` slice** (`src/lib/store.ts`, pure rules in `src/lib/mapView.ts`):
+  the store holds camera *intent* only (`mode`, `center`, `zoom`, `view`,
+  `points`, `rev`); easing lives in refs and MapLibre. A `map` spec opens or
+  re-aims the map, any other visualization closes it.
+- **`map` spec = route intent.** `spec.data.map` carries waypoints (and an
+  optional bbox/center/zoom), never geometry — the map fetches the geometry
+  itself from `POST /geo/route` on the orchestrator, which validates the
+  waypoints and proxies to a local Valhalla. Directions need `VALHALLA_URL`;
+  unset, the map draws the pins and reports routing as unconfigured.
+- **Preview pinning** (see the preview-pinning comment in backend/friday/api/routes.py): `find_place` and
+  `get_directions` (`risk="low"`, `geo.read`) declare deterministic previews,
+  and the planner is pinned to the preview's `map` type so the street map
+  cannot flicker into a gauge on the final plan.

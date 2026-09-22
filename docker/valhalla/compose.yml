@@ -1,0 +1,20 @@
+# Local routing for the map's directions (spec §6.1). Dev only — Render's free
+# plan cannot host it. First start downloads the Vietnam extract and builds
+# tiles into the volume (~15–40 min, ~2–4 GB RAM peak); later starts are instant.
+#   npm run dev:valhalla     then set VALHALLA_URL=http://localhost:8002 in backend/.env
+services:
+  valhalla:
+    image: ghcr.io/valhalla/valhalla-scripted:latest
+    ports:
+      - "8002:8002"
+    volumes:
+      - valhalla-tiles:/custom_files
+    environment:
+      tile_urls: https://download.geofabrik.de/asia/vietnam-latest.osm.pbf
+      build_elevation: "False"
+      use_tiles_ignore_pbf: "True"
+      serve_tiles: "True"
+    restart: unless-stopped
+
+volumes:
+  valhalla-tiles:

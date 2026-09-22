@@ -7,6 +7,12 @@ from .filesystem.notes import run_read_note, run_write_note
 from .filesystem.sandbox import run_list_dir, run_read_file
 from .integrations.fetch import run_fetch_url
 from friday.rag import run_search_docs
+from friday.geo.tools import (
+    preview_find_place,
+    preview_get_directions,
+    run_find_place,
+    run_get_directions,
+)
 from .integrations.search import run_search_web
 from .client.metrics import (
     HISTORY_METRICS,
@@ -87,6 +93,53 @@ def _build_default_registry() -> dict[str, Tool]:
             run=run_client_location,
             capabilities=("client.location",),
             preview=preview_client_location,
+        ),
+        Tool(
+            name="find_place",
+            description=(
+                "Find a place, address or kind of place and show it on the street "
+                "map. Use for 'where is X', 'show me X', 'cafes near me'. Pass "
+                "near='my_location' for places around the operator."
+            ),
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "what to find, in the user's words"},
+                    "near": {"type": "string", "description": "'my_location' or a place name to search around"},
+                },
+                "required": ["query"],
+            },
+            # Reads a public geocoder; the only operator data sent is a ~1 km
+            # position, and only when they already shared their location.
+            risk="low",
+            run=run_find_place,
+            capabilities=("geo.read",),
+            preview=preview_find_place,
+            timeout_s=15,
+        ),
+        Tool(
+            name="get_directions",
+            description=(
+                "Directions between places in Vietnam, shown on the street map "
+                "with distance and time. from/to are place names or "
+                "'my_location'. profile: motor_scooter (default, xe máy), auto "
+                "(car), bicycle, pedestrian."
+            ),
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "from": {"type": "string"},
+                    "to": {"type": "string"},
+                    "profile": {"type": "string", "enum": ["motor_scooter", "auto", "bicycle", "pedestrian"]},
+                    "via": {"type": "array", "items": {"type": "string"}, "maxItems": 3},
+                },
+                "required": ["from", "to"],
+            },
+            risk="low",
+            run=run_get_directions,
+            capabilities=("geo.read",),
+            preview=preview_get_directions,
+            timeout_s=25,
         ),
         Tool(
             name="get_current_time",
