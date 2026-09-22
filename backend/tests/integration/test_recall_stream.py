@@ -5,9 +5,11 @@
 
 import asyncio
 import json
+from contextlib import contextmanager
 
 from friday import agent, main
 from friday.api import routes
+from friday.core import config as core_config
 from friday.memory import embed as embed_mod
 from friday.memory import long_term as lt
 from friday.schema import VisualizationPlan, VizData
@@ -34,6 +36,16 @@ def stub_planner():
         return PLAN
 
     routes.plan = fake_plan
+
+
+@contextmanager
+def events_v2(on: bool):
+    old = core_config.settings.events_v2
+    core_config.settings.events_v2 = on
+    try:
+        yield
+    finally:
+        core_config.settings.events_v2 = old
 
 
 def test_a_relevant_memory_reaches_the_system_prompt():
@@ -63,13 +75,16 @@ def test_a_dead_embedder_skips_recall_without_failing_the_turn():
 def test_the_memory_event_reaches_the_stream():
     stub_planner()
 
-    async def fake_agent(query, approve, result, history=(), memories=""):
+    async def fake_agent(query, approve, result, history=(), memories="", emit_steps=False):
         yield agent.AgentEvent("memory", {"id": 1, "fact": "đã học", "provenance": "user"})
         result.text = "xong"
 
     original, agent.run = agent.run, fake_agent
     try:
-        events = collect()
+        # Flat-payload assertions below read the legacy SSE shape, so pin the
+        # branch run_query still serves with events_v2 off.
+        with events_v2(False):
+            events = collect()
     finally:
         agent.run = original
 
@@ -98,7 +113,7 @@ def test_recall_reaches_agent_run_as_the_memories_argument():
 
     captured = {}
 
-    async def capturing_agent(query, approve, result, history=(), memories=""):
+    async def capturing_agent(query, approve, result, history=(), memories="", emit_steps=False):
         captured["memories"] = memories
         result.text = "ok"
         return

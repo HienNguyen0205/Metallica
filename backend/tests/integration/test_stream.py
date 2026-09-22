@@ -70,7 +70,7 @@ def stub_planner():
 def test_tool_flow_event_order() -> None:
     stub_planner()
 
-    async def fake_agent(query, approve, result, history=(), memories=""):
+    async def fake_agent(query, approve, result, history=(), memories="", emit_steps=False):
         yield agent.AgentEvent("state", {"state": "tool_execution"})
         yield agent.AgentEvent("tool", {"tool": "get_system_metrics", "risk": "low"})
         yield agent.AgentEvent("state", {"state": "processing"})
@@ -79,7 +79,9 @@ def test_tool_flow_event_order() -> None:
 
     original, agent.run = agent.run, fake_agent
     try:
-        events = collect()
+        # Flat-transport event contract: pin the legacy branch (see above).
+        with events_v2(False):
+            events = collect()
     finally:
         agent.run = original
 
@@ -103,7 +105,7 @@ def test_preview_reaches_the_ui_before_the_planner_runs() -> None:
     """§18 — the hologram materializes as data lands, not after the turn ends."""
     stub_planner()
 
-    async def fake_agent(query, approve, result, history=(), memories=""):
+    async def fake_agent(query, approve, result, history=(), memories="", emit_steps=False):
         yield agent.AgentEvent("state", {"state": "tool_execution"})
         yield agent.AgentEvent(
             "preview",
@@ -120,7 +122,9 @@ def test_preview_reaches_the_ui_before_the_planner_runs() -> None:
 
     original, agent.run = agent.run, fake_agent
     try:
-        events = collect()
+        # Flat-transport event contract: pin the legacy branch (see above).
+        with events_v2(False):
+            events = collect()
     finally:
         agent.run = original
 
@@ -143,13 +147,17 @@ def test_agent_failure_still_closes_the_stream() -> None:
     """A dead model must not leave the UI stuck in THINKING."""
     stub_planner()
 
-    async def broken(query, approve, result, history=(), memories=""):
+    async def broken(query, approve, result, history=(), memories="", emit_steps=False):
         raise RuntimeError("boom")
         yield  # pragma: no cover - makes this an async generator
 
     original, agent.run = agent.run, broken
     try:
-        events = collect()
+        # Legacy flat transport: this is the close-the-stream contract for the
+        # non-enveloped branch run_query still serves with events_v2 off
+        # (V2 agent-stage failures are covered by the v2 tests below).
+        with events_v2(False):
+            events = collect()
     finally:
         agent.run = original
 
@@ -201,7 +209,7 @@ def test_every_emitted_state_sequence_is_legal_in_the_ui() -> None:
     """
     stub_planner()
 
-    async def two_tool_agent(query, approve, result, history=(), memories=""):
+    async def two_tool_agent(query, approve, result, history=(), memories="", emit_steps=False):
         for viz_type, title in [("radial_gauge", "SYSTEM LOAD"), ("bar_3d", "TOP PROCESSES")]:
             yield agent.AgentEvent("state", {"state": "tool_execution"})
             yield agent.AgentEvent("tool", {"tool": "t", "risk": "low"})
@@ -211,7 +219,9 @@ def test_every_emitted_state_sequence_is_legal_in_the_ui() -> None:
 
     original, agent.run = agent.run, two_tool_agent
     try:
-        events = collect()
+        # Flat-transport event contract: pin the legacy branch (see above).
+        with events_v2(False):
+            events = collect()
     finally:
         agent.run = original
 
@@ -230,7 +240,7 @@ def _run_with_decision(decision: bool | None) -> tuple[list[tuple[str, dict]], l
     stub_planner()
     verdicts: list[bool] = []
 
-    async def gated_agent(query, approve, result, history=(), memories=""):
+    async def gated_agent(query, approve, result, history=(), memories="", emit_steps=False):
         verdicts.append(await approve("write_note", "high", {"name": "x", "body": "y"}))
         result.text = "done"
         yield agent.AgentEvent("state", {"state": "processing"})
@@ -248,7 +258,10 @@ def _run_with_decision(decision: bool | None) -> tuple[list[tuple[str, dict]], l
     original_agent, agent.run = agent.run, gated_agent
     original_timeout = _set_confirm_timeout(0.3)
     try:
-        return asyncio.run(drive()), verdicts
+        # Flat-transport assertions below read the legacy SSE shape, so pin
+        # the branch run_query still serves with events_v2 off.
+        with events_v2(False):
+            return asyncio.run(drive()), verdicts
     finally:
         agent.run = original_agent
         _set_confirm_timeout(original_timeout)
@@ -380,7 +393,7 @@ def parse_enveloped(chunk: str) -> tuple[str, dict, dict]:
 def test_v2_off_is_byte_identical() -> None:
     stub_planner()
 
-    async def fake_agent(query, approve, result, history=(), memories=""):
+    async def fake_agent(query, approve, result, history=(), memories="", emit_steps=False):
         yield agent.AgentEvent("state", {"state": "tool_execution"})
         result.text = "ok"
 

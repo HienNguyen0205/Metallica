@@ -39,8 +39,10 @@ def test_map_preview_skips_the_planner() -> None:
         agent.run, routes.plan = original_agent, original_plan
 
     text = "".join(c if isinstance(c, str) else c.decode() for c in chunks)
-    vizzes = [json.loads(line[len("data: "):]) for block in text.split("\n\n")
+    bodies = [json.loads(line[len("data: "):]) for block in text.split("\n\n")
               if "event: viz" in block for line in block.splitlines() if line.startswith("data: ")]
+    # V2 envelopes the payload; the flat transport carries it at top level.
+    vizzes = [b.get("payload", b) for b in bodies]
     assert len(vizzes) == 2, vizzes  # the preview, then the same map as the final spec
     final = vizzes[-1]
     assert final["type"] == "map" and final["interaction"] == "drill_down"

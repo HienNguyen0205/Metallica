@@ -31,7 +31,7 @@ def run_turn(query: str, session: str | None, answer: str) -> list[dict]:
     """Drives one full turn and returns the history the agent was handed."""
     seen: list[dict] = []
 
-    async def fake_agent(q, approve, result, history=(), memories=""):
+    async def fake_agent(q, approve, result, history=(), memories="", emit_steps=False):
         seen.extend(history)
         result.text = answer
         return
@@ -82,7 +82,7 @@ def test_no_session_id_keeps_no_history() -> None:
 def test_a_failed_turn_is_not_recorded() -> None:
     memory.clear()
 
-    async def exploding_agent(q, approve, result, history=(), memories=""):
+    async def exploding_agent(q, approve, result, history=(), memories="", emit_steps=False):
         raise RuntimeError("provider down")
         yield  # pragma: no cover
 
