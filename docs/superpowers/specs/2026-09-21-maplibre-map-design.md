@@ -1,6 +1,6 @@
 # MapLibre street map (globe → map handoff, search, directions) — design
 
-Status: **awaiting review** · Date: 2026-09-21
+Status: **approved** · Date: 2026-09-21 · Revised 2026-09-22: routing moved from self-hosted Valhalla to GraphHopper Cloud
 
 ## 1. Problem
 
@@ -15,8 +15,10 @@ context menu, directions with alternatives and draggable endpoints).
 
 ## 2. Decisions already made
 
-- **Tiles/geocoding: MapTiler** (API key). **Routing: self-hosted Valhalla**,
-  Vietnam extract only. **Default travel mode: motorbike** (`motor_scooter`).
+- **Tiles/geocoding: MapTiler** (API key). **Routing: GraphHopper Cloud**
+  (hosted API, key; free plan). **Default travel mode: the first the plan
+  allows** — car on the free plan (it has no motorbike); motorbike
+  (`motor_scooter`) becomes the default once the plan includes `scooter`.
 - **Full-screen map layer** between the R3F canvas and the HUD.
 - **Approach A** — DOM layer with MapLibre's own `projection: "globe"` for a
   seamless crossfade. Rejected: MapLibre rendered to a texture inside the 3D
@@ -26,9 +28,8 @@ context menu, directions with alternatives and draggable endpoints).
   frosted panels); Google Maps layout and interactions. Layer switcher offers
   light / satellite (hybrid) / terrain.
 - **Map specs carry route *intent*, not geometry** (§5).
-- **Valhalla is optional**: without `VALHALLA_URL` everything but directions
-  works. Render's free plan (512 MB, ephemeral disk) cannot host it; a
-  production Valhalla is out of scope for this round.
+- **Routing is optional**: without `GRAPHHOPPER_API_KEY` everything but
+  directions works. Nothing to host, so it deploys on Render as is.
 
 ## 3. State and handoff mechanics
 
@@ -128,7 +129,7 @@ stay, so the operator can keep talking to FRIDAY over the map. Labels prefer
 | Search | MapTiler Geocoding autocomplete, 250 ms debounce, proximity-biased to the map center. ARIA combobox, ↑↓ / Enter / Esc. Picking a result flies there and opens the place card. |
 | Place card | From a POI click or a search pick: name, category, address (reverse geocode), coordinates; buttons **Chỉ đường**, **Từ đây**, **Sao chép tọa độ**. |
 | Context menu | Right-click: "Chỉ đường từ đây", "Chỉ đường đến đây", "Đây là đâu?", "Sao chép tọa độ". |
-| Directions | From/To inputs (autocomplete, "Vị trí của tôi"), ⇅ swap, mode tabs 🛵 Xe máy (default) · 🚗 Ô tô · 🚲 Xe đạp · 🚶 Đi bộ. Primary route + up to 2 grey alternatives, click to select. Distance/time summary; step list — hover highlights the segment, click flies to the maneuver. **A/B markers are draggable**; drop reroutes. |
+| Directions | From/To inputs (autocomplete, "Vị trí của tôi"), ⇅ swap, mode tabs for the modes the plan allows (`GET /geo/profiles`, default first): 🚗 Ô tô · 🚲 Xe đạp · 🚶 Đi bộ on the free plan, plus 🛵 Xe máy (then default) with `scooter`. Primary route + up to 2 grey alternatives, click to select. Distance/time summary; step list — hover highlights the segment, click flies to the maneuver. **A/B markers are draggable**; drop reroutes. |
 | Globe data | The globe viz's `points` / `routes` render on the map with the same status colors. |
 
 ### 4.3 Files (`src/components/friday/map/`)
@@ -138,8 +139,8 @@ stay, so the operator can keep talking to FRIDAY over the map. Labels prefer
 - `MapSearch.tsx` — autocomplete box, reused for the From/To inputs.
 - `PlacePanel.tsx` — place card + context menu.
 - `DirectionsPanel.tsx` — directions panel, route layers, step list.
-- `mapApi.ts` — style URLs, MapTiler geocoding client, `/geo/route` client,
-  polyline6 decoder, maneuver → Vietnamese template table.
+- `mapApi.ts` — style URLs, MapTiler geocoding client, `/geo/route` and
+  `/geo/profiles` clients, step-geometry helpers, formatting.
 - `map.css` — control and panel styling.
 
 ### 4.4 Infrastructure
@@ -182,8 +183,8 @@ interface MapView {
 `DirectionsPanel` fetches the geometry from `/geo/route` — the same call it
 makes for user-driven directions, drags and mode switches. One route-drawing
 path; no multi-KB polylines in the event stream or memory. The agent tool
-computes its own distance/time for the spoken answer; Valhalla is
-deterministic on the same data, so the drawn route matches.
+computes its own distance/time for the spoken answer; the router answers the
+same question the same way, so the drawn route matches.
 
 **Rendering flow**
 
@@ -204,65 +205,90 @@ deterministic on the same data, so the drawn route matches.
 
 ## 6. Backend
 
-### 6.1 Valhalla (dev/local)
+### 6.1 Routing provider — GraphHopper Cloud
 
-- `docker/valhalla/compose.yml` using Valhalla's official scripted image: it
-  downloads the Geofabrik Vietnam PBF and builds tiles on first start into a
-  volume; later starts are instant. Port 8002. `npm run dev:valhalla`.
-  `.env.example`: `VALHALLA_URL=http://localhost:8002`. Exact image name and
-  env vars are verified at implementation time.
-- Expected footprint (estimate, to be measured with `docker stats`): build peak
-  ~2–4 GB RAM, 15–40 min; serving ~300–800 MB (tune `mjolnir.max_cache_size`);
-  disk ~1–2 GB.
+Hosted Routing API (`https://graphhopper.com/api/1/route`), keyed; nothing to
+run or host. Decided 2026-09-22 over self-hosted Valhalla (needs its own
+server; Render's free plan cannot host it) and public OSRM (no Vietnamese
+instruction text, no SLA).
 
-### 6.2 Client — `backend/friday/geo/valhalla.py`
+- `GRAPHHOPPER_API_KEY` (backend only — the browser never sees it). Unset →
+  everything but directions works.
+- **Free plan: 500 credits/day, car/bike/foot only, non-commercial use.**
+  Alternative routes cost extra credits; the backend cache (§6.3) exists
+  largely to protect this budget.
+- `GRAPHHOPPER_PROFILES` (default `car,bike,foot`) lists what the key's plan
+  allows. Adding `scooter` (paid plan) turns the motorbike mode on everywhere
+  with no code change.
+- Turn instructions in Vietnamese via `locale=vi` (GraphHopper ships `vi` /
+  `vi_VN` translations), so no frontend translation table.
+
+### 6.2 Client — `backend/friday/geo/graphhopper.py`
 
 `urllib` + `asyncio.to_thread`, the `fetch.py` pattern (no `httpx`).
 
+- Contract profile → GraphHopper profile: `auto → car`, `motor_scooter →
+  scooter`, `bicycle → bike`, `pedestrian → foot`.
+- **Default profile** = the first the plan allows in the order
+  `motor_scooter, auto, bicycle, pedestrian` → `auto` on the free plan.
+- Request: one `point=lat,lon` per waypoint, `profile`, `locale=vi`,
+  `instructions=true`, `points_encoded=false`; with exactly two points also
+  `algorithm=alternative_route&alternative_route.max_paths=3`.
+
 ```python
-async def route(waypoints, profile, alternates=2, language="vi-VN") -> dict
-# → {"routes": [{"distance_m", "duration_s", "shape": "<polyline6>",
-#                "maneuvers": [{"instruction", "type", "distance_m",
+async def route(waypoints, profile=None, locale="vi") -> dict
+# → {"routes": [{"distance_m", "duration_s",
+#                "coordinates": [[lon, lat], ...],
+#                "maneuvers": [{"instruction", "sign", "distance_m",
 #                               "duration_s", "begin_shape_index"}]}]}
 ```
 
-If Valhalla has no `vi-VN` narrative locale, request `en-US` and let the
-frontend render Vietnamese from maneuver `type` (template table in
-`mapApi.ts`).
+`points_encoded=false` returns plain `[lon, lat]` pairs, so the frontend needs
+no polyline decoder; `begin_shape_index` is GraphHopper's `interval[0]`.
 
-### 6.3 Proxy — `POST /geo/route`
+### 6.3 Proxy — `POST /geo/route`, `GET /geo/profiles`
 
-- `require_known_origin`, like the other routes.
-- Validation → 422: 2–5 waypoints, lat ∈ [-90, 90], lon ∈ [-180, 180],
-  `profile` in the enum.
+- Both behind `require_known_origin`, like the other routes.
+- `/geo/route` validation → 422: 2–5 waypoints, lat ∈ [-90, 90],
+  lon ∈ [-180, 180], `profile` in the enum (omitted = plan default).
 - 10 s timeout; LRU cache (256 entries) keyed on inputs rounded to 5 decimals,
-  so drags and mode toggles do not refetch.
-- Errors: Valhalla unreachable or unset → `503 {"error": "routing_unavailable"}`
-  (UI: "Chỉ đường chưa được cấu hình"); out of coverage / no path →
-  `422 {"error": "no_route"}` (UI: "Không tìm thấy đường đi (chỉ hỗ trợ trong
-  Việt Nam)").
+  so drags and mode toggles do not spend credits twice.
+- Errors: no key, 401, 429 (credits used up), 5xx or unreachable →
+  `503 {"error": "routing_unavailable"}` (UI: "Chỉ đường chưa được cấu hình");
+  GraphHopper 400 (no connection / point not near a road) →
+  `422 {"error": "no_route"}` (UI: "Không tìm thấy đường đi"); a mode the plan
+  lacks → `422 {"error": "unsupported_profile"}`, refused before any credit is
+  spent (UI: "Gói chỉ đường hiện tại không hỗ trợ phương tiện này").
+- `/geo/profiles` → `{"profiles": [...]}` (contract names, default first). The
+  directions panel shows only these tabs.
 
 ### 6.4 Agent tools (capability `geo.read`, `risk="low"` — read-only)
 
 | Tool | Input | Model output | Preview spec |
 |---|---|---|---|
 | `find_place` | `query`, `near?` (`"my_location"` or a place name) | ≤5 `{label, category, address, lat, lon}` | `map` with `points` + `bbox` over results |
-| `get_directions` | `from`, `to` (place name or `"my_location"`), `profile` (default `motor_scooter`), `via?` (≤3) | `{from, to, distance_km, duration_min, steps: first 8}` | `map` with `route: {profile, waypoints}` + A/B `points` |
+| `get_directions` | `from`, `to` (place name or `"my_location"`), `profile` (default = plan default, `auto` on free), `via?` (≤3) | `{from, to, distance_km, duration_min, steps: first 8}` | `map` with `route: {profile, waypoints}` + A/B `points` |
 
 - Server-side geocoding uses MapTiler with a separate `MAPTILER_SERVER_KEY`
   (the frontend key is origin-locked).
 - `"my_location"` reads `CLIENT`; unshared location → the same error dict as
   `get_client_location`.
+- A mode the plan lacks (e.g. motorbike on the free plan) → error dict saying
+  so, before any geocoding.
 - No `show_map` tool: "show me Hoàn Kiếm" is `find_place`, whose preview opens
   the map.
-- Without `VALHALLA_URL`, `get_directions` returns an error dict saying routing
-  is not configured.
+- Without `GRAPHHOPPER_API_KEY`, `get_directions` returns an error dict saying
+  routing is not configured.
+- A `map` preview is the final visualization: the orchestrator passes it
+  through instead of re-planning, so the model never rewrites waypoints.
 
 ### 6.5 Privacy
 
 - Operator coordinates sent to MapTiler (external) for proximity bias are
-  rounded to 2 decimals (~1 km). Full precision goes only to the self-hosted
-  Valhalla.
+  rounded to 2 decimals (~1 km).
+- Routing needs the real stops, so full-precision coordinates go to
+  GraphHopper (external) — only for a route the operator asked for, and a
+  `"my_location"` stop only when they already shared their location.
 - The existing memory coordinate guard (`shared_coordinates`) still covers the
   new tools' outputs.
 
@@ -279,8 +305,8 @@ No test touches the real network.
   closes, map viz opens.
 - `overZoom.spec.ts` (new): single scroll does not trigger; sustained scroll
   does; 600 ms idle decays.
-- `mapApi.spec.ts` (new): polyline6 decode against a known sample; maneuver →
-  Vietnamese templates; MapTiler geocoding response parsing.
+- `mapApi.spec.ts` (new): step geometry from `begin_shape_index`; MapTiler
+  geocoding response parsing; Vietnamese distance/duration formatting.
 - `contracts.spec.ts` (extend): `map` / `MapView` parity; minimal `{type:"map"}`
   valid.
 - Layout: `map` specs take no slot in `resolveVisualizationLayout`.
@@ -289,12 +315,13 @@ No test touches the real network.
 
 `page.route` intercepts `api.maptiler.com` and serves a minimal style JSON
 (background + one GeoJSON layer, no tiles), so real MapLibre runs offline in
-Chromium; `/geo/route` is stubbed via `stubOrchestrator`.
+Chromium; `/geo/route` and `/geo/profiles` are stubbed with `page.route`.
 
 1. Globe zoomed to `MIN_DIST` + more scroll → map layer visible, `mode=map`;
    `Esc` → back to globe.
 2. Agent `map` spec with `route` → map opens, directions panel shows the stubbed
-   distance/time, route layer exists.
+   distance/time, route layer exists; free-plan profiles → car selected, no
+   motorbike tab; switching mode re-asks with the new profile.
 3. Search: autocomplete appears, ↑↓/Enter selects, place card opens.
 4. `/geo/route` 503 → "Chỉ đường chưa được cấu hình", map still usable.
 5. `prefers-reduced-motion` → short fade (timed via `mode` changes).
@@ -303,27 +330,29 @@ DOM/state assertions only — no map screenshots (fonts/tiles make them flaky).
 
 **Backend (`backend/tests/`)**
 
-- `unit/test_valhalla.py`: normalizing a recorded Valhalla response; error-code
-  → `no_route` mapping; LRU hits on rounded input.
-- `integration/test_geo_route.py`: `/geo/route` against a local fake Valhalla
-  HTTP server (the `fetch` test pattern): 422 validation cases, 503 when unset,
-  origin guard.
+- `unit/test_graphhopper.py`: against a local fake of the GraphHopper API
+  (the `fetch` test pattern): request shape (points, profile mapping,
+  `locale=vi`, alternatives only for two points), normalization, plan profiles
+  and default, unsupported profile refused without a call, error mapping
+  (400 → no route; 401/429/5xx/unreachable/no key → unavailable), cache hits.
+- `integration/test_geo_route.py`: `/geo/route` 422 validation, error mapping,
+  `/geo/profiles`, origin guard.
 - `unit/test_geo_tools.py`: `find_place` / `get_directions` with fake geocoder
-  and Valhalla; unshared `"my_location"` errors; default profile
-  `motor_scooter`; MapTiler proximity rounded to 2 decimals; preview specs
-  validate as `VisualizationPlan`.
+  and router; unshared `"my_location"` errors; default profile = plan default
+  (`auto` on free); motorbike on the free plan refused; MapTiler proximity
+  rounded to 2 decimals; preview specs validate as `VisualizationPlan`.
+- `integration/test_map_preview_pin.py`: a `map` preview is streamed as the
+  final spec without calling the planner.
 - `test_contracts`: Python schema ↔ JSON contract parity.
-- `backend/evals`: "chỉ đường từ chỗ tôi tới Hồ Gươm" → `get_directions`;
-  "cho xem khu Hoàn Kiếm" → `find_place`.
 
 **Manual checks at implementation (browser preview):** sphere-size match during
 the crossfade; repeated enter/leave frees the WebGL context (no leak).
 
-**Done when** `npm run verify` is green; the map UI tests need neither Valhalla
-nor a real MapTiler key.
+**Done when** `npm run verify` is green; the map UI tests need neither
+GraphHopper nor a real MapTiler key.
 
 ## 8. Out of scope
 
-- Production hosting for Valhalla.
-- Coverage beyond Vietnam.
+- A paid GraphHopper plan (motorbike); it is a config change when wanted.
+- Self-hosted routing.
 - Traffic, transit, offline tiles, saved places, Street View.
