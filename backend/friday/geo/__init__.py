@@ -1,1 +1,1 @@
-"""Maps: MapTiler geocoding and GraphHopper Cloud routing (spec 2026-09-21)."""
+"""Maps: TomTom search, places and routing (spec 2026-09-21)."""

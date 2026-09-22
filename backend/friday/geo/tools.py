@@ -8,11 +8,12 @@ from typing import Any
 
 from friday.tools.client.metrics import CLIENT
 
-from . import graphhopper, maptiler
+from . import tomtom
 
 MY_LOCATION = "my_location"
 MAX_STEPS = 8
 NO_LOCATION = {"error": "the operator has not shared their location"}
+QUOTA = {"error": "the map provider's free allowance for this month is used up"}
 
 
 def _operator() -> tuple[float, float] | None:
@@ -25,8 +26,8 @@ def _is_me(ref: Any) -> bool:
 
 
 async def _first(query: str, near: tuple[float, float] | None) -> dict[str, Any] | None:
-    # Looked up on the module so tests can swap maptiler.search.
-    hits = await maptiler.search(query, near=near, limit=1)
+    # Looked up on the module so tests can swap tomtom.search.
+    hits = await tomtom.search(query, near=near, limit=1)
     return hits[0] if hits else None
 
 
@@ -46,8 +47,10 @@ async def run_find_place(payload: dict[str, Any]) -> dict[str, Any]:
             if anchor is None:
                 return {"error": f"no place matches '{near_ref}'"}
             near = (anchor["lat"], anchor["lon"])
-        places = await maptiler.search(query, near=near)
-    except maptiler.GeocodeUnavailable as err:
+        places = await tomtom.search(query, near=near)
+    except tomtom.QuotaExceeded:
+        return QUOTA
+    except tomtom.TomTomUnavailable as err:
         return {"error": f"place search unavailable: {err}"}
     if not places:
         return {"error": f"no place matches '{query}'"}
@@ -55,12 +58,9 @@ async def run_find_place(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 async def run_get_directions(payload: dict[str, Any]) -> dict[str, Any]:
-    profile = payload.get("profile") or graphhopper.default_profile()
-    if profile not in graphhopper.PROFILE_ORDER:
+    profile = payload.get("profile") or tomtom.default_profile()
+    if profile not in tomtom.PROFILE_ORDER:
         return {"error": f"unknown profile '{profile}'"}
-    if profile not in graphhopper.available_profiles():
-        # Checked before any geocoding so no credits are spent on a refusal.
-        return {"error": "motorbike directions need a GraphHopper plan with the scooter profile; use auto, bicycle or pedestrian"}
     refs = [payload.get("from"), *list(payload.get("via") or [])[:3], payload.get("to")]
     if not refs[0] or not refs[-1]:
         return {"error": "from and to are required"}
@@ -77,16 +77,16 @@ async def run_get_directions(payload: dict[str, Any]) -> dict[str, Any]:
             if place is None:
                 return {"error": f"no place matches '{ref}'"}
             stops.append(place)
-        # Looked up on the module so tests can swap graphhopper.route.
-        result = await graphhopper.route([{"lat": s["lat"], "lon": s["lon"]} for s in stops], profile)
-    except maptiler.GeocodeUnavailable as err:
-        return {"error": f"place search unavailable: {err}"}
-    except graphhopper.RoutingUnavailable:
-        return {"error": "routing is not configured on this server (or today's credits are used up)"}
-    except graphhopper.NoRoute:
+        # Looked up on the module so tests can swap tomtom.route.
+        result = await tomtom.route([{"lat": s["lat"], "lon": s["lon"]} for s in stops], profile)
+    except tomtom.QuotaExceeded:
+        return QUOTA
+    except tomtom.TomTomUnavailable:
+        return {"error": "search and directions are not configured on this server"}
+    except tomtom.NoRoute:
         return {"error": "no route found between these places"}
-    except graphhopper.UnsupportedProfile:
-        return {"error": "this travel mode is not available on the routing plan"}
+    except tomtom.UnsupportedProfile:
+        return {"error": f"unknown profile '{profile}'"}
     best = result["routes"][0]
     return {
         "from": stops[0],
@@ -95,6 +95,7 @@ async def run_get_directions(payload: dict[str, Any]) -> dict[str, Any]:
         "profile": profile,
         "distance_km": round(best["distance_m"] / 1000, 1),
         "duration_min": round(best["duration_s"] / 60),
+        "traffic_delay_min": round(best.get("traffic_delay_s", 0) / 60),
         "steps": [m["instruction"] for m in best["maneuvers"]][:MAX_STEPS],
     }
 
