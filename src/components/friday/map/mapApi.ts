@@ -10,8 +10,6 @@ import type { MapProfile } from "@/lib/visualization/types";
 
 export const TOMTOM_MAP_KEY = process.env.NEXT_PUBLIC_TOMTOM_MAP_KEY ?? "";
 
-export const MAPTILER_KEY = process.env.NEXT_PUBLIC_MAPTILER_KEY ?? "";
-
 /** Map Styles v2 resource version; confirmed against the live API in Task 0/7. */
 export const TOMTOM_STYLE_VERSION = "22.2.1-*";
 
@@ -76,39 +74,48 @@ export interface Endpoint {
   label: string;
 }
 
-export function parseGeocoding(json: unknown): Place[] {
-  const features = (json as { features?: unknown } | null)?.features;
-  if (!Array.isArray(features)) return [];
-  return features.flatMap((f) => {
-    const feat = f as { center?: unknown; text?: unknown; place_name?: unknown; place_type?: unknown };
-    const c = feat.center;
-    if (!Array.isArray(c) || typeof c[0] !== "number" || typeof c[1] !== "number") return [];
-    const address = typeof feat.place_name === "string" ? feat.place_name : "";
-    const label = typeof feat.text === "string" && feat.text ? feat.text : address;
-    const category =
-      Array.isArray(feat.place_type) && typeof feat.place_type[0] === "string" ? feat.place_type[0] : undefined;
-    return [{ label, address, category, lat: c[1], lon: c[0] }];
-  });
+/** One autocomplete row; its position is fetched only when picked (Places Details is 5K/month). */
+export interface Suggestion {
+  ref: string;
+  title: string;
+  subtitle: string;
+  type: string;
 }
 
+export type SuggestResult =
+  | { ok: true; suggestions: Suggestion[] }
+  | { ok: false; reason: "quota" | "unavailable" };
+
 /** `near` is rounded to ~1 km before it leaves the browser (spec §6.5). */
-export async function searchPlaces(
+export async function suggestPlaces(
   query: string,
   near: { lat: number; lon: number } | null,
   signal?: AbortSignal,
-): Promise<Place[]> {
-  const params = new URLSearchParams({ key: MAPTILER_KEY, language: "vi", limit: "6", autocomplete: "true" });
-  if (near) params.set("proximity", `${near.lon.toFixed(2)},${near.lat.toFixed(2)}`);
-  const res = await fetch(`https://api.maptiler.com/geocoding/${encodeURIComponent(query)}.json?${params}`, { signal });
-  if (!res.ok) throw new Error(`geocoding HTTP ${res.status}`);
-  return parseGeocoding(await res.json());
+): Promise<SuggestResult> {
+  const params = new URLSearchParams({ q: query });
+  if (near) {
+    params.set("lat", near.lat.toFixed(2));
+    params.set("lon", near.lon.toFixed(2));
+  }
+  const res = await fetch(`${getApiBase()}/geo/suggest?${params}`, { signal });
+  if (res.status === 429) return { ok: false, reason: "quota" };
+  if (!res.ok) return { ok: false, reason: "unavailable" };
+  const body = (await res.json()) as { suggestions?: Suggestion[] };
+  return { ok: true, suggestions: body.suggestions ?? [] };
+}
+
+export async function resolvePlace(s: Suggestion, signal?: AbortSignal): Promise<Place | null> {
+  const res = await fetch(`${getApiBase()}/geo/place?${new URLSearchParams({ ref: s.ref })}`, { signal });
+  if (!res.ok) return null;
+  const { lat, lon } = (await res.json()) as { lat: number; lon: number };
+  return { label: s.title, address: s.subtitle, category: s.type || undefined, lat, lon };
 }
 
 export async function reverseGeocode(lat: number, lon: number, signal?: AbortSignal): Promise<Place | null> {
-  const params = new URLSearchParams({ key: MAPTILER_KEY, language: "vi" });
-  const res = await fetch(`https://api.maptiler.com/geocoding/${lon},${lat}.json?${params}`, { signal });
+  const res = await fetch(`${getApiBase()}/geo/reverse?${new URLSearchParams({ lat: String(lat), lon: String(lon) })}`, { signal });
   if (!res.ok) return null;
-  return parseGeocoding(await res.json())[0] ?? null;
+  const { address } = (await res.json()) as { address: string | null };
+  return address ? { label: address, address, lat, lon } : null;
 }
 
 // ---------- routing ----------

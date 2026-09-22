@@ -3,7 +3,6 @@ import {
   formatDistance,
   formatDuration,
   maneuverCoordinate,
-  parseGeocoding,
   stepCoordinates,
   styleUrl,
   withTomTomKey,
@@ -31,22 +30,6 @@ test("maneuvers resolve to their point and the stretch up to the next one", () =
   expect(stepCoordinates(route, 0)).toEqual([[105.8525, 21.0288], [105.843, 21.033]]);
   expect(stepCoordinates(route, 1)).toEqual([[105.843, 21.033], [105.8346, 21.0368]]);
   expect(stepCoordinates(route, 2)).toEqual([[105.8346, 21.0368]]);
-});
-
-test("parses MapTiler features and skips ones without a center", () => {
-  expect(
-    parseGeocoding({
-      features: [
-        { text: "Hồ Gươm", place_name: "Hồ Gươm, Hoàn Kiếm, Hà Nội", center: [105.8525, 21.0288], place_type: ["poi"] },
-        { text: "broken" },
-        { place_name: "Chỉ có địa chỉ", center: [106.7, 10.77] },
-      ],
-    }),
-  ).toEqual([
-    { label: "Hồ Gươm", address: "Hồ Gươm, Hoàn Kiếm, Hà Nội", category: "poi", lat: 21.0288, lon: 105.8525 },
-    { label: "Chỉ có địa chỉ", address: "Chỉ có địa chỉ", category: undefined, lat: 10.77, lon: 106.7 },
-  ]);
-  expect(parseGeocoding(null)).toEqual([]);
 });
 
 test("formats distance and duration the Vietnamese way", () => {

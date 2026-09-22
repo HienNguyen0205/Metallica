@@ -62,13 +62,21 @@ test("reduced motion shortens the handoff to a quick fade", async ({ page }) => 
   expect(await layer(page).evaluate((el) => getComputedStyle(el).transitionDuration)).toBe("0.15s");
 });
 
-test("search autocompletes, picks with the keyboard and opens the place card", async ({ page }) => {
-  await stubTomTom(page);
+const SUGGESTIONS = [
+  { ref: "pois/hg", title: "Hồ Gươm", subtitle: "Hoàn Kiếm, Hà Nội", type: "poi" },
+  { ref: "pois/ht", title: "Hồ Tây", subtitle: "Tây Hồ, Hà Nội", type: "poi" },
+];
+
+test("search suggests after three characters, resolves the pick and opens the place card", async ({ page }) => {
+  await stubTomTom(page, { suggestions: SUGGESTIONS, places: { "pois/ht": { lat: 21.0583, lon: 105.8194 } } });
   await page.goto("/?viz=map");
   await expect(layer(page)).toHaveAttribute("data-mode", "map", { timeout: 20_000 });
   const box = page.getByRole("combobox", { name: "Tìm kiếm địa điểm" });
   await box.click();
   await box.pressSequentially("hồ", { delay: 20 });
+  await page.waitForTimeout(600);
+  await expect(page.getByRole("option")).toHaveCount(0); // two characters: no request
+  await box.pressSequentially(" t", { delay: 20 });
   await expect(page.getByRole("option")).toHaveCount(2);
   await box.press("ArrowDown");
   await box.press("ArrowDown");
@@ -82,8 +90,19 @@ test("search autocompletes, picks with the keyboard and opens the place card", a
   await expect(layer(page)).toHaveAttribute("data-mode", "map");
 });
 
-test("right-click offers directions from/to and what's here", async ({ page }) => {
+test("an exhausted search quota says so", async ({ page }) => {
   await stubTomTom(page);
+  await page.route("**/geo/suggest?**", (r) => r.fulfill({ status: 429, json: { error: "quota_exceeded" } }));
+  await page.goto("/?viz=map");
+  await expect(layer(page)).toHaveAttribute("data-mode", "map", { timeout: 20_000 });
+  const box = page.getByRole("combobox", { name: "Tìm kiếm địa điểm" });
+  await box.click();
+  await box.pressSequentially("hồ gươm", { delay: 20 });
+  await expect(page.getByRole("status").filter({ hasText: "Tìm kiếm tạm hết hạn mức" })).toBeVisible();
+});
+
+test("right-click offers directions from/to and what's here", async ({ page }) => {
+  await stubTomTom(page, { address: "Đinh Tiên Hoàng, Hoàn Kiếm, Hà Nội" });
   await page.goto("/?viz=map");
   await expect(layer(page)).toHaveAttribute("data-mode", "map", { timeout: 20_000 });
   const size = page.viewportSize()!;
@@ -91,7 +110,7 @@ test("right-click offers directions from/to and what's here", async ({ page }) =
   const menu = page.getByRole("menu", { name: "Tùy chọn vị trí" });
   await expect(menu).toBeVisible();
   await menu.getByRole("menuitem", { name: "Đây là đâu?" }).click();
-  await expect(page.getByTestId("place-card")).toContainText("Hồ Gươm"); // reverse geocode stub answers the first feature
+  await expect(page.getByTestId("place-card")).toContainText("Hoàn Kiếm"); // from /geo/reverse
 });
 
 const ROUTE = {
