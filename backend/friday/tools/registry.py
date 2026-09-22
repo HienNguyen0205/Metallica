@@ -120,17 +120,18 @@ def _build_default_registry() -> dict[str, Tool]:
         Tool(
             name="get_directions",
             description=(
-                "Directions between places in Vietnam, shown on the street map "
-                "with distance and time. from/to are place names or "
-                "'my_location'. profile: motor_scooter (default, xe máy), auto "
-                "(car), bicycle, pedestrian."
+                "Directions between places, shown on the street map with "
+                "distance and time. from/to are place names or 'my_location'. "
+                "profile: auto (car), bicycle, pedestrian, or motor_scooter "
+                "(xe máy, only if the routing plan has it). Omit profile for "
+                "the plan's default."
             ),
             input_schema={
                 "type": "object",
                 "properties": {
                     "from": {"type": "string"},
                     "to": {"type": "string"},
-                    "profile": {"type": "string", "enum": ["motor_scooter", "auto", "bicycle", "pedestrian"]},
+                    "profile": {"type": "string", "enum": ["auto", "bicycle", "pedestrian", "motor_scooter"]},
                     "via": {"type": "array", "items": {"type": "string"}, "maxItems": 3},
                 },
                 "required": ["from", "to"],

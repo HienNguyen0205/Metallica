@@ -1,4 +1,4 @@
-"""find_place / get_directions with a fake geocoder and a fake Valhalla.
+"""find_place / get_directions with a fake geocoder and a fake router.
 
     PYTHONPATH=. python tests/unit/test_geo_tools.py
 """
@@ -8,16 +8,16 @@ import os
 import urllib.parse
 
 from friday.api.schemas import ClientContext
-from friday.geo import maptiler, tools, valhalla
+from friday.geo import graphhopper, maptiler, tools
 from friday.schemas.visualization import VisualizationPlan
 from friday.tools import registry
 from friday.tools.client import metrics as cm
 
 HG = {"label": "Hồ Gươm", "address": "Hồ Hoàn Kiếm, Hà Nội", "category": "poi", "lat": 21.0288, "lon": 105.8525}
 LB = {"label": "Lăng Bác", "address": "Ba Đình, Hà Nội", "category": "poi", "lat": 21.0368, "lon": 105.8346}
-ROUTE = {"routes": [{"distance_m": 2412, "duration_s": 545, "legs": [{"shape": "x", "maneuvers": [
-    {"instruction": f"Bước {i}", "type": 1, "distance_m": 10, "duration_s": 5, "begin_shape_index": i} for i in range(12)
-]}]}]}
+ROUTE = {"routes": [{"distance_m": 2412, "duration_s": 545, "coordinates": [], "maneuvers": [
+    {"instruction": f"Bước {i}", "sign": 0, "distance_m": 10, "duration_s": 5, "begin_shape_index": i} for i in range(12)
+]}]}
 
 
 def run(coro, location=None):
@@ -35,21 +35,21 @@ def fake(search_hits=None, route=None, route_exc=None):
         seen["search"].append((query, near, limit))
         return (search_hits or {}).get(query, [])[:limit]
 
-    async def route_fn(waypoints, profile="motor_scooter", alternates=2, language="vi-VN"):
+    async def route_fn(waypoints, profile=None, locale="vi"):
         seen["route"].append((waypoints, profile))
         if route_exc:
             raise route_exc
         return route
 
-    maptiler.search, valhalla.route = search, route_fn
+    maptiler.search, graphhopper.route = search, route_fn
     return seen
 
 
-ORIG = (maptiler.search, valhalla.route)
+ORIG = (maptiler.search, graphhopper.route)
 
 
 def restore():
-    maptiler.search, valhalla.route = ORIG
+    maptiler.search, graphhopper.route = ORIG
 
 
 def test_find_place_returns_places_and_a_map_preview() -> None:
@@ -83,17 +83,18 @@ def test_near_my_location_needs_a_shared_location() -> None:
         restore()
 
 
-def test_directions_default_to_motorbike_and_cap_steps() -> None:
+def test_directions_default_to_the_plans_mode_and_cap_steps() -> None:
     seen = fake({"hồ gươm": [HG], "lăng bác": [LB]}, route=ROUTE)
     try:
         out = run(tools.run_get_directions({"from": "hồ gươm", "to": "lăng bác"}))
     finally:
         restore()
-    assert seen["route"] == [([{"lat": 21.0288, "lon": 105.8525}, {"lat": 21.0368, "lon": 105.8346}], "motor_scooter")]
-    assert out["distance_km"] == 2.4 and out["duration_min"] == 9 and out["profile"] == "motor_scooter"
+    # free plan (GRAPHHOPPER_PROFILES unset): car is the default
+    assert seen["route"] == [([{"lat": 21.0288, "lon": 105.8525}, {"lat": 21.0368, "lon": 105.8346}], "auto")]
+    assert out["distance_km"] == 2.4 and out["duration_min"] == 9 and out["profile"] == "auto"
     assert out["steps"] == [f"Bước {i}" for i in range(8)]
     spec = tools.preview_get_directions(out)
-    assert spec["data"]["map"]["route"] == {"profile": "motor_scooter", "waypoints": [
+    assert spec["data"]["map"]["route"] == {"profile": "auto", "waypoints": [
         {"lat": 21.0288, "lon": 105.8525, "label": "Hồ Gươm"},
         {"lat": 21.0368, "lon": 105.8346, "label": "Lăng Bác"},
     ]}
@@ -115,10 +116,14 @@ def test_directions_from_my_location() -> None:
 
 def test_directions_errors_are_error_dicts() -> None:
     try:
-        fake({"a": [HG], "b": [LB]}, route_exc=valhalla.RoutingUnavailable("unset"))
+        fake({"a": [HG], "b": [LB]}, route_exc=graphhopper.RoutingUnavailable("no key"))
         assert "not configured" in run(tools.run_get_directions({"from": "a", "to": "b"}))["error"]
-        fake({"a": [HG], "b": [LB]}, route_exc=valhalla.NoRoute("442"))
-        assert "Vietnam" in run(tools.run_get_directions({"from": "a", "to": "b"}))["error"]
+        fake({"a": [HG], "b": [LB]}, route_exc=graphhopper.NoRoute("Connection between locations not found"))
+        assert "no route" in run(tools.run_get_directions({"from": "a", "to": "b"}))["error"]
+        # scooter is not on the free plan: refused up front, with the reason
+        seen = fake({"a": [HG], "b": [LB]}, route=ROUTE)
+        assert "scooter" in run(tools.run_get_directions({"from": "a", "to": "b", "profile": "motor_scooter"}))["error"]
+        assert seen["search"] == [] and seen["route"] == []  # no credit, no geocoding spent
         fake({"a": [HG]}, route=ROUTE)
         assert "nowhere" in run(tools.run_get_directions({"from": "a", "to": "nowhere"}))["error"]
         assert "profile" in run(tools.run_get_directions({"from": "a", "to": "a", "profile": "rocket"}))["error"]

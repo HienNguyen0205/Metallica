@@ -8,10 +8,9 @@ from typing import Any
 
 from friday.tools.client.metrics import CLIENT
 
-from . import maptiler, valhalla
+from . import graphhopper, maptiler
 
 MY_LOCATION = "my_location"
-DEFAULT_PROFILE = "motor_scooter"
 MAX_STEPS = 8
 NO_LOCATION = {"error": "the operator has not shared their location"}
 
@@ -56,9 +55,12 @@ async def run_find_place(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 async def run_get_directions(payload: dict[str, Any]) -> dict[str, Any]:
-    profile = payload.get("profile") or DEFAULT_PROFILE
-    if profile not in valhalla.PROFILES:
+    profile = payload.get("profile") or graphhopper.default_profile()
+    if profile not in graphhopper.PROFILE_ORDER:
         return {"error": f"unknown profile '{profile}'"}
+    if profile not in graphhopper.available_profiles():
+        # Checked before any geocoding so no credits are spent on a refusal.
+        return {"error": "motorbike directions need a GraphHopper plan with the scooter profile; use auto, bicycle or pedestrian"}
     refs = [payload.get("from"), *list(payload.get("via") or [])[:3], payload.get("to")]
     if not refs[0] or not refs[-1]:
         return {"error": "from and to are required"}
@@ -75,13 +77,16 @@ async def run_get_directions(payload: dict[str, Any]) -> dict[str, Any]:
             if place is None:
                 return {"error": f"no place matches '{ref}'"}
             stops.append(place)
-        result = await valhalla.route([{"lat": s["lat"], "lon": s["lon"]} for s in stops], profile)
+        # Looked up on the module so tests can swap graphhopper.route.
+        result = await graphhopper.route([{"lat": s["lat"], "lon": s["lon"]} for s in stops], profile)
     except maptiler.GeocodeUnavailable as err:
         return {"error": f"place search unavailable: {err}"}
-    except valhalla.RoutingUnavailable:
-        return {"error": "routing is not configured on this server"}
-    except valhalla.NoRoute:
-        return {"error": "no route found (directions cover Vietnam only)"}
+    except graphhopper.RoutingUnavailable:
+        return {"error": "routing is not configured on this server (or today's credits are used up)"}
+    except graphhopper.NoRoute:
+        return {"error": "no route found between these places"}
+    except graphhopper.UnsupportedProfile:
+        return {"error": "this travel mode is not available on the routing plan"}
     best = result["routes"][0]
     return {
         "from": stops[0],
@@ -90,7 +95,7 @@ async def run_get_directions(payload: dict[str, Any]) -> dict[str, Any]:
         "profile": profile,
         "distance_km": round(best["distance_m"] / 1000, 1),
         "duration_min": round(best["duration_s"] / 60),
-        "steps": [m["instruction"] for leg in best["legs"] for m in leg["maneuvers"]][:MAX_STEPS],
+        "steps": [m["instruction"] for m in best["maneuvers"]][:MAX_STEPS],
     }
 
 
