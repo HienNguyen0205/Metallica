@@ -42,7 +42,7 @@ async function runGroupedFlow(page: Page) {
     await page.reload();
     await page.waitForSelector("canvas");
     await page.locator("input").click();
-    await page.locator("input").pressSequentially("compare requests", { delay: 15 });
+    await page.locator("input").pressSequentially("compare requests", { delay: 15, timeout: 60_000 });
     await page.keyboard.press("Enter");
     await expect(page.getByTestId("hud-state")).toHaveText("IDLE", { timeout: 30_000 });
     // entrance + grow animations settle; the camera keeps drifting slowly
@@ -53,27 +53,41 @@ async function runGroupedFlow(page: Page) {
 }
 
 test("a bar in the second series is pickable with its own tag", async ({ page }) => {
+  // Reduced motion pins the rig at x=0, y=0.15 — no drift, swing or pointer
+  // parallax — leaving only the dolly easing between distances. The old
+  // drift-hunt sweep needed ~70 clicks to maybe catch the moving bar and
+  // outran the 120s budget on a 2fps software renderer.
+  test.slow();
+  await page.emulateMedia({ reducedMotion: "reduce" });
   await gotoScene(page);
   await runGroupedFlow(page);
 
   // Tallest P95 bar (category 1, value 44): category 1 sits dead center on
   // the arc, offset +0.11 along the tangent for the second series, vertical
-  // center from the shared 0..58 scale. Both idle and visualizing camera
-  // distances are tried — the rig eases between them and never holds still.
+  // center from the shared 0..58 scale. The projected point slides only a few
+  // px across the whole dolly range, so a tight grid covers every z the rig
+  // might still be easing through (visualizing 7.7 down to idle 6.8). Each
+  // click costs seconds on software GL, so candidates fan out from the most
+  // likely spot — dead center at the current dolly — rather than sweeping
+  // corner to corner.
   const target: Vec3 = [0.11, -0.17, 1.1];
   const candidates: [number, number][] = [];
-  for (const eyeZ of [6.8, 7.7]) {
+  for (const eyeZ of [7.7, 6.8]) {
     const [cx, cy] = projectFrom(target, eyeZ);
-    for (let dx = -75; dx <= 75; dx += 25) {
-      for (let dy = -30; dy <= 30; dy += 15) {
-        candidates.push([cx + dx, cy + dy]);
+    for (let r = 0; r <= 12; r += 6) {
+      for (let dy = -10; dy <= 10; dy += 10) {
+        if (r === 0) candidates.push([cx, cy + dy]);
+        else candidates.push([cx + r, cy + dy], [cx - r, cy + dy]);
       }
     }
   }
 
+  const t0 = Date.now();
   let locked = "";
+  let clicks = 0;
   for (const [x, y] of candidates) {
     await page.mouse.click(x, y);
+    clicks++;
     await page.waitForTimeout(200);
     const text = await focusText(page);
     if (/FOCUS · P95/.test(text)) {
@@ -81,5 +95,6 @@ test("a bar in the second series is pickable with its own tag", async ({ page })
       break;
     }
   }
+  console.log(`[pick] ${clicks} clicks, locked="${locked}", sweep=${((Date.now() - t0) / 1000).toFixed(1)}s`);
   expect(locked, "no click reached a P95 bar").toMatch(/FOCUS · P95/);
 });

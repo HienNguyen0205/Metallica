@@ -142,7 +142,9 @@ test("an agent route opens directions with the summary, steps and route layers",
   try {
     await gotoLitScene(page);
     await page.locator("input").click();
-    await page.locator("input").pressSequentially("chỉ đường tới lăng bác", { delay: 15 });
+    // 22 chars of per-key dispatch + controlled-input renders on a ~2fps
+    // software-GL main thread can outlast the 30s action budget.
+    await page.locator("input").pressSequentially("chỉ đường tới lăng bác", { delay: 15, timeout: 60_000 });
     await page.keyboard.press("Enter");
     await expect(layer(page)).toHaveAttribute("data-mode", "map", { timeout: 20_000 });
     const panel = page.getByTestId("directions-panel");
@@ -171,7 +173,7 @@ test("an exhausted routing quota says so", async ({ page }) => {
   try {
     await gotoLitScene(page);
     await page.locator("input").click();
-    await page.locator("input").pressSequentially("chỉ đường tới lăng bác", { delay: 15 });
+    await page.locator("input").pressSequentially("chỉ đường tới lăng bác", { delay: 15, timeout: 60_000 });
     await page.keyboard.press("Enter");
     await expect(page.getByTestId("directions-status")).toHaveText("Chỉ đường tạm hết hạn mức", { timeout: 20_000 });
   } finally {
@@ -186,7 +188,7 @@ test("routing off: directions say so and the map stays usable", async ({ page })
   try {
     await gotoLitScene(page);
     await page.locator("input").click();
-    await page.locator("input").pressSequentially("chỉ đường tới lăng bác", { delay: 15 });
+    await page.locator("input").pressSequentially("chỉ đường tới lăng bác", { delay: 15, timeout: 60_000 });
     await page.keyboard.press("Enter");
     await expect(page.getByTestId("directions-status")).toHaveText("Chỉ đường chưa được cấu hình", { timeout: 20_000 });
     await expect(page.getByRole("combobox", { name: "Tìm kiếm địa điểm" })).toBeEnabled();

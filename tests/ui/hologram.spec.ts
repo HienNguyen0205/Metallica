@@ -136,11 +136,21 @@ test("every viz type mounts and unmounts cleanly", async ({ page }) => {
 
   const buttons = page.locator("#viz-rail button");
   const n = await buttons.count();
-  expect(n).toBe(9);
+  expect(n).toBe(10);
 
   for (let i = 0; i < n; i++) {
     await buttons.nth(i).click();
     await page.waitForTimeout(200);
+    // MAP materializes as the DOM map layer, not an in-scene hologram — while
+    // it is open the dev rails are hidden (data-map-hide), so the loop hands
+    // back to the globe before the next click and before the IDLE teardown.
+    if ((await buttons.nth(i).textContent())?.includes("MAP")) {
+      // Escape is handled by the mounted map layer — wait for it so the key
+      // is not dropped while the maplibre chunk is still loading.
+      await page.waitForSelector("[data-testid='map-layer']");
+      await page.keyboard.press("Escape");
+      await expect(page.locator("html")).toHaveAttribute("data-map", "off", { timeout: 15_000 });
+    }
   }
   // back to idle tears the last visualization down
   await page.click(`#state-rail button:has-text("IDLE")`);
