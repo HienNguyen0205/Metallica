@@ -193,10 +193,7 @@ Open the GLOBE from the dev rail and zoom the globe past its limit, or ask
 FRIDAY for a place or a route ("Hồ Gươm ở đâu", "chỉ đường từ Hồ Gươm tới
 Lăng Bác") — either hands over to the full-screen street map (MapLibre +
 MapTiler, `NEXT_PUBLIC_MAPTILER_KEY` above). Place search and directions need
-the backend too: geocoding reads `MAPTILER_SERVER_KEY`, and routing needs
-`VALHALLA_URL` pointing at a local Valhalla (`npm run dev:valhalla` — the
-first build downloads the Vietnam extract and builds tiles, ~15–40 min at
-~2–4 GB RAM peak; later starts are instant). See [`backend/README.md`](backend/README.md).
+the backend too: geocoding reads `MAPTILER_SERVER_KEY`, and routing reads `GRAPHHOPPER_API_KEY` (GraphHopper Cloud — nothing to host; the free plan routes car, bike and foot with 500 credits/day for non-commercial use, and adding `scooter` to `GRAPHHOPPER_PROFILES` on a paid plan turns the motorbike mode on). See [`backend/README.md`](backend/README.md).
 
 ## Environment Variables
 

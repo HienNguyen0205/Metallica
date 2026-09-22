@@ -428,7 +428,7 @@ size during the crossfade.
 - **`map` spec = route intent.** `spec.data.map` carries waypoints (and an
   optional bbox/center/zoom), never geometry — the map fetches the geometry
   itself from `POST /geo/route` on the orchestrator, which validates the
-  waypoints and proxies to a local Valhalla. Directions need `VALHALLA_URL`;
+  waypoints and proxies to GraphHopper Cloud (`GET /geo/profiles` tells the UI which modes the plan allows). Directions need `GRAPHHOPPER_API_KEY`;
   unset, the map draws the pins and reports routing as unconfigured.
 - **Preview pinning** (see the preview-pinning comment in backend/friday/api/routes.py): `find_place` and
   `get_directions` (`risk="low"`, `geo.read`) declare deterministic previews,

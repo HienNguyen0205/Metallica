@@ -324,7 +324,7 @@ say in its own permissions.
 | `list_dir` | low | lists one level under `FRIDAY_SANDBOX_DIR` (default `notes/`) |
 | `read_file` | low | reads one text file under the sandbox, truncated with a flag |
 | `find_place` | low (`geo.read`) | geocodes a place via MapTiler (`MAPTILER_SERVER_KEY`), pins a map preview |
-| `get_directions` | low (`geo.read`) | Vietnam routing via local Valhalla (`VALHALLA_URL`), pins a route preview |
+| `get_directions` | low (`geo.read`) | routing via GraphHopper Cloud (`GRAPHHOPPER_API_KEY`), pins a route preview |
 | `write_note` | high | writes a markdown file under `notes/` |
 
 `get_process_list` ranks by memory, not CPU: `cpu_percent` reads 0.0 the first
@@ -421,19 +421,18 @@ numbers is indistinguishable from a real one.
 
 | Variable | Default | Description |
 | --- | --- | --- |
-| `VALHALLA_URL` | unset | Local Valhalla base URL for `get_directions` and `POST /geo/route`. Unset means routing is off, not broken — the map still works and says routing is unconfigured. Local: `npm run dev:valhalla` (from the repo root), then set `VALHALLA_URL=http://localhost:8002`. |
+| `GRAPHHOPPER_API_KEY` | unset | GraphHopper Cloud key for `get_directions`, `POST /geo/route` and `GET /geo/profiles`. Unset means routing is off, not broken — the map still works and says routing is unconfigured. Never sent to the browser. |
+| `GRAPHHOPPER_PROFILES` | `car,bike,foot` | Profiles the key's plan allows (free plan = car, bike, foot). Add `scooter` on a paid plan: the motorbike mode appears in the map and becomes the default. |
 | `MAPTILER_SERVER_KEY` | unset | MapTiler key for `find_place`/`get_directions` geocoding. Use a key **without** an origin restriction — the browser key (`NEXT_PUBLIC_MAPTILER_KEY`) is origin-locked and MapTiler refuses it from a server. |
 
-`npm run dev:valhalla` starts the Valhalla container (`docker/valhalla/compose.yml`,
-Vietnam extract). The first start downloads the extract and builds tiles into
-the volume (~15–40 min, ~2–4 GB RAM peak); later starts are instant. The
-frontend never talks to Valhalla directly — the map posts waypoints to `POST
-/geo/route` on this service, which validates them and proxies to Valhalla.
+The frontend never talks to GraphHopper directly — the map posts waypoints to
+`POST /geo/route` on this service, which validates them, refuses a mode the
+plan lacks before spending a credit, and answers repeats from a 256-entry cache.
 
-**Render's free plan cannot host Valhalla.** The tile build needs gigabytes of
-RAM and disk that a free container does not have, so a deployed backend serves
-geocoding but answers routing with `routing_unavailable`. Run Valhalla locally
-for directions.
+**Free plan budget:** 500 credits/day and alternatives cost extra. A turn of
+directions is usually 1–3 requests (drags and mode switches re-ask; the cache
+absorbs exact repeats). When the credits run out GraphHopper answers 429 and the
+map says routing is unconfigured until the daily reset.
 
 ### Why the agent runs as a task, not a loop
 
