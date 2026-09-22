@@ -192,8 +192,7 @@ reported, silence is not consent).
 Open the GLOBE from the dev rail and zoom the globe past its limit, or ask
 FRIDAY for a place or a route ("Hồ Gươm ở đâu", "chỉ đường từ Hồ Gươm tới
 Lăng Bác") — either hands over to the full-screen street map (MapLibre +
-MapTiler, `NEXT_PUBLIC_MAPTILER_KEY` above). Place search and directions need
-the backend too: geocoding reads `MAPTILER_SERVER_KEY`, and routing reads `GRAPHHOPPER_API_KEY` (GraphHopper Cloud — nothing to host; the free plan routes car, bike and foot with 500 credits/day for non-commercial use, and adding `scooter` to `GRAPHHOPPER_PROFILES` on a paid plan turns the motorbike mode on). See [`backend/README.md`](backend/README.md).
+TomTom, `NEXT_PUBLIC_TOMTOM_MAP_KEY` above). The map is TomTom (`NEXT_PUBLIC_TOMTOM_MAP_KEY`, Map Display only). Search, place details, reverse geocoding and directions go through the backend with `TOMTOM_API_KEY`, which never reaches the browser. TomTom's free plan covers all four travel modes (motorbike by default) and live traffic; allowances are per API per month, and fuzzy search — used by the agent's `find_place` — is only 2.5K/month. See [`backend/README.md`](backend/README.md).
 
 ## Environment Variables
 
@@ -202,7 +201,7 @@ the backend too: geocoding reads `MAPTILER_SERVER_KEY`, and routing reads `GRAPH
 | `NEXT_PUBLIC_FORCE_WEBGL` | frontend | unset | Set to `1` to pin the renderer to its WebGL2 backend. An escape hatch for debugging; leave unset. |
 | `NEXT_PUBLIC_DEV_RAILS` | frontend | unset | Set to `1` to show the state and visualization dev rails in a production build. They call the state machine's unguarded setter, so they are off in production; `next dev` shows them without this. |
 | `NEXT_PUBLIC_FRIDAY_API` | frontend | `http://localhost:8000` | Orchestrator base URL, **inlined at build time**. When unreachable the UI falls back to the local rules planner with canned data. |
-| `NEXT_PUBLIC_MAPTILER_KEY` | frontend | unset | Street-map tiles (MapTiler, client-visible by design — restrict the key to your site's origins in the MapTiler dashboard). Without it the map layer opens blank. |
+| `NEXT_PUBLIC_TOMTOM_MAP_KEY` | frontend | unset | Street-map tiles (TomTom Map Display, client-visible by design — enable the key for Map Display only in the TomTom dashboard). Without it the map layer opens blank. |
 
 Copy `.env.example` to `.env.local` to set these for local development. Real
 environment variables take precedence over that file — verified, not assumed —

@@ -141,10 +141,13 @@ async def _cached(name: str, key: str, fetch: Callable[[], Any]) -> Any:
 
 def _suggestion(result: dict[str, Any]) -> dict[str, Any] | None:
     more = result.get("more") or {}
-    parts = more.get("pathParameters") or []
-    if result.get("type") == "discoverAction" or more.get("operation") != "details" or not parts:
+    raw_parts = more.get("pathParameters") or []
+    if result.get("type") == "discoverAction" or more.get("operation") != "details" or not raw_parts:
         return None
-    ref = "/".join(str(p) for p in parts)
+    # Live API sends [{"parameter": "type", "argument": "pois"}, ...]; accept
+    # plain strings too (test fakes).
+    parts = [p.get("argument", "") if isinstance(p, dict) else str(p) for p in raw_parts]
+    ref = "/".join(parts)
     if not PLACE_REF.match(ref):
         return None
     return {
@@ -159,7 +162,7 @@ async def suggest(query: str, near: tuple[float, float] | None = None, limit: in
     body: dict[str, Any] = {"query": query, "maxResults": limit}
     if near is not None:
         lat, lon = coarse(*near)
-        body["origin"] = {"type": "Point", "coordinates": [lon, lat]}
+        body["origin"] = {"type": "point", "coordinates": [lon, lat]}
     headers = _places_headers("results")
     url = f"{_base()}/maps/orbis/places/suggest"
     raw = await _cached("suggest", json.dumps([query.strip().lower(), body.get("origin"), limit]),

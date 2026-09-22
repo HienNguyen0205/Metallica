@@ -57,7 +57,5 @@ services:
       - key: SUPABASE_SERVICE_KEY
         sync: false
       # Street map (spec 2026-09-21 §6). Set in the dashboard.
-      - key: GRAPHHOPPER_API_KEY
-        sync: false
-      - key: MAPTILER_SERVER_KEY
+      - key: TOMTOM_API_KEY
         sync: false

@@ -1,5 +1,7 @@
 # GraphHopper Routing Migration Plan (delta)
 
+> **Status:** implemented (9504cb6…256f01e), then superseded by `2026-09-22-tomtom-maps.md`.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Replace the self-hosted Valhalla routing that `feat/maplibre-map` already ships with GraphHopper Cloud, so directions work on the deployed backend with nothing to host.

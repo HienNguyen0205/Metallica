@@ -323,8 +323,8 @@ say in its own permissions.
 | `remember`           | low* | stores one fact in long-term memory (*steps up to approval: `memory.write` is sensitive) |
 | `list_dir` | low | lists one level under `FRIDAY_SANDBOX_DIR` (default `notes/`) |
 | `read_file` | low | reads one text file under the sandbox, truncated with a flag |
-| `find_place` | low (`geo.read`) | geocodes a place via MapTiler (`MAPTILER_SERVER_KEY`), pins a map preview |
-| `get_directions` | low (`geo.read`) | routing via GraphHopper Cloud (`GRAPHHOPPER_API_KEY`), pins a route preview |
+| `find_place` | low (`geo.read`) | TomTom fuzzy search (`TOMTOM_API_KEY`), pins a map preview |
+| `get_directions` | low (`geo.read`) | TomTom routing with traffic (`TOMTOM_API_KEY`), Vietnamese steps, pins a route preview |
 | `write_note` | high | writes a markdown file under `notes/` |
 
 `get_process_list` ranks by memory, not CPU: `cpu_percent` reads 0.0 the first
@@ -421,18 +421,11 @@ numbers is indistinguishable from a real one.
 
 | Variable | Default | Description |
 | --- | --- | --- |
-| `GRAPHHOPPER_API_KEY` | unset | GraphHopper Cloud key for `get_directions`, `POST /geo/route` and `GET /geo/profiles`. Unset means routing is off, not broken — the map still works and says routing is unconfigured. Never sent to the browser. |
-| `GRAPHHOPPER_PROFILES` | `car,bike,foot` | Profiles the key's plan allows (free plan = car, bike, foot). Add `scooter` on a paid plan: the motorbike mode appears in the map and becomes the default. |
-| `MAPTILER_SERVER_KEY` | unset | MapTiler key for `find_place`/`get_directions` geocoding. Use a key **without** an origin restriction — the browser key (`NEXT_PUBLIC_MAPTILER_KEY`) is origin-locked and MapTiler refuses it from a server. |
+| `TOMTOM_API_KEY` | unset | Server key for `/geo/suggest`, `/geo/place`, `/geo/reverse`, `POST /geo/route` and the geo tools; enable Search, Places, Reverse Geocoding and Routing; never sent to the browser. Unset: map works, search/directions report unconfigured. |
 
-The frontend never talks to GraphHopper directly — the map posts waypoints to
-`POST /geo/route` on this service, which validates them, refuses a mode the
-plan lacks before spending a credit, and answers repeats from a 256-entry cache.
+Free allowances are per API per month (TomTom pricing, 2026-09-22): Map Display vector tiles 200K, Traffic Flow vector tiles 200K, Routing 20K, Reverse Geocoding 20K, Places Suggest 10K, Places Details 5K, fuzzy Search 2.5K.
 
-**Free plan budget:** 500 credits/day and alternatives cost extra. A turn of
-directions is usually 1–3 requests (drags and mode switches re-ask; the cache
-absorbs exact repeats). When the credits run out GraphHopper answers 429 and the
-map says routing is unconfigured until the daily reset.
+Every call is cached (LRU per function), autocomplete waits for 3 characters and a 400 ms pause, and a 429 surfaces in the UI as a quota message.
 
 ### Why the agent runs as a task, not a loop
 

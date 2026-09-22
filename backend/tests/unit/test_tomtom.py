@@ -117,10 +117,18 @@ def test_suggest_sends_a_coarse_origin_and_keeps_only_resolvable_results() -> No
         call = CALLS[0]
         sent = {k.lower(): v for k, v in call["headers"].items()}  # urllib title-cases on the wire
         assert sent["tomtom-api-key"] == "test-key" and sent["tomtom-api-version"] == "3"
-        assert call["body"]["origin"] == {"type": "Point", "coordinates": [105.85, 21.03]}, call["body"]
+        assert call["body"]["origin"] == {"type": "point", "coordinates": [105.85, 21.03]}, call["body"]
         asyncio.run(tt.suggest("Hồ Gươm", NEAR))
         assert len(CALLS) == 1, "case-insensitive cache hit"
     with_server(run)
+
+
+def test_suggestion_accepts_live_path_parameter_objects() -> None:
+    live = {"id": "x", "title": "Pho Di Bo Ho Guom", "type": "poi", "subtitles": ["Ha Noi"],
+            "more": {"operation": "details", "pathParameters": [
+                {"parameter": "type", "argument": "pois"},
+                {"parameter": "id", "argument": "vNWWGcXmk2ndZBlhSkWelg"}]}}
+    assert tt._suggestion(live)["ref"] == "pois/vNWWGcXmk2ndZBlhSkWelg"
 
 
 def test_place_resolves_a_ref_and_rejects_path_tricks() -> None:
