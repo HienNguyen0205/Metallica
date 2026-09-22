@@ -187,6 +187,17 @@ To exercise the approval flow locally: ask anything that triggers `write_note`
 same gate headlessly (`test_stream.py`: announced before running, denial
 reported, silence is not consent).
 
+### Street map & directions
+
+Open the GLOBE from the dev rail and zoom the globe past its limit, or ask
+FRIDAY for a place or a route ("Hồ Gươm ở đâu", "chỉ đường từ Hồ Gươm tới
+Lăng Bác") — either hands over to the full-screen street map (MapLibre +
+MapTiler, `NEXT_PUBLIC_MAPTILER_KEY` above). Place search and directions need
+the backend too: geocoding reads `MAPTILER_SERVER_KEY`, and routing needs
+`VALHALLA_URL` pointing at a local Valhalla (`npm run dev:valhalla` — the
+first build downloads the Vietnam extract and builds tiles, ~15–40 min at
+~2–4 GB RAM peak; later starts are instant). See [`backend/README.md`](backend/README.md).
+
 ## Environment Variables
 
 | Variable | Where | Default | Description |
@@ -194,6 +205,7 @@ reported, silence is not consent).
 | `NEXT_PUBLIC_FORCE_WEBGL` | frontend | unset | Set to `1` to pin the renderer to its WebGL2 backend. An escape hatch for debugging; leave unset. |
 | `NEXT_PUBLIC_DEV_RAILS` | frontend | unset | Set to `1` to show the state and visualization dev rails in a production build. They call the state machine's unguarded setter, so they are off in production; `next dev` shows them without this. |
 | `NEXT_PUBLIC_FRIDAY_API` | frontend | `http://localhost:8000` | Orchestrator base URL, **inlined at build time**. When unreachable the UI falls back to the local rules planner with canned data. |
+| `NEXT_PUBLIC_MAPTILER_KEY` | frontend | unset | Street-map tiles (MapTiler, client-visible by design — restrict the key to your site's origins in the MapTiler dashboard). Without it the map layer opens blank. |
 
 Copy `.env.example` to `.env.local` to set these for local development. Real
 environment variables take precedence over that file — verified, not assumed —
