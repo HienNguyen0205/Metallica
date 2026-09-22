@@ -66,7 +66,7 @@ export interface GlobeRoute {
   latencyMs?: number;
   status?: "healthy" | "warning" | "critical";
 }
-/** Travel mode for a map route (spec §5); the backend maps these to GraphHopper profiles. */
+/** Travel mode for a map route (spec §5); the backend maps these to TomTom travel modes. */
 export type MapProfile = "auto" | "motor_scooter" | "bicycle" | "pedestrian";
 
 export interface MapWaypoint {

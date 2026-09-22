@@ -118,25 +118,26 @@ const ROUTE = {
     {
       distance_m: 2412,
       duration_s: 545,
+      traffic_delay_s: 360,
       coordinates: [
         [105.8525, 21.0288],
         [105.843, 21.033],
         [105.8346, 21.0368],
       ],
       maneuvers: [
-        { instruction: "Đi về hướng tây trên Đinh Tiên Hoàng", sign: 0, distance_m: 1100, duration_s: 250, begin_shape_index: 0 },
-        { instruction: "Rẽ phải vào Hùng Vương", sign: 2, distance_m: 1312, duration_s: 295, begin_shape_index: 1 },
-        { instruction: "Đến nơi", sign: 4, distance_m: 0, duration_s: 0, begin_shape_index: 2 },
+        { instruction: "Đi về hướng tây trên Đinh Tiên Hoàng", maneuver: "DEPART", distance_m: 1100, duration_s: 250, begin_shape_index: 0 },
+        { instruction: "Rẽ phải vào Hùng Vương", maneuver: "TURN_RIGHT", distance_m: 1312, duration_s: 295, begin_shape_index: 1 },
+        { instruction: "Đến nơi", maneuver: "ARRIVE", distance_m: 0, duration_s: 0, begin_shape_index: 2 },
       ],
     },
-    { distance_m: 2900, duration_s: 610, coordinates: [[105.8525, 21.0288], [105.8346, 21.0368]], maneuvers: [] },
+    { distance_m: 2900, duration_s: 610, traffic_delay_s: 0, coordinates: [[105.8525, 21.0288], [105.8346, 21.0368]], maneuvers: [] },
   ],
 };
 
 test("an agent route opens directions with the summary, steps and route layers", async ({ page }) => {
   await stubTomTom(page);
   await page.route("**/geo/route", (r) => r.fulfill({ json: ROUTE }));
-  await page.route("**/geo/profiles", (r) => r.fulfill({ json: { profiles: ["auto", "bicycle", "pedestrian"] } }));
+  await page.route("**/geo/profiles", (r) => r.fulfill({ json: { profiles: ["motor_scooter", "auto", "bicycle", "pedestrian"] } }));
   const stub = await startStubOrchestrator(MAP_FLOW);
   try {
     await gotoLitScene(page);
@@ -147,9 +148,8 @@ test("an agent route opens directions with the summary, steps and route layers",
     const panel = page.getByTestId("directions-panel");
     await expect(page.getByTestId("directions-summary")).toContainText("9 phút");
     await expect(page.getByTestId("directions-summary")).toContainText("2,4 km");
-    // free plan: car is selected and there is no motorbike tab
-    await expect(panel.getByRole("tab", { name: "🚗 Ô tô" })).toHaveAttribute("aria-selected", "true");
-    await expect(panel.getByRole("tab", { name: "🛵 Xe máy" })).toHaveCount(0);
+    await expect(panel.getByRole("tab", { name: "🛵 Xe máy" })).toHaveAttribute("aria-selected", "true");
+    await expect(page.getByTestId("directions-summary")).toContainText("chậm 6 phút do kẹt xe");
     await expect(panel.getByRole("listitem")).toContainText(["Rẽ phải vào Hùng Vương"]);
     expect(await page.evaluate(() => {
       const m = (window as unknown as { __fridayMap?: { getLayer(id: string): unknown } }).__fridayMap;
@@ -159,6 +159,21 @@ test("an agent route opens directions with the summary, steps and route layers",
     const asked = page.waitForRequest((r) => r.url().endsWith("/geo/route") && r.postDataJSON().profile === "pedestrian");
     await panel.getByRole("tab", { name: "🚶 Đi bộ" }).click();
     await asked;
+  } finally {
+    await stub.close();
+  }
+});
+
+test("an exhausted routing quota says so", async ({ page }) => {
+  await stubTomTom(page);
+  await page.route("**/geo/route", (r) => r.fulfill({ status: 429, json: { error: "quota_exceeded" } }));
+  const stub = await startStubOrchestrator(MAP_FLOW);
+  try {
+    await gotoLitScene(page);
+    await page.locator("input").click();
+    await page.locator("input").pressSequentially("chỉ đường tới lăng bác", { delay: 15 });
+    await page.keyboard.press("Enter");
+    await expect(page.getByTestId("directions-status")).toHaveText("Chỉ đường tạm hết hạn mức", { timeout: 20_000 });
   } finally {
     await stub.close();
   }

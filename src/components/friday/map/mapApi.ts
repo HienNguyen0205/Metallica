@@ -41,19 +41,19 @@ export const PROFILE_LABELS: Record<MapProfile, string> = {
   pedestrian: "🚶 Đi bộ",
 };
 
-/** GraphHopper's free plan — what the tabs show if /geo/profiles cannot be read. */
-export const FREE_PLAN_PROFILES: MapProfile[] = ["auto", "bicycle", "pedestrian"];
+/** All four modes are on TomTom's free plan — the tabs if /geo/profiles cannot be read. */
+export const DEFAULT_PROFILES: MapProfile[] = ["motor_scooter", "auto", "bicycle", "pedestrian"];
 
 /** Travel modes the routing plan allows, default first (spec §6.3). */
 export async function fetchProfiles(signal?: AbortSignal): Promise<MapProfile[]> {
   try {
     const res = await fetch(`${getApiBase()}/geo/profiles`, { signal });
-    if (!res.ok) return FREE_PLAN_PROFILES;
+    if (!res.ok) return DEFAULT_PROFILES;
     const body = (await res.json()) as { profiles?: MapProfile[] };
-    return body.profiles?.length ? body.profiles : FREE_PLAN_PROFILES;
+    return body.profiles?.length ? body.profiles : DEFAULT_PROFILES;
   } catch (err) {
     if ((err as Error).name === "AbortError") throw err;
-    return FREE_PLAN_PROFILES;
+    return DEFAULT_PROFILES;
   }
 }
 
@@ -122,8 +122,8 @@ export async function reverseGeocode(lat: number, lon: number, signal?: AbortSig
 
 export interface Maneuver {
   instruction: string;
-  /** GraphHopper turn sign (-98..8); kept for a future turn icon. */
-  sign: number;
+  /** TomTom maneuver code (e.g. "TURN_RIGHT"); kept for a future turn icon. */
+  maneuver: string;
   distance_m: number;
   duration_s: number;
   /** Index into `Route.coordinates` where this maneuver starts. */
@@ -133,6 +133,8 @@ export interface Maneuver {
 export interface Route {
   distance_m: number;
   duration_s: number;
+  /** Extra time from current traffic (TomTom). */
+  traffic_delay_s: number;
   /** [lon, lat] pairs — GeoJSON order, ready for a LineString. */
   coordinates: [number, number][];
   maneuvers: Maneuver[];
@@ -140,7 +142,7 @@ export interface Route {
 
 export type RouteResult =
   | { ok: true; routes: Route[] }
-  | { ok: false; reason: "unavailable" | "no_route" | "unsupported" | "error" };
+  | { ok: false; reason: "unavailable" | "no_route" | "unsupported" | "quota" | "error" };
 
 export async function fetchRoute(stops: Endpoint[], profile: MapProfile, signal?: AbortSignal): Promise<RouteResult> {
   let res: Response;
@@ -157,6 +159,7 @@ export async function fetchRoute(stops: Endpoint[], profile: MapProfile, signal?
     return { ok: false, reason: "unavailable" };
   }
   if (res.status === 503) return { ok: false, reason: "unavailable" };
+  if (res.status === 429) return { ok: false, reason: "quota" };
   if (!res.ok) {
     const body = (await res.json().catch(() => null)) as { error?: string } | null;
     if (body?.error === "no_route") return { ok: false, reason: "no_route" };

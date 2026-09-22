@@ -12,15 +12,16 @@ import {
 const route: Route = {
   distance_m: 2412,
   duration_s: 545,
+  traffic_delay_s: 0,
   coordinates: [
     [105.8525, 21.0288],
     [105.843, 21.033],
     [105.8346, 21.0368],
   ],
   maneuvers: [
-    { instruction: "a", sign: 0, distance_m: 1100, duration_s: 250, begin_shape_index: 0 },
-    { instruction: "b", sign: 2, distance_m: 1312, duration_s: 295, begin_shape_index: 1 },
-    { instruction: "c", sign: 4, distance_m: 0, duration_s: 0, begin_shape_index: 2 },
+    { instruction: "a", maneuver: "DEPART", distance_m: 1100, duration_s: 250, begin_shape_index: 0 },
+    { instruction: "b", maneuver: "TURN_RIGHT", distance_m: 1312, duration_s: 295, begin_shape_index: 1 },
+    { instruction: "c", maneuver: "ARRIVE", distance_m: 0, duration_s: 0, begin_shape_index: 2 },
   ],
 };
 

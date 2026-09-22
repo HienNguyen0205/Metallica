@@ -19,12 +19,13 @@ import {
 const ROUTE_SRC = "friday-route";
 const STEP_SRC = "friday-route-step";
 
-type Status = "idle" | "loading" | "ok" | "unavailable" | "no_route" | "unsupported" | "error";
+type Status = "idle" | "loading" | "ok" | "unavailable" | "no_route" | "unsupported" | "quota" | "error";
 const STATUS_TEXT: Partial<Record<Status, string>> = {
   loading: "Đang tìm đường…",
   unavailable: "Chỉ đường chưa được cấu hình",
   no_route: "Không tìm thấy đường đi",
   unsupported: "Gói chỉ đường hiện tại không hỗ trợ phương tiện này",
+  quota: "Chỉ đường tạm hết hạn mức",
   error: "Không tính được đường đi",
 };
 
@@ -238,6 +239,9 @@ export function DirectionsPanel({
           <div data-testid="directions-summary" className="mt-3 flex items-baseline gap-2">
             <span className="text-xl font-semibold text-cyan-200">{formatDuration(best.duration_s)}</span>
             <span className="text-sm text-slate-300">{formatDistance(best.distance_m)}</span>
+            {best.traffic_delay_s >= 60 && (
+              <span className="text-sm text-amber-200">chậm {formatDuration(best.traffic_delay_s)} do kẹt xe</span>
+            )}
           </div>
           {routes.length > 1 && (
             <div className="mt-2 flex gap-2">

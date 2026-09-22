@@ -86,7 +86,7 @@ export function sanitizeMapView(value: unknown): MapView | undefined {
       return [label ? { ...p, label } : p];
     });
     if (waypoints.length >= 2 && waypoints.length <= 5) {
-      const profile = MAP_PROFILES.has(r.profile as string) ? (r.profile as MapProfile) : "auto";
+      const profile = MAP_PROFILES.has(r.profile as string) ? (r.profile as MapProfile) : "motor_scooter";
       out.route = { profile, waypoints };
     }
   }

@@ -11,7 +11,7 @@ import { ARRIVAL_ZOOM, HANDOFF_ZOOM, LEAVE_ZOOM } from "@/lib/mapView";
 import type { MapProfile } from "@/lib/visualization/types";
 import { STATUS_COLORS, markerLabel, statusOf } from "../visualization/globe/geo";
 import { devRailsEnabled } from "../hud/devRails";
-import { FREE_PLAN_PROFILES, fetchProfiles, styleUrl, withTomTomKey, type Endpoint, type MapStyleId, type Place } from "./mapApi";
+import { DEFAULT_PROFILES, fetchProfiles, styleUrl, withTomTomKey, type Endpoint, type MapStyleId, type Place } from "./mapApi";
 import { MapSearch } from "./MapSearch";
 import { DirectionsPanel } from "./DirectionsPanel";
 import { ContextMenu, PlacePanel, myLocationEndpoint, type MenuState } from "./PlacePanel";
@@ -57,8 +57,8 @@ export default function MapStage() {
   const [has3d, setHas3d] = useState(false);
   const [place, setPlace] = useState<Place | null>(null);
   const [directions, setDirections] = useState<DirectionsValue | null>(null);
-  // Modes the routing plan allows, default first; free plan until the backend says otherwise.
-  const [profiles, setProfiles] = useState<MapProfile[]>(FREE_PLAN_PROFILES);
+  // Modes the routing plan allows, default first (all four on TomTom).
+  const [profiles, setProfiles] = useState<MapProfile[]>(DEFAULT_PROFILES);
   const [menu, setMenu] = useState<MenuState | null>(null);
   const mode = useFridayStore((s) => s.mapView.mode);
   const rev = useFridayStore((s) => s.mapView.rev);
