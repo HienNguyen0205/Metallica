@@ -1,12 +1,16 @@
 # MapLibre Street Map Implementation Plan
 
+> **Status:** implemented on `feat/maplibre-map` (commits d11d232…a556286) with self-hosted Valhalla.
+> Routing is being replaced by GraphHopper Cloud — see `docs/superpowers/plans/2026-09-22-graphhopper-routing.md`.
+> Where the two disagree about routing, the delta plan and the revised spec win.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Zooming the globe past its limit hands off to a full-screen, Google-Maps-like MapLibre map (search, place card, context menu, directions), and agent tools can open that map directly for places and routes.
 
-**Architecture:** A DOM map layer sits between the R3F canvas and the HUD; a small `mapView` slice in the zustand store holds intent (`globe → entering → map → leaving`) and both the globe and the map react to it. A new `map` visualization type carries route *intent* (profile + waypoints); geometry always comes from `POST /geo/route`, a thin FastAPI proxy over GraphHopper Cloud (keyed, optional). Agent tools `find_place` / `get_directions` geocode with MapTiler and emit `map` previews, which the orchestrator passes through without re-planning.
+**Architecture:** A DOM map layer sits between the R3F canvas and the HUD; a small `mapView` slice in the zustand store holds intent (`globe → entering → map → leaving`) and both the globe and the map react to it. A new `map` visualization type carries route *intent* (profile + waypoints); geometry always comes from `POST /geo/route`, a thin FastAPI proxy over a self-hosted, optional Valhalla. Agent tools `find_place` / `get_directions` geocode with MapTiler and emit `map` previews, which the orchestrator passes through without re-planning.
 
-**Tech Stack:** Next 16 / React 19 / zustand 5 / R3F 9 (existing), `maplibre-gl@^6.10` (new, the only new dependency), MapTiler (tiles + geocoding), GraphHopper Cloud Routing API (`https://graphhopper.com/api/1/route`), FastAPI + pydantic (existing), Playwright (unit + ui projects), plain-python backend tests (`python backend/runtests.py`).
+**Tech Stack:** Next 16 / React 19 / zustand 5 / R3F 9 (existing), `maplibre-gl@^6.10` (new, the only new dependency), MapTiler (tiles + geocoding), Valhalla (`ghcr.io/valhalla/valhalla-scripted`), FastAPI + pydantic (existing), Playwright (unit + ui projects), plain-python backend tests (`python backend/runtests.py`).
 
 **Spec:** `docs/superpowers/specs/2026-09-21-maplibre-map-design.md`
 
@@ -14,21 +18,20 @@
 
 - Only new npm dependency: `maplibre-gl` (named imports: `Map`, `Marker`, `NavigationControl`, `ScaleControl`, `GeoJSONSource`, `MapMouseEvent`). No React wrapper. No new Python dependency (`urllib` + `asyncio.to_thread`, like `backend/friday/tools/integrations/fetch.py`).
 - maplibre-gl loads lazily (`next/dynamic`, `ssr: false`) — never in the main bundle.
-- Env: `NEXT_PUBLIC_MAPTILER_KEY` (browser, origin-restricted), `MAPTILER_SERVER_KEY` (backend), `GRAPHHOPPER_API_KEY` (backend, optional; unset = directions off, everything else works), `GRAPHHOPPER_PROFILES` (backend, default `car,bike,foot` = free plan).
-- Contract profiles: `"auto" | "motor_scooter" | "bicycle" | "pedestrian"` (mapped to GraphHopper `car | scooter | bike | foot`). Default = first the plan allows in the order motor_scooter, auto, bicycle, pedestrian, so **`auto` on the free plan**; `motor_scooter` becomes default once `scooter` is added to `GRAPHHOPPER_PROFILES` (paid plan). The UI shows only available modes (from `GET /geo/profiles`). Wire fallback for an unknown profile: `auto`.
-- Turn instructions come from GraphHopper with `locale=vi` (verified: `vi_VN.txt`/`vi.txt` translations exist). The GraphHopper key never reaches the browser.
-- Coordinates sent to MapTiler for proximity bias are rounded to 2 decimals. Full precision goes only to GraphHopper (the route itself needs it).
+- Env: `NEXT_PUBLIC_MAPTILER_KEY` (browser, origin-restricted), `MAPTILER_SERVER_KEY` (backend), `VALHALLA_URL` (backend, optional; unset = directions off, everything else works).
+- Default travel profile: `motor_scooter`. Profiles: `"auto" | "motor_scooter" | "bicycle" | "pedestrian"`.
+- Valhalla narrative language `vi-VN` (verified: `valhalla/locales/vi-VN.json` exists).
+- Coordinates sent to MapTiler for proximity bias are rounded to 2 decimals. Full precision only goes to Valhalla.
 - UI copy is Vietnamese (strings are given verbatim in the tasks). Map titles in specs follow the existing all-caps convention.
 - Visualization contract changes land in all three places at once: `src/lib/visualization/types.ts`, `backend/friday/schemas/visualization.py`, `contracts/visualization/visualization.v1.json`.
-- No test touches the real network. Map UI tests stub `api.maptiler.com` with `page.route` and need neither GraphHopper nor a real key.
+- No test touches the real network. Map UI tests stub `api.maptiler.com` with `page.route` and need neither Valhalla nor a real key.
 - Commits: conventional prefix (`feat(map): …`, `feat(geo): …`, `test(...)`), and **no `Co-Authored-By` trailer** (user preference).
 - Done = `npm run verify` green.
 
 ## Deviations from the spec (decided while planning — flag in review)
 
-0. **Routing is GraphHopper Cloud, not self-hosted Valhalla** (user decision 2026-09-22, after planning). Consequences: no Docker service; key-based; free plan = 500 credits/day, car/bike/foot only, non-commercial; **no motorbike on the free plan**, so the default mode is car and the motorbike tab appears only when `GRAPHHOPPER_PROFILES` includes `scooter`. The spec was updated to match.
-1. **Instructions arrive in Vietnamese** from GraphHopper (`locale=vi`), so the frontend maneuver→Vietnamese template table (spec §6.2/§7) is dropped.
-2. **`/geo/route` returns plain coordinates**, not an encoded polyline: GraphHopper's `points_encoded=false` gives `[lon, lat]` pairs, so the frontend needs no polyline decoder. Route = `{distance_m, duration_s, coordinates: [[lon, lat]], maneuvers: [{instruction, sign, distance_m, duration_s, begin_shape_index}]}`.
+1. **Valhalla has `vi-VN`**, so the frontend maneuver→Vietnamese template table (spec §6.2/§7) is dropped; instructions arrive translated.
+2. **`/geo/route` returns `legs`**, not one `shape`: Valhalla returns one polyline per leg when there are via points, and encoded polylines cannot be concatenated as strings. Route = `{distance_m, duration_s, legs: [{shape, maneuvers}]}`.
 3. **Globe→flat happens at zoom ~10–12**, not ~5: that is MapLibre's built-in `"globe"` preset. The map is still curved right after handoff (reads like Google Earth), which is fine.
 4. **A `map` preview skips the planner** (`backend/friday/api/routes.py`): re-planning would let the model rewrite waypoints it never measured. Not in the spec; required for correctness.
 5. **No backend evals for the geo tools**: the eval harness scripts the model, so an eval would only restate the policy unit test (low risk → no confirm). Tool behavior is covered by `test_geo_tools.py`.
@@ -43,7 +46,7 @@
 - `src/components/friday/map/MapSearch.tsx` — ARIA combobox with MapTiler autocomplete (top bar + directions inputs).
 - `src/components/friday/map/PlacePanel.tsx` — place card + right-click context menu.
 - `src/components/friday/map/DirectionsPanel.tsx` — directions panel, route layers, draggable stops, step list.
-- `src/components/friday/map/mapApi.ts` — style URLs, geocoding client + parser, `/geo/route` + `/geo/profiles` clients, step geometry helpers, formatting.
+- `src/components/friday/map/mapApi.ts` — style URLs, geocoding client + parser, `/geo/route` client, polyline6 decoder, formatting.
 - `src/components/friday/map/map.css` — MapLibre control restyle, pins, transition.
 - `tests/unit/mapView.spec.ts`, `tests/unit/mapApi.spec.ts`, `tests/ui/map.spec.ts`.
 
@@ -51,11 +54,12 @@
 - `src/lib/visualization/types.ts` (MapView, `"map"`), `src/lib/visualization/normalization.ts` (sanitize `map`), `src/lib/visualization/layoutResolver.ts` (`sceneEntries`), `src/lib/agent/events.ts` (KNOWN_VIZ), `src/lib/vizPlanner.ts` (map rule/sample/clone/summary), `src/lib/store.ts` (mapView slice), `src/components/friday/visualization/FridayVisualization.tsx` (REGISTRY + scene filter), `src/components/friday/visualization/globe/geo.ts` (`viewCenterFromAngles`), `src/components/friday/visualization/globe/useGlobeInteraction.ts` (over-zoom, entering dolly, key gating, leaving focus), `src/components/friday/visualization/globe/GlobeVisualization.tsx` (pass points), `src/components/friday/Scene.tsx` (frameloop), `src/components/friday/SceneIsland.tsx` (deep link), `src/components/friday/hud/{VizRail,StateRail,EdgeTelemetry}.tsx` (`data-map-hide`), `src/app/page.tsx`, `src/app/globals.css`, `src/proxy.ts` (CSP), `.env.example`, `playwright.config.ts`, `tests/ui/stubOrchestrator.ts` (MAP_FLOW), `tests/unit/{contracts,vizNormalize,coreDock,globeGeo,store}.spec.ts`.
 
 **Backend — new**
-- `backend/friday/geo/__init__.py`, `backend/friday/geo/graphhopper.py`, `backend/friday/geo/maptiler.py`, `backend/friday/geo/tools.py`.
-- `backend/tests/unit/test_graphhopper.py`, `backend/tests/unit/test_geo_tools.py`, `backend/tests/integration/test_geo_route.py`, `backend/tests/integration/test_map_preview_pin.py`.
+- `backend/friday/geo/__init__.py`, `backend/friday/geo/valhalla.py`, `backend/friday/geo/maptiler.py`, `backend/friday/geo/tools.py`.
+- `docker/valhalla/compose.yml`.
+- `backend/tests/unit/test_valhalla.py`, `backend/tests/unit/test_geo_tools.py`, `backend/tests/integration/test_geo_route.py`, `backend/tests/integration/test_map_preview_pin.py`.
 
 **Backend — modified**
-- `backend/friday/schemas/visualization.py`, `backend/friday/schema.py` (re-export), `backend/friday/api/schemas.py` (RouteRequest), `backend/friday/api/routes.py` (`/geo/route`, `/geo/profiles`, map pin), `backend/friday/tools/registry.py`, `backend/friday/planner/prompts.py`, `backend/.env.example`, `backend/tests/unit/test_contracts.py`, `README.md`, `backend/README.md`, `docs/ARCHITECTURE.md`.
+- `backend/friday/schemas/visualization.py`, `backend/friday/schema.py` (re-export), `backend/friday/api/schemas.py` (RouteRequest), `backend/friday/api/routes.py` (`/geo/route`, map pin), `backend/friday/tools/registry.py`, `backend/friday/planner/prompts.py`, `backend/.env.example`, `backend/tests/unit/test_contracts.py`, `package.json` (`dev:valhalla`), `README.md`, `backend/README.md`, `docs/ARCHITECTURE.md`.
 
 ---
 
@@ -125,11 +129,11 @@ test("map view drops out-of-range and malformed fields", () => {
   expect(sanitizeMapView(null)).toBeUndefined();
   expect(sanitizeMapView({ center: { lat: 91, lon: 0 }, zoom: 30 })).toBeUndefined();
   expect(sanitizeMapView({ bbox: [0, 10, 1, 5] })).toBeUndefined(); // south above north
-  // a route needs 2-5 valid waypoints; an unknown profile falls back to car (on every plan)
+  // a route needs 2-5 valid waypoints; an unknown profile falls back to motorbike
   expect(sanitizeMapView({ route: { profile: "rocket", waypoints: [{ lat: 1, lon: 1 }] } })).toBeUndefined();
   expect(
     sanitizeMapView({ route: { profile: "rocket", waypoints: [{ lat: 1, lon: 1 }, { lat: 2, lon: "x" }, { lat: 3, lon: 3 }] } }),
-  ).toEqual({ route: { profile: "auto", waypoints: [{ lat: 1, lon: 1 }, { lat: 3, lon: 3 }] } });
+  ).toEqual({ route: { profile: "motor_scooter", waypoints: [{ lat: 1, lon: 1 }, { lat: 3, lon: 3 }] } });
 });
 
 test("normalizeVisualization sanitizes data.map", () => {
@@ -166,7 +170,7 @@ def test_map_view_matches_canonical_schema() -> None:
     assert "map" in VizData.model_fields
     profiles = schema["definitions"]["MapRoute"]["properties"]["profile"]["enum"]
     assert list(get_args(MapRoute.model_fields["profile"].annotation)) == profiles
-    assert MapRoute.model_fields["profile"].default == "auto"
+    assert MapRoute.model_fields["profile"].default == "motor_scooter"
 ```
 
 - [ ] **Step 3: Run the tests and watch them fail**
@@ -182,7 +186,7 @@ Expected: FAIL — `ImportError: cannot import name 'MapRoute'`.
 In `src/lib/visualization/types.ts` add `| "map"` to `VisualizationType` (after `"sankey_flow"`), then add below `GlobeRoute`:
 
 ```ts
-/** Travel mode for a map route (spec §5); the backend maps these to GraphHopper profiles. */
+/** Travel mode for a map route — Valhalla costing names (spec §5). */
 export type MapProfile = "auto" | "motor_scooter" | "bicycle" | "pedestrian";
 
 export interface MapWaypoint {
@@ -258,7 +262,7 @@ export function sanitizeMapView(value: unknown): MapView | undefined {
       return [label ? { ...p, label } : p];
     });
     if (waypoints.length >= 2 && waypoints.length <= 5) {
-      const profile = MAP_PROFILES.has(r.profile as string) ? (r.profile as MapProfile) : "auto";
+      const profile = MAP_PROFILES.has(r.profile as string) ? (r.profile as MapProfile) : "motor_scooter";
       out.route = { profile, waypoints };
     }
   }
@@ -386,7 +390,7 @@ and add these definitions (before `"VizData"`):
       "type": "object",
       "required": ["waypoints"],
       "properties": {
-        "profile": { "type": "string", "enum": ["auto", "motor_scooter", "bicycle", "pedestrian"], "default": "auto" },
+        "profile": { "type": "string", "enum": ["auto", "motor_scooter", "bicycle", "pedestrian"], "default": "motor_scooter" },
         "waypoints": {
           "type": "array",
           "minItems": 2,
@@ -432,7 +436,7 @@ class MapWaypoint(LatLon):
 class MapRoute(BaseModel):
     """Route intent: the map fetches geometry from /geo/route itself."""
 
-    profile: Literal["auto", "motor_scooter", "bicycle", "pedestrian"] = "auto"
+    profile: Literal["auto", "motor_scooter", "bicycle", "pedestrian"] = "motor_scooter"
     waypoints: list[MapWaypoint] = Field(min_length=2, max_length=5)
 
 
@@ -817,54 +821,46 @@ git commit -m "feat(map): map mode state, over-zoom accumulator and globe view c
 
 ---
 
-### Task 3: GraphHopper client, `/geo/route` and `/geo/profiles`
+### Task 3: Valhalla client, `/geo/route` proxy, local Valhalla
 
 **Files:**
-- Create: `backend/friday/geo/__init__.py`, `backend/friday/geo/graphhopper.py`
-- Modify: `backend/friday/api/schemas.py`, `backend/friday/api/routes.py`, `backend/.env.example`
-- Test: `backend/tests/unit/test_graphhopper.py`, `backend/tests/integration/test_geo_route.py`
+- Create: `backend/friday/geo/__init__.py`, `backend/friday/geo/valhalla.py`, `docker/valhalla/compose.yml`
+- Modify: `backend/friday/api/schemas.py`, `backend/friday/api/routes.py`, `backend/.env.example`, `package.json`
+- Test: `backend/tests/unit/test_valhalla.py`, `backend/tests/integration/test_geo_route.py`
 
 **Interfaces:**
 - Consumes: `LatLon` from `friday.schemas.visualization` (Task 1).
-- Produces (`friday.geo.graphhopper`):
-  - `PROFILE_ORDER = ("motor_scooter", "auto", "bicycle", "pedestrian")`, `GH_PROFILE = {"motor_scooter": "scooter", "auto": "car", "bicycle": "bike", "pedestrian": "foot"}`
-  - `class RoutingUnavailable(Exception)`, `class NoRoute(Exception)`, `class UnsupportedProfile(Exception)`
-  - `available_profiles() -> list[str]` (contract names, preference order), `default_profile() -> str`, `clear_cache() -> None`
-  - `async def route(waypoints: list[dict], profile: str | None = None, locale: str = "vi") -> dict` returning `{"routes": [{"distance_m": int, "duration_s": int, "coordinates": [[lon, lat], ...], "maneuvers": [{"instruction": str, "sign": int, "distance_m": int, "duration_s": int, "begin_shape_index": int}]}]}`
-- Produces (HTTP):
-  - `POST /geo/route` body `{"waypoints": [{"lat","lon"}×2–5], "profile"?}` → 200 route dict | 503 `{"error": "routing_unavailable"}` | 422 `{"error": "no_route"}` | 422 `{"error": "unsupported_profile"}` | 422 FastAPI validation | 403 bad origin.
-  - `GET /geo/profiles` → `{"profiles": [...contract names in preference order]}`.
+- Produces (`friday.geo.valhalla`): `PROFILES: tuple[str, ...]`, `class RoutingUnavailable(Exception)`, `class NoRoute(Exception)`, `base_url() -> str | None`, `clear_cache() -> None`, `async def route(waypoints: list[dict], profile: str = "motor_scooter", alternates: int = 2, language: str = "vi-VN") -> dict` returning `{"routes": [{"distance_m": int, "duration_s": int, "legs": [{"shape": str, "maneuvers": [{"instruction": str, "type": int, "distance_m": int, "duration_s": int, "begin_shape_index": int}]}]}]}`.
+- Produces (HTTP): `POST /geo/route` body `{"waypoints": [{"lat","lon"}×2–5], "profile"?}` → 200 route dict | 503 `{"error": "routing_unavailable"}` | 422 `{"error": "no_route"}` | 422 FastAPI validation | 403 bad origin.
 
 - [ ] **Step 1: Write the failing unit test**
 
-Create `backend/tests/unit/test_graphhopper.py`:
+Create `backend/tests/unit/test_valhalla.py`:
 
 ```python
-"""GraphHopper Cloud client: request shape, normalization, errors, cache.
-A local fake stands in for graphhopper.com — no external network.
+"""Valhalla client: normalization, error mapping, cache — local fake only.
 
-    PYTHONPATH=. python tests/unit/test_graphhopper.py
+    PYTHONPATH=. python tests/unit/test_valhalla.py
 """
 
 import asyncio
 import json
 import os
 import threading
-import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from friday.geo import graphhopper as gh
+from friday.geo import valhalla
 
-# Shaped like the documented /route response with points_encoded=false
-# (distance in m, time in ms, GeoJSON [lon, lat] points).
-PATH = {
-    "distance": 2412.3,
-    "time": 545_400,
-    "points": {"type": "LineString", "coordinates": [[105.8525, 21.0288], [105.843, 21.033], [105.8346, 21.0368]]},
-    "instructions": [
-        {"text": "Đi về hướng tây", "sign": 0, "distance": 1100.2, "time": 250_000, "interval": [0, 1]},
-        {"text": "Đến nơi", "sign": 4, "distance": 0, "time": 0, "interval": [2, 2]},
-    ],
+# Shaped like Valhalla's documented /route response (lengths in km, times in s).
+TRIP = {
+    "summary": {"length": 2.4, "time": 540.4},
+    "legs": [{
+        "shape": "_{nbg@gdv{hEoeGvpQolF~kO",
+        "maneuvers": [
+            {"instruction": "Đi về hướng tây.", "type": 2, "length": 1.1, "time": 250, "begin_shape_index": 0},
+            {"instruction": "Bạn đã đến nơi.", "type": 4, "length": 0.0, "time": 0, "begin_shape_index": 2},
+        ],
+    }],
 }
 CALLS: list[dict] = []
 MODE = {"status": 200}
@@ -874,156 +870,125 @@ class _Handler(BaseHTTPRequestHandler):
     def log_message(self, *_args):
         pass
 
-    def do_GET(self):
-        CALLS.append(urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query))
-        status = MODE["status"]
-        if status == 400:
-            payload = {"message": "Connection between locations not found"}
-        elif status != 200:
-            payload = {"message": "nope"}
+    def do_POST(self):
+        body = json.loads(self.rfile.read(int(self.headers["content-length"])))
+        CALLS.append(body)
+        if MODE["status"] == 400:
+            payload = {"error_code": 442, "error": "No path could be found for input"}
+        elif MODE["status"] == 500:
+            payload = {"error": "boom"}
         else:
-            payload = {"paths": [PATH, PATH]}
+            payload = {"trip": TRIP, "alternates": [{"trip": TRIP}]}
         data = json.dumps(payload).encode()
-        self.send_response(status)
+        self.send_response(MODE["status"])
         self.send_header("content-type", "application/json")
         self.send_header("content-length", str(len(data)))
         self.end_headers()
         self.wfile.write(data)
 
 
-ENV = ("GRAPHHOPPER_API_KEY", "GRAPHHOPPER_PROFILES", "FRIDAY_GRAPHHOPPER_URL")
-
-
-def with_server(fn, profiles=None):
+def with_server(fn):
     server = ThreadingHTTPServer(("127.0.0.1", 0), _Handler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
-    old = {k: os.environ.get(k) for k in ENV}
-    os.environ["GRAPHHOPPER_API_KEY"] = "test-key"
-    os.environ["FRIDAY_GRAPHHOPPER_URL"] = f"http://127.0.0.1:{server.server_address[1]}/api/1"
-    if profiles is None:
-        os.environ.pop("GRAPHHOPPER_PROFILES", None)
-    else:
-        os.environ["GRAPHHOPPER_PROFILES"] = profiles
+    old = os.environ.get("VALHALLA_URL")
+    os.environ["VALHALLA_URL"] = f"http://127.0.0.1:{server.server_address[1]}/"
     CALLS.clear()
     MODE["status"] = 200
-    gh.clear_cache()
+    valhalla.clear_cache()
     try:
         fn()
     finally:
         server.shutdown()
         server.server_close()
-        for k, v in old.items():
-            if v is None:
-                os.environ.pop(k, None)
-            else:
-                os.environ[k] = v
+        if old is None:
+            os.environ.pop("VALHALLA_URL", None)
+        else:
+            os.environ["VALHALLA_URL"] = old
 
 
 A = {"lat": 21.0288, "lon": 105.8525}
 B = {"lat": 21.0368, "lon": 105.8346}
 
 
-def test_free_plan_profiles_default_to_car() -> None:
+def test_normalizes_trip_and_alternates() -> None:
     def run():
-        assert gh.available_profiles() == ["auto", "bicycle", "pedestrian"]
-        assert gh.default_profile() == "auto"
-    with_server(run)
-
-
-def test_paid_plan_puts_motorbike_first() -> None:
-    def run():
-        assert gh.available_profiles() == ["motor_scooter", "auto", "bicycle", "pedestrian"]
-        assert gh.default_profile() == "motor_scooter"
-    with_server(run, profiles="car, bike, foot, scooter")
-
-
-def test_request_shape_and_normalization() -> None:
-    def run():
-        out = asyncio.run(gh.route([A, B]))
-        q = CALLS[0]
-        assert q["point"] == ["21.0288,105.8525", "21.0368,105.8346"], q
-        assert q["profile"] == ["car"] and q["locale"] == ["vi"] and q["key"] == ["test-key"]
-        assert q["points_encoded"] == ["false"] and q["instructions"] == ["true"]
-        assert q["algorithm"] == ["alternative_route"] and q["alternative_route.max_paths"] == ["3"]
-        assert len(out["routes"]) == 2
+        out = asyncio.run(valhalla.route([A, B]))
+        assert len(out["routes"]) == 2, out
         r = out["routes"][0]
-        assert (r["distance_m"], r["duration_s"]) == (2412, 545), r
-        assert r["coordinates"][1] == [105.843, 21.033]
-        assert r["maneuvers"][0] == {
-            "instruction": "Đi về hướng tây", "sign": 0, "distance_m": 1100,
+        assert (r["distance_m"], r["duration_s"]) == (2400, 540), r
+        leg = r["legs"][0]
+        assert leg["shape"] == TRIP["legs"][0]["shape"]
+        assert leg["maneuvers"][0] == {
+            "instruction": "Đi về hướng tây.", "type": 2, "distance_m": 1100,
             "duration_s": 250, "begin_shape_index": 0,
-        }, r
+        }, leg
+        sent = CALLS[0]
+        assert sent["costing"] == "motor_scooter" and sent["alternates"] == 2
+        assert sent["directions_options"] == {"units": "kilometers", "language": "vi-VN"}
+        assert sent["locations"] == [A, B]
     with_server(run)
 
 
-def test_via_points_skip_alternatives() -> None:
+def test_via_points_disable_alternates() -> None:
     def run():
-        asyncio.run(gh.route([A, {"lat": 21.03, "lon": 105.84}, B], "pedestrian"))
-        q = CALLS[0]
-        assert len(q["point"]) == 3 and "algorithm" not in q and q["profile"] == ["foot"]
+        asyncio.run(valhalla.route([A, {"lat": 21.03, "lon": 105.84}, B], "auto"))
+        assert CALLS[0]["alternates"] == 0 and CALLS[0]["costing"] == "auto"
     with_server(run)
 
 
-def test_unconfigured_profile_is_refused_before_any_call() -> None:
+def test_cache_hits_on_rounded_input() -> None:
     def run():
-        try:
-            asyncio.run(gh.route([A, B], "motor_scooter"))
-        except gh.UnsupportedProfile:
-            pass
-        else:
-            raise AssertionError("scooter is not on the free plan")
-        assert CALLS == []
-    with_server(run)
-
-
-def test_cache_saves_credits_on_rounded_input() -> None:
-    def run():
-        asyncio.run(gh.route([A, B]))
-        asyncio.run(gh.route([{"lat": 21.028800001, "lon": 105.8525}, B]))
+        asyncio.run(valhalla.route([A, B]))
+        asyncio.run(valhalla.route([{"lat": 21.028800001, "lon": 105.8525}, B]))
         assert len(CALLS) == 1, CALLS
-        asyncio.run(gh.route([A, B], "bicycle"))
+        asyncio.run(valhalla.route([A, B], "bicycle"))
         assert len(CALLS) == 2
     with_server(run)
 
 
 def test_error_mapping() -> None:
     def run():
-        for status, exc in ((400, gh.NoRoute), (401, gh.RoutingUnavailable), (429, gh.RoutingUnavailable), (500, gh.RoutingUnavailable)):
-            MODE["status"] = status
-            gh.clear_cache()
-            try:
-                asyncio.run(gh.route([A, B]))
-            except exc:
-                continue
-            raise AssertionError(f"{status} must raise {exc.__name__}")
+        MODE["status"] = 400
+        try:
+            asyncio.run(valhalla.route([A, B]))
+        except valhalla.NoRoute:
+            pass
+        else:
+            raise AssertionError("400 must be NoRoute")
+        MODE["status"] = 500
+        valhalla.clear_cache()
+        try:
+            asyncio.run(valhalla.route([A, B], "pedestrian"))
+        except valhalla.RoutingUnavailable:
+            pass
+        else:
+            raise AssertionError("500 must be RoutingUnavailable")
     with_server(run)
 
 
-def test_no_key_or_unreachable_is_unavailable() -> None:
-    old = {k: os.environ.get(k) for k in ENV}
+def test_unset_or_unreachable_is_unavailable() -> None:
+    old = os.environ.pop("VALHALLA_URL", None)
     try:
-        os.environ.pop("GRAPHHOPPER_API_KEY", None)
+        assert valhalla.base_url() is None
         try:
-            asyncio.run(gh.route([A, B]))
-        except gh.RoutingUnavailable:
+            asyncio.run(valhalla.route([A, B]))
+        except valhalla.RoutingUnavailable:
             pass
         else:
-            raise AssertionError("no key must be RoutingUnavailable")
-        os.environ["GRAPHHOPPER_API_KEY"] = "k"
-        os.environ["FRIDAY_GRAPHHOPPER_URL"] = "http://127.0.0.1:9/api/1"  # discard port
-        gh.clear_cache()
+            raise AssertionError("unset must be RoutingUnavailable")
+        os.environ["VALHALLA_URL"] = "http://127.0.0.1:9"  # discard port, nothing listens
+        valhalla.clear_cache()
         try:
-            asyncio.run(gh.route([A, B]))
-        except gh.RoutingUnavailable:
+            asyncio.run(valhalla.route([A, B]))
+        except valhalla.RoutingUnavailable:
             pass
         else:
             raise AssertionError("unreachable must be RoutingUnavailable")
     finally:
-        for k, v in old.items():
-            if v is None:
-                os.environ.pop(k, None)
-            else:
-                os.environ[k] = v
+        if old is None:
+            os.environ.pop("VALHALLA_URL", None)
+        else:
+            os.environ["VALHALLA_URL"] = old
 
 
 if __name__ == "__main__":
@@ -1039,7 +1004,7 @@ if __name__ == "__main__":
 Create `backend/tests/integration/test_geo_route.py`:
 
 ```python
-"""POST /geo/route and GET /geo/profiles — validation, errors, origin guard.
+"""POST /geo/route — validation, error mapping, origin guard.
 
     PYTHONPATH=. python tests/integration/test_geo_route.py
 """
@@ -1050,39 +1015,39 @@ os.environ["FRIDAY_ALLOWED_ORIGINS"] = "http://localhost:3000"
 
 from fastapi.testclient import TestClient
 
-from friday.geo import graphhopper as gh
+from friday.geo import valhalla
 from friday.main import app
 
 client = TestClient(app)
 A = {"lat": 21.0288, "lon": 105.8525}
 B = {"lat": 21.0368, "lon": 105.8346}
-ROUTE = {"routes": [{"distance_m": 2412, "duration_s": 545, "coordinates": [], "maneuvers": []}]}
-ORIGINAL = gh.route
+ROUTE = {"routes": [{"distance_m": 2400, "duration_s": 540, "legs": []}]}
 
 
 def fake_route(result=None, exc=None):
     calls = []
 
-    async def route(waypoints, profile=None, locale="vi"):
+    async def route(waypoints, profile="motor_scooter", alternates=2, language="vi-VN"):
         calls.append((waypoints, profile))
         if exc is not None:
             raise exc
         return result
 
-    gh.route = route
+    valhalla.route = route
     return calls
 
 
-def test_happy_path_passes_the_profile_through() -> None:
+ORIGINAL = valhalla.route
+
+
+def test_happy_path_defaults_to_motorbike() -> None:
     calls = fake_route(ROUTE)
     try:
         res = client.post("/geo/route", json={"waypoints": [A, B]})
-        client.post("/geo/route", json={"waypoints": [A, B], "profile": "bicycle"})
     finally:
-        gh.route = ORIGINAL
+        valhalla.route = ORIGINAL
     assert res.status_code == 200 and res.json() == ROUTE, res.text
-    # no profile → the client picks the plan's default
-    assert calls == [([A, B], None), ([A, B], "bicycle")]
+    assert calls == [([A, B], "motor_scooter")]
 
 
 def test_validation() -> None:
@@ -1097,30 +1062,19 @@ def test_validation() -> None:
         ):
             assert client.post("/geo/route", json=body).status_code == 422, body
     finally:
-        gh.route = ORIGINAL
+        valhalla.route = ORIGINAL
 
 
 def test_error_mapping() -> None:
+    fake_route(exc=valhalla.RoutingUnavailable("VALHALLA_URL is not set"))
     try:
-        for exc, status, body in (
-            (gh.RoutingUnavailable("no key"), 503, {"error": "routing_unavailable"}),
-            (gh.NoRoute("Connection between locations not found"), 422, {"error": "no_route"}),
-            (gh.UnsupportedProfile("motor_scooter"), 422, {"error": "unsupported_profile"}),
-        ):
-            fake_route(exc=exc)
-            res = client.post("/geo/route", json={"waypoints": [A, B]})
-            assert res.status_code == status and res.json() == body, res.text
+        res = client.post("/geo/route", json={"waypoints": [A, B]})
+        assert res.status_code == 503 and res.json() == {"error": "routing_unavailable"}, res.text
+        fake_route(exc=valhalla.NoRoute("No path could be found for input"))
+        res = client.post("/geo/route", json={"waypoints": [A, B]})
+        assert res.status_code == 422 and res.json() == {"error": "no_route"}, res.text
     finally:
-        gh.route = ORIGINAL
-
-
-def test_profiles_endpoint() -> None:
-    old = os.environ.pop("GRAPHHOPPER_PROFILES", None)
-    try:
-        assert client.get("/geo/profiles").json() == {"profiles": ["auto", "bicycle", "pedestrian"]}
-    finally:
-        if old is not None:
-            os.environ["GRAPHHOPPER_PROFILES"] = old
+        valhalla.route = ORIGINAL
 
 
 def test_origin_guard() -> None:
@@ -1128,7 +1082,7 @@ def test_origin_guard() -> None:
     try:
         res = client.post("/geo/route", json={"waypoints": [A, B]}, headers={"origin": "https://evil.example"})
     finally:
-        gh.route = ORIGINAL
+        valhalla.route = ORIGINAL
     assert res.status_code == 403
 
 
@@ -1142,7 +1096,7 @@ if __name__ == "__main__":
 
 - [ ] **Step 3: Run to watch them fail**
 
-Run: `python backend/runtests.py test_graphhopper test_geo_route`
+Run: `python backend/runtests.py test_valhalla test_geo_route`
 Expected: FAIL — `ModuleNotFoundError: No module named 'friday.geo'`.
 
 - [ ] **Step 4: Implement the client**
@@ -1150,201 +1104,201 @@ Expected: FAIL — `ModuleNotFoundError: No module named 'friday.geo'`.
 Create `backend/friday/geo/__init__.py`:
 
 ```python
-"""Maps: MapTiler geocoding and GraphHopper Cloud routing (spec 2026-09-21)."""
+"""Maps: MapTiler geocoding and self-hosted Valhalla routing (spec 2026-09-21)."""
 ```
 
-Create `backend/friday/geo/graphhopper.py`:
+Create `backend/friday/geo/valhalla.py`:
 
 ```python
-"""GraphHopper Cloud routing (spec §6.2) — hosted, keyed, optional.
+"""Valhalla routing client (spec §6.2) — self-hosted and optional.
 
-No GRAPHHOPPER_API_KEY means routing is off, not broken: callers get
-RoutingUnavailable and say so plainly. The key never leaves this process;
-the browser asks /geo/route. Same urllib + to_thread shape as
-tools/integrations/fetch.py — no HTTP dependency for one GET.
-
-The free plan routes car, bike and foot only. GRAPHHOPPER_PROFILES lists
-what the key's plan allows; add "scooter" on a paid plan and the motorbike
-mode appears everywhere (UI tabs, tool default) with no code change.
+An unset VALHALLA_URL means routing is off, not broken: callers get
+RoutingUnavailable and say so plainly. Same urllib + to_thread shape as
+tools/integrations/fetch.py; no HTTP dependency added for one POST.
 """
 
 import asyncio
 import json
 import os
 import urllib.error
-import urllib.parse
 import urllib.request
 from collections import OrderedDict
 from typing import Any
 
-BASE = "https://graphhopper.com/api/1"
+PROFILES = ("auto", "motor_scooter", "bicycle", "pedestrian")
 TIMEOUT_S = 10.0
-#: Every request costs credits (500/day on the free plan); drags and mode
-#: toggles re-ask the same question, so answer those from memory.
+#: Drags and mode toggles re-ask the same question; answer those from memory.
 CACHE_SIZE = 256
-FREE_PLAN = "car,bike,foot"
-
-#: Contract profile names (spec §5) in preference order —
-#: the first one the plan allows is the default.
-PROFILE_ORDER = ("motor_scooter", "auto", "bicycle", "pedestrian")
-GH_PROFILE = {"motor_scooter": "scooter", "auto": "car", "bicycle": "bike", "pedestrian": "foot"}
 
 _CACHE: "OrderedDict[str, dict[str, Any]]" = OrderedDict()
 
 
 class RoutingUnavailable(Exception):
-    """No key, out of credits, unreachable or failing — nothing to retry here."""
+    """Not configured, unreachable, or failing — nothing the caller can fix."""
 
 
 class NoRoute(Exception):
-    """GraphHopper ran and found no path, or a point is not near any road."""
+    """Valhalla ran and found no path (or the input is outside the extract)."""
 
 
-class UnsupportedProfile(Exception):
-    """The key's plan does not include this travel mode."""
-
-
-def _base() -> str:
-    # Test hook, like FRIDAY_ALLOW_PRIVATE_FETCH: point at a local fake.
-    return os.getenv("FRIDAY_GRAPHHOPPER_URL", BASE).rstrip("/")
-
-
-def available_profiles() -> list[str]:
-    allowed = {p.strip() for p in os.getenv("GRAPHHOPPER_PROFILES", FREE_PLAN).split(",") if p.strip()}
-    return [p for p in PROFILE_ORDER if GH_PROFILE[p] in allowed]
-
-
-def default_profile() -> str:
-    profiles = available_profiles()
-    return profiles[0] if profiles else "auto"
+def base_url() -> str | None:
+    url = os.getenv("VALHALLA_URL", "").strip().rstrip("/")
+    return url or None
 
 
 def clear_cache() -> None:
     _CACHE.clear()
 
 
-def _get(url: str) -> dict[str, Any]:
+def _cache_key(waypoints: list[dict], profile: str, alternates: int, language: str) -> str:
+    points = [(round(w["lat"], 5), round(w["lon"], 5)) for w in waypoints]
+    return json.dumps([points, profile, alternates, language])
+
+
+def _post(url: str, body: dict[str, Any]) -> dict[str, Any]:
+    request = urllib.request.Request(
+        url,
+        data=json.dumps(body).encode(),
+        headers={"content-type": "application/json"},
+        method="POST",
+    )
     try:
-        with urllib.request.urlopen(url, timeout=TIMEOUT_S) as response:
+        with urllib.request.urlopen(request, timeout=TIMEOUT_S) as response:
             return json.loads(response.read())
     except urllib.error.HTTPError as err:
-        # Input is validated before it gets here, so a 400 is GraphHopper
-        # saying "no connection" or "point not near a road".
+        # "No path" (442) and "no edges near location" (171, i.e. outside the
+        # Vietnam extract) both come back as 400 with a JSON body.
         if err.code == 400:
-            raise NoRoute(_message(err)) from err
-        # 401 bad key, 429 out of credits, 5xx: the caller cannot fix any of it.
-        raise RoutingUnavailable(f"graphhopper HTTP {err.code}: {_message(err)}") from err
+            raise NoRoute(_error_text(err)) from err
+        raise RoutingUnavailable(f"valhalla HTTP {err.code}") from err
     except (urllib.error.URLError, TimeoutError, OSError, ValueError) as err:
         raise RoutingUnavailable(str(err)) from err
 
 
-def _message(err: urllib.error.HTTPError) -> str:
+def _error_text(err: urllib.error.HTTPError) -> str:
     try:
-        return str(json.loads(err.read()).get("message", ""))
+        return str(json.loads(err.read()).get("error", "no route"))
     except (ValueError, OSError):
-        return ""
+        return "no route"
 
 
-def _normalize(path: dict[str, Any]) -> dict[str, Any]:
+def _normalize(trip: dict[str, Any]) -> dict[str, Any]:
     return {
-        "distance_m": round(path["distance"]),
-        "duration_s": round(path["time"] / 1000),
-        "coordinates": [[round(c[0], 6), round(c[1], 6)] for c in path["points"]["coordinates"]],
-        "maneuvers": [
+        "distance_m": round(trip["summary"]["length"] * 1000),
+        "duration_s": round(trip["summary"]["time"]),
+        "legs": [
             {
-                "instruction": i.get("text", ""),
-                "sign": i.get("sign", 0),
-                "distance_m": round(i.get("distance", 0)),
-                "duration_s": round(i.get("time", 0) / 1000),
-                "begin_shape_index": (i.get("interval") or [0])[0],
+                "shape": leg["shape"],
+                "maneuvers": [
+                    {
+                        "instruction": m.get("instruction", ""),
+                        "type": m.get("type", 0),
+                        "distance_m": round(m.get("length", 0) * 1000),
+                        "duration_s": round(m.get("time", 0)),
+                        "begin_shape_index": m.get("begin_shape_index", 0),
+                    }
+                    for m in leg.get("maneuvers", [])
+                ],
             }
-            for i in path.get("instructions", [])
+            for leg in trip["legs"]
         ],
     }
 
 
-async def route(waypoints: list[dict], profile: str | None = None, locale: str = "vi") -> dict[str, Any]:
-    key = os.getenv("GRAPHHOPPER_API_KEY")
-    if not key:
-        raise RoutingUnavailable("GRAPHHOPPER_API_KEY is not set")
-    profile = profile or default_profile()
-    if profile not in available_profiles():
-        raise UnsupportedProfile(profile)
-    cache_key = json.dumps([[(round(w["lat"], 5), round(w["lon"], 5)) for w in waypoints], profile, locale])
-    if cache_key in _CACHE:
-        _CACHE.move_to_end(cache_key)
-        return _CACHE[cache_key]
-    params: list[tuple[str, str]] = [("point", f"{w['lat']},{w['lon']}") for w in waypoints]
-    params += [
-        ("profile", GH_PROFILE[profile]),
-        ("locale", locale),
-        ("instructions", "true"),
-        ("points_encoded", "false"),
-        ("key", key),
-    ]
-    # Alternatives only exist between two points (and cost extra credits).
-    if len(waypoints) == 2:
-        params += [("algorithm", "alternative_route"), ("alternative_route.max_paths", "3")]
-    raw = await asyncio.to_thread(_get, f"{_base()}/route?{urllib.parse.urlencode(params)}")
-    result = {"routes": [_normalize(p) for p in raw.get("paths", [])]}
-    if not result["routes"]:
-        raise NoRoute("no paths")
-    _CACHE[cache_key] = result
+async def route(
+    waypoints: list[dict],
+    profile: str = "motor_scooter",
+    alternates: int = 2,
+    language: str = "vi-VN",
+) -> dict[str, Any]:
+    url = base_url()
+    if url is None:
+        raise RoutingUnavailable("VALHALLA_URL is not set")
+    # Valhalla only computes alternates between exactly two locations.
+    if len(waypoints) > 2:
+        alternates = 0
+    key = _cache_key(waypoints, profile, alternates, language)
+    if key in _CACHE:
+        _CACHE.move_to_end(key)
+        return _CACHE[key]
+    body = {
+        "locations": [{"lat": w["lat"], "lon": w["lon"]} for w in waypoints],
+        "costing": profile,
+        "alternates": alternates,
+        "directions_options": {"units": "kilometers", "language": language},
+    }
+    raw = await asyncio.to_thread(_post, f"{url}/route", body)
+    trips = [raw["trip"], *(a["trip"] for a in raw.get("alternates", []))]
+    result = {"routes": [_normalize(t) for t in trips]}
+    _CACHE[key] = result
     if len(_CACHE) > CACHE_SIZE:
         _CACHE.popitem(last=False)
     return result
 ```
 
-- [ ] **Step 5: Request schema + endpoints**
+- [ ] **Step 5: Request schema + endpoint**
 
 In `backend/friday/api/schemas.py` add (with `from typing import Literal` and `from friday.schemas.visualization import LatLon` if not already imported):
 
 ```python
 class RouteRequest(BaseModel):
-    """POST /geo/route — validated here so GraphHopper only sees sane input
-    (and no credit is spent on a request that could never succeed)."""
+    """POST /geo/route — validated here so Valhalla only sees sane input."""
 
     waypoints: list[LatLon] = Field(min_length=2, max_length=5)
-    #: None = the plan's default travel mode (see geo/graphhopper.py).
-    profile: Literal["auto", "motor_scooter", "bicycle", "pedestrian"] | None = None
+    profile: Literal["auto", "motor_scooter", "bicycle", "pedestrian"] = "motor_scooter"
 ```
 
-In `backend/friday/api/routes.py`: add `RouteRequest` to the `friday.api.schemas` import, add `JSONResponse` to the `fastapi.responses` import, `from friday.geo import graphhopper`, and add above `@router.get("/health")`:
+In `backend/friday/api/routes.py`: add `RouteRequest` to the `friday.api.schemas` import, add `from fastapi.responses import JSONResponse` (extend the existing `fastapi.responses` import), `from friday.geo import valhalla`, and add above `@router.get("/health")`:
 
 ```python
-@router.get("/geo/profiles", dependencies=[Depends(require_known_origin)])
-async def geo_profiles() -> dict[str, Any]:
-    """Travel modes the routing plan allows, default first — the map's tabs."""
-    return {"profiles": graphhopper.available_profiles()}
-
-
 @router.post("/geo/route", dependencies=[Depends(require_known_origin)])
 async def geo_route(body: RouteRequest) -> Any:
-    """Spec §6.3 — one route question for the map UI. No model call behind
-    it; the origin gate plus the client's cache guard the credit budget."""
+    """Spec §6.3 — one route question for the map UI and nothing else.
+    No model call behind it, so the origin gate is the only guard needed."""
     try:
-        # Looked up on the module so tests can swap graphhopper.route.
-        return await graphhopper.route([w.model_dump() for w in body.waypoints], body.profile)
-    except graphhopper.RoutingUnavailable:
+        # Looked up on the module so tests can swap valhalla.route.
+        return await valhalla.route([w.model_dump() for w in body.waypoints], body.profile)
+    except valhalla.RoutingUnavailable:
         return JSONResponse(status_code=503, content={"error": "routing_unavailable"})
-    except graphhopper.NoRoute:
+    except valhalla.NoRoute:
         return JSONResponse(status_code=422, content={"error": "no_route"})
-    except graphhopper.UnsupportedProfile:
-        return JSONResponse(status_code=422, content={"error": "unsupported_profile"})
 ```
 
-- [ ] **Step 6: Env**
+- [ ] **Step 6: Local Valhalla + env**
+
+Create `docker/valhalla/compose.yml`:
+
+```yaml
+# Local routing for the map's directions (spec §6.1). Dev only — Render's free
+# plan cannot host it. First start downloads the Vietnam extract and builds
+# tiles into the volume (~15–40 min, ~2–4 GB RAM peak); later starts are instant.
+#   npm run dev:valhalla     then set VALHALLA_URL=http://localhost:8002 in backend/.env
+services:
+  valhalla:
+    image: ghcr.io/valhalla/valhalla-scripted:latest
+    ports:
+      - "8002:8002"
+    volumes:
+      - valhalla-tiles:/custom_files
+    environment:
+      tile_urls: https://download.geofabrik.de/asia/vietnam-latest.osm.pbf
+      build_elevation: "False"
+      use_tiles_ignore_pbf: "True"
+      serve_tiles: "True"
+    restart: unless-stopped
+
+volumes:
+  valhalla-tiles:
+```
+
+In `package.json` scripts add: `"dev:valhalla": "docker compose -f docker/valhalla/compose.yml up -d"`.
 
 Append to `backend/.env.example`:
 
 ```
-# Directions (spec 2026-09-21 §6) — GraphHopper Cloud, https://graphhopper.com
-# Optional: unset = the map works but says "Chỉ đường chưa được cấu hình".
-# Free plan: 500 credits/day, car/bike/foot only, non-commercial use.
-# GRAPHHOPPER_API_KEY=
-# Profiles the key's plan allows. Add ",scooter" on a paid plan to get the
-# motorbike mode (it then becomes the default).
-# GRAPHHOPPER_PROFILES=car,bike,foot
+# Directions (spec 2026-09-21 §6). Optional: unset = the map works but says
+# "Chỉ đường chưa được cấu hình". Local: npm run dev:valhalla.
+# VALHALLA_URL=http://localhost:8002
 
 # MapTiler key for find_place / get_directions geocoding. Use a key WITHOUT an
 # origin restriction — the browser key (NEXT_PUBLIC_MAPTILER_KEY) is
@@ -1354,14 +1308,14 @@ Append to `backend/.env.example`:
 
 - [ ] **Step 7: Run the tests**
 
-Run: `python backend/runtests.py test_graphhopper test_geo_route`
+Run: `python backend/runtests.py test_valhalla test_geo_route`
 Expected: PASS (`all checks passed` twice).
 
 - [ ] **Step 8: Commit**
 
 ```bash
-git add backend/friday/geo backend/friday/api/schemas.py backend/friday/api/routes.py backend/.env.example backend/tests/unit/test_graphhopper.py backend/tests/integration/test_geo_route.py
-git commit -m "feat(geo): GraphHopper Cloud routing behind /geo/route and /geo/profiles"
+git add backend/friday/geo backend/friday/api/schemas.py backend/friday/api/routes.py backend/.env.example backend/tests/unit/test_valhalla.py backend/tests/integration/test_geo_route.py docker/valhalla/compose.yml package.json
+git commit -m "feat(geo): Valhalla routing client behind POST /geo/route"
 ```
 
 ---
@@ -1374,9 +1328,9 @@ git commit -m "feat(geo): GraphHopper Cloud routing behind /geo/route and /geo/p
 - Test: `backend/tests/unit/test_geo_tools.py`, `backend/tests/integration/test_map_preview_pin.py`
 
 **Interfaces:**
-- Consumes: `friday.geo.graphhopper` (Task 3: `route`, `default_profile`, `available_profiles`, `PROFILE_ORDER`, the three exceptions), `CLIENT` from `friday.tools.client.metrics`, `VisualizationPlan` (Task 1).
+- Consumes: `friday.geo.valhalla` (Task 3), `CLIENT` from `friday.tools.client.metrics`, `VisualizationPlan` (Task 1).
 - Produces (`friday.geo.maptiler`): `class GeocodeUnavailable(Exception)`, `coarse(lat, lon) -> tuple[float, float]`, `async def search(query: str, near: tuple[float, float] | None = None, limit: int = 5) -> list[dict]` with items `{"label", "address", "category", "lat", "lon"}`.
-- Produces (`friday.geo.tools`): `run_find_place`, `run_get_directions`, `preview_find_place`, `preview_get_directions`, `MY_LOCATION = "my_location"`, `NO_LOCATION` (error dict).
+- Produces (`friday.geo.tools`): `run_find_place`, `run_get_directions`, `preview_find_place`, `preview_get_directions`, `MY_LOCATION = "my_location"`, `DEFAULT_PROFILE = "motor_scooter"`.
 - Produces (registry): tools `find_place`, `get_directions` (`risk="low"`, `capabilities=("geo.read",)`).
 
 - [ ] **Step 1: Write the failing tool tests**
@@ -1384,7 +1338,7 @@ git commit -m "feat(geo): GraphHopper Cloud routing behind /geo/route and /geo/p
 Create `backend/tests/unit/test_geo_tools.py`:
 
 ```python
-"""find_place / get_directions with a fake geocoder and a fake router.
+"""find_place / get_directions with a fake geocoder and a fake Valhalla.
 
     PYTHONPATH=. python tests/unit/test_geo_tools.py
 """
@@ -1394,16 +1348,16 @@ import os
 import urllib.parse
 
 from friday.api.schemas import ClientContext
-from friday.geo import graphhopper, maptiler, tools
+from friday.geo import maptiler, tools, valhalla
 from friday.schemas.visualization import VisualizationPlan
 from friday.tools import registry
 from friday.tools.client import metrics as cm
 
 HG = {"label": "Hồ Gươm", "address": "Hồ Hoàn Kiếm, Hà Nội", "category": "poi", "lat": 21.0288, "lon": 105.8525}
 LB = {"label": "Lăng Bác", "address": "Ba Đình, Hà Nội", "category": "poi", "lat": 21.0368, "lon": 105.8346}
-ROUTE = {"routes": [{"distance_m": 2412, "duration_s": 545, "coordinates": [], "maneuvers": [
-    {"instruction": f"Bước {i}", "sign": 0, "distance_m": 10, "duration_s": 5, "begin_shape_index": i} for i in range(12)
-]}]}
+ROUTE = {"routes": [{"distance_m": 2412, "duration_s": 545, "legs": [{"shape": "x", "maneuvers": [
+    {"instruction": f"Bước {i}", "type": 1, "distance_m": 10, "duration_s": 5, "begin_shape_index": i} for i in range(12)
+]}]}]}
 
 
 def run(coro, location=None):
@@ -1421,21 +1375,21 @@ def fake(search_hits=None, route=None, route_exc=None):
         seen["search"].append((query, near, limit))
         return (search_hits or {}).get(query, [])[:limit]
 
-    async def route_fn(waypoints, profile=None, locale="vi"):
+    async def route_fn(waypoints, profile="motor_scooter", alternates=2, language="vi-VN"):
         seen["route"].append((waypoints, profile))
         if route_exc:
             raise route_exc
         return route
 
-    maptiler.search, graphhopper.route = search, route_fn
+    maptiler.search, valhalla.route = search, route_fn
     return seen
 
 
-ORIG = (maptiler.search, graphhopper.route)
+ORIG = (maptiler.search, valhalla.route)
 
 
 def restore():
-    maptiler.search, graphhopper.route = ORIG
+    maptiler.search, valhalla.route = ORIG
 
 
 def test_find_place_returns_places_and_a_map_preview() -> None:
@@ -1469,18 +1423,17 @@ def test_near_my_location_needs_a_shared_location() -> None:
         restore()
 
 
-def test_directions_default_to_the_plans_mode_and_cap_steps() -> None:
+def test_directions_default_to_motorbike_and_cap_steps() -> None:
     seen = fake({"hồ gươm": [HG], "lăng bác": [LB]}, route=ROUTE)
     try:
         out = run(tools.run_get_directions({"from": "hồ gươm", "to": "lăng bác"}))
     finally:
         restore()
-    # free plan (GRAPHHOPPER_PROFILES unset): car is the default
-    assert seen["route"] == [([{"lat": 21.0288, "lon": 105.8525}, {"lat": 21.0368, "lon": 105.8346}], "auto")]
-    assert out["distance_km"] == 2.4 and out["duration_min"] == 9 and out["profile"] == "auto"
+    assert seen["route"] == [([{"lat": 21.0288, "lon": 105.8525}, {"lat": 21.0368, "lon": 105.8346}], "motor_scooter")]
+    assert out["distance_km"] == 2.4 and out["duration_min"] == 9 and out["profile"] == "motor_scooter"
     assert out["steps"] == [f"Bước {i}" for i in range(8)]
     spec = tools.preview_get_directions(out)
-    assert spec["data"]["map"]["route"] == {"profile": "auto", "waypoints": [
+    assert spec["data"]["map"]["route"] == {"profile": "motor_scooter", "waypoints": [
         {"lat": 21.0288, "lon": 105.8525, "label": "Hồ Gươm"},
         {"lat": 21.0368, "lon": 105.8346, "label": "Lăng Bác"},
     ]}
@@ -1502,13 +1455,10 @@ def test_directions_from_my_location() -> None:
 
 def test_directions_errors_are_error_dicts() -> None:
     try:
-        fake({"a": [HG], "b": [LB]}, route_exc=graphhopper.RoutingUnavailable("no key"))
+        fake({"a": [HG], "b": [LB]}, route_exc=valhalla.RoutingUnavailable("unset"))
         assert "not configured" in run(tools.run_get_directions({"from": "a", "to": "b"}))["error"]
-        fake({"a": [HG], "b": [LB]}, route_exc=graphhopper.NoRoute("Connection between locations not found"))
-        assert "no route" in run(tools.run_get_directions({"from": "a", "to": "b"}))["error"]
-        # scooter is not on the free plan: refused up front, with the reason
-        fake({"a": [HG], "b": [LB]}, route=ROUTE)
-        assert "scooter" in run(tools.run_get_directions({"from": "a", "to": "b", "profile": "motor_scooter"}))["error"]
+        fake({"a": [HG], "b": [LB]}, route_exc=valhalla.NoRoute("442"))
+        assert "Vietnam" in run(tools.run_get_directions({"from": "a", "to": "b"}))["error"]
         fake({"a": [HG]}, route=ROUTE)
         assert "nowhere" in run(tools.run_get_directions({"from": "a", "to": "nowhere"}))["error"]
         assert "profile" in run(tools.run_get_directions({"from": "a", "to": "a", "profile": "rocket"}))["error"]
@@ -1707,9 +1657,10 @@ from typing import Any
 
 from friday.tools.client.metrics import CLIENT
 
-from . import graphhopper, maptiler
+from . import maptiler, valhalla
 
 MY_LOCATION = "my_location"
+DEFAULT_PROFILE = "motor_scooter"
 MAX_STEPS = 8
 NO_LOCATION = {"error": "the operator has not shared their location"}
 
@@ -1754,12 +1705,9 @@ async def run_find_place(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 async def run_get_directions(payload: dict[str, Any]) -> dict[str, Any]:
-    profile = payload.get("profile") or graphhopper.default_profile()
-    if profile not in graphhopper.PROFILE_ORDER:
+    profile = payload.get("profile") or DEFAULT_PROFILE
+    if profile not in valhalla.PROFILES:
         return {"error": f"unknown profile '{profile}'"}
-    if profile not in graphhopper.available_profiles():
-        # Checked before any geocoding so no credits are spent on a refusal.
-        return {"error": "motorbike directions need a GraphHopper plan with the scooter profile; use auto, bicycle or pedestrian"}
     refs = [payload.get("from"), *list(payload.get("via") or [])[:3], payload.get("to")]
     if not refs[0] or not refs[-1]:
         return {"error": "from and to are required"}
@@ -1776,16 +1724,13 @@ async def run_get_directions(payload: dict[str, Any]) -> dict[str, Any]:
             if place is None:
                 return {"error": f"no place matches '{ref}'"}
             stops.append(place)
-        # Looked up on the module so tests can swap graphhopper.route.
-        result = await graphhopper.route([{"lat": s["lat"], "lon": s["lon"]} for s in stops], profile)
+        result = await valhalla.route([{"lat": s["lat"], "lon": s["lon"]} for s in stops], profile)
     except maptiler.GeocodeUnavailable as err:
         return {"error": f"place search unavailable: {err}"}
-    except graphhopper.RoutingUnavailable:
-        return {"error": "routing is not configured on this server (or today's credits are used up)"}
-    except graphhopper.NoRoute:
-        return {"error": "no route found between these places"}
-    except graphhopper.UnsupportedProfile:
-        return {"error": "this travel mode is not available on the routing plan"}
+    except valhalla.RoutingUnavailable:
+        return {"error": "routing is not configured on this server"}
+    except valhalla.NoRoute:
+        return {"error": "no route found (directions cover Vietnam only)"}
     best = result["routes"][0]
     return {
         "from": stops[0],
@@ -1794,7 +1739,7 @@ async def run_get_directions(payload: dict[str, Any]) -> dict[str, Any]:
         "profile": profile,
         "distance_km": round(best["distance_m"] / 1000, 1),
         "duration_min": round(best["duration_s"] / 60),
-        "steps": [m["instruction"] for m in best["maneuvers"]][:MAX_STEPS],
+        "steps": [m["instruction"] for leg in best["legs"] for m in leg["maneuvers"]][:MAX_STEPS],
     }
 
 
@@ -1876,18 +1821,17 @@ and append to the `tools` list in `_build_default_registry` (after `get_client_l
         Tool(
             name="get_directions",
             description=(
-                "Directions between places, shown on the street map with "
-                "distance and time. from/to are place names or 'my_location'. "
-                "profile: auto (car), bicycle, pedestrian, or motor_scooter "
-                "(xe máy, only if the routing plan has it). Omit profile for "
-                "the plan's default."
+                "Directions between places in Vietnam, shown on the street map "
+                "with distance and time. from/to are place names or "
+                "'my_location'. profile: motor_scooter (default, xe máy), auto "
+                "(car), bicycle, pedestrian."
             ),
             input_schema={
                 "type": "object",
                 "properties": {
                     "from": {"type": "string"},
                     "to": {"type": "string"},
-                    "profile": {"type": "string", "enum": ["auto", "bicycle", "pedestrian", "motor_scooter"]},
+                    "profile": {"type": "string", "enum": ["motor_scooter", "auto", "bicycle", "pedestrian"]},
                     "via": {"type": "array", "items": {"type": "string"}, "maxItems": 3},
                 },
                 "required": ["from", "to"],
@@ -1944,8 +1888,8 @@ git commit -m "feat(geo): find_place and get_directions tools with pinned map pr
 - Test: `tests/unit/mapApi.spec.ts`
 
 **Interfaces:**
-- Consumes: `getApiBase` (`@/lib/api/session`), `MapProfile` (Task 1), `/geo/route` + `/geo/profiles` shapes (Task 3).
-- Produces (`@/components/friday/map/mapApi`): `MAPTILER_KEY`, `type MapStyleId = "dark" | "light" | "satellite" | "terrain"`, `styleUrl(id)`, `PROFILE_LABELS: Record<MapProfile, string>`, `FREE_PLAN_PROFILES: MapProfile[]`, `fetchProfiles(signal?): Promise<MapProfile[]>`, `interface Place { label; address; category?; lat; lon }`, `interface Endpoint { lat; lon; label }`, `parseGeocoding(json): Place[]`, `searchPlaces(query, near, signal?)`, `reverseGeocode(lat, lon, signal?)`, `interface Maneuver { instruction; sign; distance_m; duration_s; begin_shape_index }`, `interface Route { distance_m; duration_s; coordinates: [number, number][]; maneuvers: Maneuver[] }`, `type RouteResult = {ok:true; routes: Route[]} | {ok:false; reason: "unavailable" | "no_route" | "unsupported" | "error"}`, `fetchRoute(stops: Endpoint[], profile, signal?)`, `maneuverCoordinate(route, i)`, `stepCoordinates(route, i)`, `formatDistance(m)`, `formatDuration(s)`.
+- Consumes: `getApiBase` (`@/lib/api/session`), `MapProfile` (Task 1).
+- Produces (`@/components/friday/map/mapApi`): `MAPTILER_KEY`, `type MapStyleId = "dark" | "light" | "satellite" | "terrain"`, `styleUrl(id)`, `interface Place { label; address; category?; lat; lon }`, `interface Endpoint { lat; lon; label }`, `parseGeocoding(json): Place[]`, `searchPlaces(query, near, signal?)`, `reverseGeocode(lat, lon, signal?)`, `interface Maneuver`, `interface RouteLeg { shape; maneuvers }`, `interface Route { distance_m; duration_s; legs }`, `type RouteResult = {ok:true; routes: Route[]} | {ok:false; reason: "unavailable" | "no_route" | "error"}`, `fetchRoute(stops: Endpoint[], profile, signal?)`, `decodePolyline6(encoded): [number, number][]`, `routeCoordinates(route)`, `maneuverCoordinate(route, legIndex, maneuverIndex)`, `stepCoordinates(route, legIndex, maneuverIndex)`, `formatDistance(m)`, `formatDuration(s)`, `PROFILE_LABELS`.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1954,36 +1898,50 @@ Create `tests/unit/mapApi.spec.ts`:
 ```ts
 import { test, expect } from "@playwright/test";
 import {
+  decodePolyline6,
   formatDistance,
   formatDuration,
   maneuverCoordinate,
   parseGeocoding,
+  routeCoordinates,
   stepCoordinates,
   styleUrl,
   type Route,
 } from "@/components/friday/map/mapApi";
 
-const route: Route = {
-  distance_m: 2412,
-  duration_s: 545,
-  coordinates: [
+const HANOI_SHAPE = "_{nbg@gdv{hEoeGvpQolF~kO"; // Hồ Gươm → Lăng Bác, 3 points
+
+test("decodes Valhalla polyline6 into [lon, lat]", () => {
+  expect(decodePolyline6(HANOI_SHAPE)).toEqual([
     [105.8525, 21.0288],
     [105.843, 21.033],
     [105.8346, 21.0368],
-  ],
-  maneuvers: [
-    { instruction: "a", sign: 0, distance_m: 1100, duration_s: 250, begin_shape_index: 0 },
-    { instruction: "b", sign: 2, distance_m: 1312, duration_s: 295, begin_shape_index: 1 },
-    { instruction: "c", sign: 4, distance_m: 0, duration_s: 0, begin_shape_index: 2 },
-  ],
-};
+  ]);
+  // Google's reference string, read at precision 6 instead of 5 (values /10).
+  const ref = decodePolyline6("_p~iF~ps|U_ulLnnqC_mqNvxq`@");
+  expect(ref[0][0]).toBeCloseTo(-12.02, 9);
+  expect(ref[2][1]).toBeCloseTo(4.3252, 9);
+  expect(decodePolyline6("")).toEqual([]);
+});
 
-test("maneuvers resolve to their point and the stretch up to the next one", () => {
-  expect(maneuverCoordinate(route, 1)).toEqual([105.843, 21.033]);
-  expect(maneuverCoordinate(route, 9)).toBeNull();
-  expect(stepCoordinates(route, 0)).toEqual([[105.8525, 21.0288], [105.843, 21.033]]);
-  expect(stepCoordinates(route, 1)).toEqual([[105.843, 21.033], [105.8346, 21.0368]]);
-  expect(stepCoordinates(route, 2)).toEqual([[105.8346, 21.0368]]);
+test("route geometry spans legs and resolves maneuvers per leg", () => {
+  const route: Route = {
+    distance_m: 2400,
+    duration_s: 540,
+    legs: [
+      { shape: HANOI_SHAPE, maneuvers: [
+        { instruction: "a", type: 1, distance_m: 1, duration_s: 1, begin_shape_index: 0 },
+        { instruction: "b", type: 1, distance_m: 1, duration_s: 1, begin_shape_index: 1 },
+      ] },
+      { shape: HANOI_SHAPE, maneuvers: [{ instruction: "c", type: 4, distance_m: 0, duration_s: 0, begin_shape_index: 2 }] },
+    ],
+  };
+  expect(routeCoordinates(route)).toHaveLength(6);
+  expect(maneuverCoordinate(route, 0, 1)).toEqual([105.843, 21.033]);
+  expect(maneuverCoordinate(route, 1, 0)).toEqual([105.8346, 21.0368]);
+  // a step runs from its maneuver to the next one (or the end of the leg)
+  expect(stepCoordinates(route, 0, 0)).toEqual([[105.8525, 21.0288], [105.843, 21.033]]);
+  expect(stepCoordinates(route, 0, 1)).toEqual([[105.843, 21.033], [105.8346, 21.0368]]);
 });
 
 test("parses MapTiler features and skips ones without a center", () => {
@@ -2031,9 +1989,8 @@ Expected: `package.json` dependencies gain `"maplibre-gl": "^6.10.0"`.
 ```ts
 /**
  * Everything the map talks to (spec §4.3): MapTiler styles + geocoding
- * (browser key, origin-restricted) and the orchestrator's /geo/route and
- * /geo/profiles (the GraphHopper key stays on the server). Pure helpers
- * (parse, step geometry, format) are unit-tested.
+ * (browser key, origin-restricted) and the orchestrator's /geo/route.
+ * Pure helpers (decode, format, parse) are unit-tested.
  */
 import { getApiBase } from "@/lib/api/session";
 import type { MapProfile } from "@/lib/visualization/types";
@@ -2059,22 +2016,6 @@ export const PROFILE_LABELS: Record<MapProfile, string> = {
   bicycle: "🚲 Xe đạp",
   pedestrian: "🚶 Đi bộ",
 };
-
-/** GraphHopper's free plan — what the tabs show if /geo/profiles cannot be read. */
-export const FREE_PLAN_PROFILES: MapProfile[] = ["auto", "bicycle", "pedestrian"];
-
-/** Travel modes the routing plan allows, default first (spec §6.3). */
-export async function fetchProfiles(signal?: AbortSignal): Promise<MapProfile[]> {
-  try {
-    const res = await fetch(`${getApiBase()}/geo/profiles`, { signal });
-    if (!res.ok) return FREE_PLAN_PROFILES;
-    const body = (await res.json()) as { profiles?: MapProfile[] };
-    return body.profiles?.length ? body.profiles : FREE_PLAN_PROFILES;
-  } catch (err) {
-    if ((err as Error).name === "AbortError") throw err;
-    return FREE_PLAN_PROFILES;
-  }
-}
 
 // ---------- geocoding ----------
 
@@ -2132,25 +2073,26 @@ export async function reverseGeocode(lat: number, lon: number, signal?: AbortSig
 
 export interface Maneuver {
   instruction: string;
-  /** GraphHopper turn sign (-98..8); kept for a future turn icon. */
-  sign: number;
+  type: number;
   distance_m: number;
   duration_s: number;
-  /** Index into `Route.coordinates` where this maneuver starts. */
   begin_shape_index: number;
+}
+
+export interface RouteLeg {
+  shape: string;
+  maneuvers: Maneuver[];
 }
 
 export interface Route {
   distance_m: number;
   duration_s: number;
-  /** [lon, lat] pairs — GeoJSON order, ready for a LineString. */
-  coordinates: [number, number][];
-  maneuvers: Maneuver[];
+  legs: RouteLeg[];
 }
 
 export type RouteResult =
   | { ok: true; routes: Route[] }
-  | { ok: false; reason: "unavailable" | "no_route" | "unsupported" | "error" };
+  | { ok: false; reason: "unavailable" | "no_route" | "error" };
 
 export async function fetchRoute(stops: Endpoint[], profile: MapProfile, signal?: AbortSignal): Promise<RouteResult> {
   let res: Response;
@@ -2169,26 +2111,57 @@ export async function fetchRoute(stops: Endpoint[], profile: MapProfile, signal?
   if (res.status === 503) return { ok: false, reason: "unavailable" };
   if (!res.ok) {
     const body = (await res.json().catch(() => null)) as { error?: string } | null;
-    if (body?.error === "no_route") return { ok: false, reason: "no_route" };
-    if (body?.error === "unsupported_profile") return { ok: false, reason: "unsupported" };
-    return { ok: false, reason: "error" };
+    return { ok: false, reason: body?.error === "no_route" ? "no_route" : "error" };
   }
   const body = (await res.json()) as { routes?: Route[] };
   return { ok: true, routes: body.routes ?? [] };
 }
 
-/** Where maneuver `i` happens. */
-export function maneuverCoordinate(route: Route, i: number): [number, number] | null {
-  const m = route.maneuvers[i];
-  return m ? (route.coordinates[m.begin_shape_index] ?? null) : null;
+/** Valhalla's encoded polyline (precision 6) → [lon, lat] pairs, GeoJSON order. */
+export function decodePolyline6(encoded: string): [number, number][] {
+  const out: [number, number][] = [];
+  let index = 0;
+  let lat = 0;
+  let lon = 0;
+  while (index < encoded.length) {
+    for (let axis = 0; axis < 2; axis++) {
+      let result = 0;
+      let shift = 0;
+      let byte: number;
+      do {
+        byte = encoded.charCodeAt(index++) - 63;
+        result |= (byte & 0x1f) << shift;
+        shift += 5;
+      } while (byte >= 0x20);
+      const delta = result & 1 ? ~(result >> 1) : result >> 1;
+      if (axis === 0) lat += delta;
+      else lon += delta;
+    }
+    out.push([lon / 1e6, lat / 1e6]);
+  }
+  return out;
 }
 
-/** The stretch step `i` covers: its maneuver up to the next one (or the end). */
-export function stepCoordinates(route: Route, i: number): [number, number][] {
-  const m = route.maneuvers[i];
+export function routeCoordinates(route: Route): [number, number][] {
+  return route.legs.flatMap((leg) => decodePolyline6(leg.shape));
+}
+
+/** Where one maneuver happens — `begin_shape_index` is relative to its own leg. */
+export function maneuverCoordinate(route: Route, legIndex: number, maneuverIndex: number): [number, number] | null {
+  const leg = route.legs[legIndex];
+  const m = leg?.maneuvers[maneuverIndex];
+  if (!m) return null;
+  return decodePolyline6(leg.shape)[m.begin_shape_index] ?? null;
+}
+
+/** The stretch one step covers: its maneuver up to the next one (or the leg's end). */
+export function stepCoordinates(route: Route, legIndex: number, maneuverIndex: number): [number, number][] {
+  const leg = route.legs[legIndex];
+  const m = leg?.maneuvers[maneuverIndex];
   if (!m) return [];
-  const end = route.maneuvers[i + 1]?.begin_shape_index ?? route.coordinates.length - 1;
-  return route.coordinates.slice(m.begin_shape_index, end + 1);
+  const coords = decodePolyline6(leg.shape);
+  const end = leg.maneuvers[maneuverIndex + 1]?.begin_shape_index ?? coords.length - 1;
+  return coords.slice(m.begin_shape_index, end + 1);
 }
 
 export function formatDistance(meters: number): string {
@@ -2221,8 +2194,7 @@ Append to `.env.example`:
 ```
 # Street map (MapLibre + MapTiler). Client-visible by design: restrict the key
 # to your site's origins in the MapTiler dashboard. Without it the map opens
-# blank. Directions also need GRAPHHOPPER_API_KEY on the backend
-# (backend/.env.example) — that key never reaches the browser.
+# blank. Directions also need VALHALLA_URL on the backend (backend/.env.example).
 # NEXT_PUBLIC_MAPTILER_KEY=
 ```
 
@@ -2256,8 +2228,8 @@ git commit -m "feat(map): maplibre-gl, MapTiler/route clients and CSP for the ma
 - Test: `tests/ui/map.spec.ts`
 
 **Interfaces:**
-- Consumes: store `mapView/openMap/closeMap/settleMap`, `pushOverZoom`, `HANDOFF_ZOOM/ARRIVAL_ZOOM/LEAVE_ZOOM` (Task 2), `viewCenterFromAngles` (Task 2), `styleUrl`, `fetchProfiles`, `FREE_PLAN_PROFILES`, `Place`, `Endpoint` (Task 5), `shareLocation` (`@/lib/geolocation`), `useReducedMotion` (`@/lib/useReducedMotion`), `STATUS_COLORS`, `markerLabel`, `statusOf` (`globe/geo`), `devRailsEnabled`.
-- Produces: DOM contract used by Tasks 7–8 and tests — `[data-testid="map-layer"][data-mode]`, button `aria-label="Quay lại địa cầu"`; slots in `MapLayer.tsx` where Task 7 mounts `MapSearch`/`PlacePanel`/`ContextMenu` and Task 8 mounts `DirectionsPanel`; `window.__fridayMap` (dev rails only); `DirectionsValue` state `{ profile: MapProfile; stops: (Endpoint | null)[] } | null` and `profiles: MapProfile[]` (routing plan's modes, default first) held in `MapStage`.
+- Consumes: store `mapView/openMap/closeMap/settleMap`, `pushOverZoom`, `HANDOFF_ZOOM/ARRIVAL_ZOOM/LEAVE_ZOOM` (Task 2), `viewCenterFromAngles` (Task 2), `styleUrl`, `Place`, `Endpoint` (Task 5), `shareLocation` (`@/lib/geolocation`), `useReducedMotion` (`@/lib/useReducedMotion`), `STATUS_COLORS`, `markerLabel`, `statusOf` (`globe/geo`), `devRailsEnabled`.
+- Produces: DOM contract used by Tasks 7–8 and tests — `[data-testid="map-layer"][data-mode]`, button `aria-label="Quay lại địa cầu"`; slots in `MapLayer.tsx` where Task 7 mounts `MapSearch`/`PlacePanel`/`ContextMenu` and Task 8 mounts `DirectionsPanel`; `window.__fridayMap` (dev rails only); `DirectionsValue` state `{ profile: MapProfile; stops: (Endpoint | null)[] } | null` held in `MapStage`.
 
 - [ ] **Step 1: Write the failing UI tests**
 
@@ -2369,7 +2341,7 @@ import { ARRIVAL_ZOOM, HANDOFF_ZOOM, LEAVE_ZOOM } from "@/lib/mapView";
 import type { MapProfile } from "@/lib/visualization/types";
 import { STATUS_COLORS, markerLabel, statusOf } from "../visualization/globe/geo";
 import { devRailsEnabled } from "../hud/devRails";
-import { FREE_PLAN_PROFILES, fetchProfiles, styleUrl, type Endpoint, type MapStyleId, type Place } from "./mapApi";
+import { styleUrl, type Endpoint, type MapStyleId, type Place } from "./mapApi";
 
 const ENTER_MS = 900;
 const LEAVE_MS = 500;
@@ -2440,8 +2412,6 @@ export default function MapStage() {
   const [buildings, setBuildings] = useState(false);
   const [place, setPlace] = useState<Place | null>(null);
   const [directions, setDirections] = useState<DirectionsValue | null>(null);
-  // Modes the routing plan allows, default first; free plan until the backend says otherwise.
-  const [profiles, setProfiles] = useState<MapProfile[]>(FREE_PLAN_PROFILES);
   const mode = useFridayStore((s) => s.mapView.mode);
   const rev = useFridayStore((s) => s.mapView.rev);
   const points = useFridayStore((s) => s.mapView.points);
@@ -2483,12 +2453,6 @@ export default function MapStage() {
       clearTimeout(slowTimer);
       m.remove();
     };
-  }, []);
-
-  useEffect(() => {
-    const ctrl = new AbortController();
-    fetchProfiles(ctrl.signal).then(setProfiles).catch(() => {});
-    return () => ctrl.abort();
   }, []);
 
   const leave = useCallback(() => {
@@ -2702,7 +2666,7 @@ export default function MapStage() {
 }
 ```
 
-`place`, `directions` and `profiles` are first read in Tasks 7–8. If `npm run lint` errors on an unused variable here, move that piece of state into the task that first reads it rather than silencing the rule.
+`place` / `setPlace` / `directions` / `setDirections` are unused until Tasks 7–8 beyond what is shown; if ESLint's `no-unused-vars` flags nothing, leave as is.
 
 - [ ] **Step 5: `map.css`**
 
@@ -3335,11 +3299,11 @@ Add helpers inside `MapStage` (used by the panel, menu and Task 8):
   }, [map]);
   const directionsTo = (to: Endpoint) => {
     setPlace(null);
-    setDirections((d) => ({ profile: d?.profile ?? profiles[0], stops: [d?.stops[0] ?? myLocationEndpoint(), to] }));
+    setDirections((d) => ({ profile: d?.profile ?? "motor_scooter", stops: [d?.stops[0] ?? myLocationEndpoint(), to] }));
   };
   const directionsFrom = (from: Endpoint) => {
     setPlace(null);
-    setDirections((d) => ({ profile: d?.profile ?? profiles[0], stops: [from, d?.stops.at(-1) ?? null] }));
+    setDirections((d) => ({ profile: d?.profile ?? "motor_scooter", stops: [from, d?.stops.at(-1) ?? null] }));
   };
 ```
 
@@ -3399,18 +3363,15 @@ git commit -m "feat(map): search autocomplete, place card and context menu"
 - Test: `tests/ui/map.spec.ts`
 
 **Interfaces:**
-- Consumes: `fetchRoute`, `maneuverCoordinate`, `stepCoordinates`, `formatDistance`, `formatDuration`, `PROFILE_LABELS`, `Route`, `Endpoint` (Task 5); `MapSearch` (Task 7); `DirectionsValue`, `profiles`, `getNear`, `myLocationEndpoint` (Tasks 6–7).
-- Produces: `DirectionsPanel(props: { map: MlMap; value: DirectionsValue; profiles: MapProfile[]; onChange: (v: DirectionsValue) => void; onClose: () => void; getNear })` with `data-testid="directions-panel"`, `data-testid="directions-summary"`, `data-testid="directions-status"`; map layers `friday-route-casing`, `friday-route-line`, `friday-route-step`; `MAP_FLOW` export in `tests/ui/stubOrchestrator.ts`.
+- Consumes: `fetchRoute`, `routeCoordinates`, `maneuverCoordinate`, `stepCoordinates`, `formatDistance`, `formatDuration`, `PROFILE_LABELS`, `Route`, `Endpoint` (Task 5); `MapSearch` (Task 7); `DirectionsValue`, `getNear`, `myLocationEndpoint` (Tasks 6–7).
+- Produces: `DirectionsPanel(props: { map: MlMap; value: DirectionsValue; onChange: (v: DirectionsValue) => void; onClose: () => void; getNear })` with `data-testid="directions-panel"`, `data-testid="directions-summary"`, `data-testid="directions-status"`; map layers `friday-route-casing`, `friday-route-line`, `friday-route-step`; `MAP_FLOW` export in `tests/ui/stubOrchestrator.ts`.
 
 - [ ] **Step 1: Stub flow + failing UI tests**
 
 Append to `tests/ui/stubOrchestrator.ts`:
 
 ```ts
-/**
- * get_directions as the backend streams it on GraphHopper's free plan
- * (default mode = car): the map preview is also the final spec.
- */
+/** get_directions as the backend streams it: the map preview is also the final spec. */
 const MAP_ROUTE_SPEC = {
   type: "map",
   title: "CHỈ ĐƯỜNG",
@@ -3421,7 +3382,7 @@ const MAP_ROUTE_SPEC = {
     ],
     map: {
       route: {
-        profile: "auto",
+        profile: "motor_scooter",
         waypoints: [
           { lat: 21.0288, lon: 105.8525, label: "Hồ Gươm" },
           { lat: 21.0368, lon: 105.8346, label: "Lăng Bác" },
@@ -3439,7 +3400,7 @@ export const MAP_FLOW: StubEvent[] = [
   { event: "state", data: { state: "visualizing" }, after: 150 },
   { event: "viz", data: { ...MAP_ROUTE_SPEC, animation: "materialize", interaction: "drill_down" }, after: 20 },
   { event: "state", data: { state: "speaking" }, after: 150 },
-  { event: "answer", data: { text: "Khoảng 2,4 km, chừng 9 phút đi ô tô." }, after: 20 },
+  { event: "answer", data: { text: "Khoảng 2,4 km, chừng 9 phút đi xe máy." }, after: 20 },
   { event: "done", data: {}, after: 20 },
 ];
 ```
@@ -3452,44 +3413,34 @@ const ROUTE = {
     {
       distance_m: 2412,
       duration_s: 545,
-      coordinates: [
-        [105.8525, 21.0288],
-        [105.843, 21.033],
-        [105.8346, 21.0368],
-      ],
-      maneuvers: [
-        { instruction: "Đi về hướng tây trên Đinh Tiên Hoàng", sign: 0, distance_m: 1100, duration_s: 250, begin_shape_index: 0 },
-        { instruction: "Rẽ phải vào Hùng Vương", sign: 2, distance_m: 1312, duration_s: 295, begin_shape_index: 1 },
-        { instruction: "Đến nơi", sign: 4, distance_m: 0, duration_s: 0, begin_shape_index: 2 },
-      ],
+      legs: [{
+        shape: "_{nbg@gdv{hEoeGvpQolF~kO",
+        maneuvers: [
+          { instruction: "Đi về hướng tây trên Đinh Tiên Hoàng.", type: 2, distance_m: 1100, duration_s: 250, begin_shape_index: 0 },
+          { instruction: "Rẽ phải vào Hùng Vương.", type: 10, distance_m: 1312, duration_s: 295, begin_shape_index: 1 },
+          { instruction: "Bạn đã đến nơi.", type: 4, distance_m: 0, duration_s: 0, begin_shape_index: 2 },
+        ],
+      }],
     },
-    { distance_m: 2900, duration_s: 610, coordinates: [[105.8525, 21.0288], [105.8346, 21.0368]], maneuvers: [] },
+    { distance_m: 2900, duration_s: 610, legs: [{ shape: "_{nbg@gdv{hEoeGvpQolF~kO", maneuvers: [] }] },
   ],
 };
 
-async function askFriday(page: Page, text: string) {
-  // Before the map opens, the InputBar input is the only textbox on the page.
-  await page.getByRole("textbox").last().click();
-  await page.getByRole("textbox").last().pressSequentially(text, { delay: 15 });
-  await page.keyboard.press("Enter");
-}
-
 test("an agent route opens directions with the summary, steps and route layers", async ({ page }) => {
   await stubMapTiler(page);
-  await page.route("**/geo/profiles", (r) => r.fulfill({ json: { profiles: ["auto", "bicycle", "pedestrian"] } }));
   await page.route("**/geo/route", (r) => r.fulfill({ json: ROUTE }));
   const stub = await startStubOrchestrator(MAP_FLOW);
   try {
     await gotoLitScene(page);
-    await askFriday(page, "chỉ đường tới lăng bác");
+    await page.getByRole("textbox").last().click();
+    await page.getByRole("textbox").last().pressSequentially("chỉ đường tới lăng bác", { delay: 15 });
+    await page.keyboard.press("Enter");
     await expect(layer(page)).toHaveAttribute("data-mode", "map", { timeout: 20_000 });
     const panel = page.getByTestId("directions-panel");
     await expect(page.getByTestId("directions-summary")).toContainText("9 phút");
     await expect(page.getByTestId("directions-summary")).toContainText("2,4 km");
-    // free plan: car is selected and there is no motorbike tab
-    await expect(panel.getByRole("tab", { name: "🚗 Ô tô" })).toHaveAttribute("aria-selected", "true");
-    await expect(panel.getByRole("tab", { name: "🛵 Xe máy" })).toHaveCount(0);
-    await expect(panel.getByRole("listitem")).toContainText(["Rẽ phải vào Hùng Vương"]);
+    await expect(panel.getByRole("tab", { name: "🛵 Xe máy" })).toHaveAttribute("aria-selected", "true");
+    await expect(panel.getByRole("listitem")).toContainText(["Rẽ phải vào Hùng Vương."]);
     expect(await page.evaluate(() => {
       const m = (window as unknown as { __fridayMap?: { getLayer(id: string): unknown } }).__fridayMap;
       return !!m?.getLayer("friday-route-line") && !!m?.getLayer("friday-route-casing");
@@ -3509,7 +3460,9 @@ test("routing off: directions say so and the map stays usable", async ({ page })
   const stub = await startStubOrchestrator(MAP_FLOW);
   try {
     await gotoLitScene(page);
-    await askFriday(page, "chỉ đường tới lăng bác");
+    await page.getByRole("textbox").last().click();
+    await page.getByRole("textbox").last().pressSequentially("chỉ đường tới lăng bác", { delay: 15 });
+    await page.keyboard.press("Enter");
     await expect(page.getByTestId("directions-status")).toHaveText("Chỉ đường chưa được cấu hình", { timeout: 20_000 });
     await expect(page.getByRole("combobox", { name: "Tìm kiếm địa điểm" })).toBeEnabled();
   } finally {
@@ -3518,7 +3471,7 @@ test("routing off: directions say so and the map stays usable", async ({ page })
 });
 ```
 
-If `getByRole("textbox").last()` is ambiguous, use the locator `tests/ui/friday.spec.ts` uses for the InputBar.
+Before the map opens, the InputBar input is the only textbox on the page. Check `tests/ui/friday.spec.ts` for how the existing tests target it and use the same locator if `getByRole("textbox").last()` is ambiguous.
 
 - [ ] **Step 2: Run to watch them fail**
 
@@ -3541,6 +3494,7 @@ import {
   formatDistance,
   formatDuration,
   maneuverCoordinate,
+  routeCoordinates,
   stepCoordinates,
   type Endpoint,
   type Route,
@@ -3548,23 +3502,25 @@ import {
 
 const ROUTE_SRC = "friday-route";
 const STEP_SRC = "friday-route-step";
+const PROFILES: MapProfile[] = ["motor_scooter", "auto", "bicycle", "pedestrian"];
 
-type Status = "idle" | "loading" | "ok" | "unavailable" | "no_route" | "unsupported" | "error";
+type Status = "idle" | "loading" | "ok" | "unavailable" | "no_route" | "error";
 const STATUS_TEXT: Partial<Record<Status, string>> = {
   loading: "Đang tìm đường…",
   unavailable: "Chỉ đường chưa được cấu hình",
-  no_route: "Không tìm thấy đường đi",
-  unsupported: "Gói chỉ đường hiện tại không hỗ trợ phương tiện này",
+  no_route: "Không tìm thấy đường đi (chỉ hỗ trợ trong Việt Nam)",
   error: "Không tính được đường đi",
 };
+
+type Line = GeoJSON.Feature<GeoJSON.LineString, { i: number; selected: boolean }>;
 
 function routeData(routes: Route[], selected: number): GeoJSON.FeatureCollection<GeoJSON.LineString> {
   return {
     type: "FeatureCollection",
-    features: routes.map((r, i) => ({
+    features: routes.map<Line>((r, i) => ({
       type: "Feature",
       properties: { i, selected: i === selected },
-      geometry: { type: "LineString", coordinates: r.coordinates },
+      geometry: { type: "LineString", coordinates: routeCoordinates(r) },
     })),
   };
 }
@@ -3581,7 +3537,6 @@ function drawRoutes(map: MlMap, routes: Route[], selected: number, step: [number
   }
   map.addSource(ROUTE_SRC, { type: "geojson", data });
   map.addSource(STEP_SRC, { type: "geojson", data: stepData });
-  // The selected route sorts on top of the grey alternatives.
   const layout = { "line-join": "round", "line-cap": "round", "line-sort-key": ["case", ["get", "selected"], 1, 0] } as const;
   map.addLayer({ id: "friday-route-casing", type: "line", source: ROUTE_SRC, layout, paint: { "line-color": ["case", ["get", "selected"], "#0b3d4a", "#1f2a33"], "line-width": 10 } });
   map.addLayer({ id: "friday-route-line", type: "line", source: ROUTE_SRC, layout, paint: { "line-color": ["case", ["get", "selected"], "#38e8ff", "#6b7c8a"], "line-width": 5 } });
@@ -3599,9 +3554,10 @@ function clearRoutes(map: MlMap) {
 }
 
 function fitRoute(map: MlMap, route: Route) {
-  if (route.coordinates.length === 0) return;
-  const lons = route.coordinates.map((c) => c[0]);
-  const lats = route.coordinates.map((c) => c[1]);
+  const coords = routeCoordinates(route);
+  if (coords.length === 0) return;
+  const lons = coords.map((c) => c[0]);
+  const lats = coords.map((c) => c[1]);
   map.fitBounds(
     [
       [Math.min(...lons), Math.min(...lats)],
@@ -3615,15 +3571,12 @@ function fitRoute(map: MlMap, route: Route) {
 export function DirectionsPanel({
   map,
   value,
-  profiles,
   onChange,
   onClose,
   getNear,
 }: {
   map: MlMap;
   value: DirectionsValue;
-  /** Modes the routing plan allows (GET /geo/profiles), default first. */
-  profiles: MapProfile[];
   onChange: (v: DirectionsValue) => void;
   onClose: () => void;
   getNear: () => { lat: number; lon: number } | null;
@@ -3711,9 +3664,8 @@ export function DirectionsPanel({
   };
   const swap = () => onChange({ ...value, stops: [...value.stops].reverse() });
   const best = routes[selected];
+  const steps = best ? best.legs.flatMap((leg, li) => leg.maneuvers.map((m, mi) => ({ m, li, mi }))) : [];
   const last = value.stops.length - 1;
-  // An agent may ask for a mode the plan lacks; show its tab so the state is honest.
-  const tabs = profiles.includes(value.profile) ? profiles : [...profiles, value.profile];
 
   return (
     <section
@@ -3729,7 +3681,7 @@ export function DirectionsPanel({
       </div>
 
       <div role="tablist" aria-label="Phương tiện" className="mb-3 flex gap-1">
-        {tabs.map((p) => (
+        {PROFILES.map((p) => (
           <button
             key={p}
             type="button"
@@ -3781,14 +3733,14 @@ export function DirectionsPanel({
             </div>
           )}
           <ol className="mt-3 flex-1 overflow-auto border-t border-cyan-400/15 pt-2">
-            {best.maneuvers.map((m, i) => (
+            {steps.map(({ m, li, mi }) => (
               <li
-                key={i}
+                key={`${li}-${mi}`}
                 className="cursor-pointer rounded px-2 py-1.5 text-sm hover:bg-cyan-400/10"
-                onMouseEnter={() => setStep(stepCoordinates(best, i))}
+                onMouseEnter={() => setStep(stepCoordinates(best, li, mi))}
                 onMouseLeave={() => setStep([])}
                 onClick={() => {
-                  const at = maneuverCoordinate(best, i);
+                  const at = maneuverCoordinate(best, li, mi);
                   if (at) map.flyTo({ center: at, zoom: Math.max(map.getZoom(), 17) });
                 }}
               >
@@ -3816,7 +3768,7 @@ Import `DirectionsPanel` from `./DirectionsPanel`. Next to the top-bar `MapSearc
           onClick={() => {
             const to = place ? { lat: place.lat, lon: place.lon, label: place.label } : null;
             setPlace(null);
-            setDirections({ profile: profiles[0], stops: [myLocationEndpoint(), to] });
+            setDirections({ profile: "motor_scooter", stops: [myLocationEndpoint(), to] });
           }}
         >
           ↱
@@ -3827,14 +3779,7 @@ and in the panel slot, after the `PlacePanel` line:
 
 ```tsx
       {map && directions && (
-        <DirectionsPanel
-          map={map}
-          value={directions}
-          profiles={profiles}
-          onChange={setDirections}
-          onClose={() => setDirections(null)}
-          getNear={getNear}
-        />
+        <DirectionsPanel map={map} value={directions} onChange={setDirections} onClose={() => setDirections(null)} getNear={getNear} />
       )}
 ```
 
@@ -3857,16 +3802,16 @@ git commit -m "feat(map): directions with alternatives, draggable stops and step
 ### Task 9: Docs, tuning, full verification
 
 **Files:**
-- Modify: `README.md`, `backend/README.md`, `backend/render.yaml`, `docs/ARCHITECTURE.md`, `src/lib/mapView.ts` (only if `HANDOFF_ZOOM` needs tuning)
+- Modify: `README.md`, `backend/README.md`, `docs/ARCHITECTURE.md`, `src/lib/mapView.ts` (only if `HANDOFF_ZOOM` needs tuning)
 
 **Interfaces:**
 - Consumes: everything above.
-- Produces: documented env vars and GraphHopper plan notes; tuned handoff constant; green `npm run verify`.
+- Produces: documented env vars and local Valhalla steps; tuned handoff constant; green `npm run verify`.
 
 - [ ] **Step 1: Docs**
 
-- `README.md`: in the env/setup section add `NEXT_PUBLIC_MAPTILER_KEY` (what it is, origin restriction) and a "Street map & directions" paragraph: zoom the globe past its limit or ask FRIDAY for a place/route; directions need the backend's `GRAPHHOPPER_API_KEY` (free plan: car/bike/foot, 500 credits/day, non-commercial; add `scooter` to `GRAPHHOPPER_PROFILES` on a paid plan for motorbike).
-- `backend/README.md`: add `GRAPHHOPPER_API_KEY`, `GRAPHHOPPER_PROFILES` and `MAPTILER_SERVER_KEY` to the env table (and to the free-tier quota table next to Google Search: GraphHopper 500 credits/day, alternatives cost extra), and the two tools (`find_place`, `get_directions`: low risk, `geo.read`) to the tool list. Add both keys to `render.yaml` `envVars` with `sync: false`.
+- `README.md`: in the env/setup section add `NEXT_PUBLIC_MAPTILER_KEY` (what it is, origin restriction) and a "Street map & directions" paragraph: zoom the globe past its limit or ask FRIDAY for a place/route; directions need the backend's `VALHALLA_URL` (`npm run dev:valhalla`, first build ~15–40 min, ~2–4 GB RAM).
+- `backend/README.md`: add `VALHALLA_URL` and `MAPTILER_SERVER_KEY` to the env table and the two tools (`find_place`, `get_directions`: low risk, `geo.read`) to the tool list, noting Render's free plan cannot host Valhalla.
 - `docs/ARCHITECTURE.md`: one short section — map layer between canvas and HUD, `mapView` slice, `map` spec = route intent, `/geo/route` proxy, preview pinning.
 
 - [ ] **Step 2: Manual check in the browser preview (with a real key)**
@@ -3875,7 +3820,7 @@ With `NEXT_PUBLIC_MAPTILER_KEY` set in `.env.local`, start the dev server via th
 - the two spheres overlap during the crossfade; if the map's globe is visibly bigger/smaller, adjust `HANDOFF_ZOOM` in `src/lib/mapView.ts` in 0.1 steps and keep the comment;
 - enter/leave five times, then run in the console `document.querySelectorAll("canvas").length` — it must not grow (each close removes MapLibre's canvas/WebGL context);
 - place search, place card, context menu and layer switcher (dark/light/satellite/terrain, 3D buildings) work;
-- with `GRAPHHOPPER_API_KEY` and `MAPTILER_SERVER_KEY` set in `backend/.env`, ask "chỉ đường từ Hồ Gươm tới Lăng Bác": the route draws with alternatives, steps are Vietnamese, only Ô tô / Xe đạp / Đi bộ tabs show, dragging B reroutes, and dragging B back to the same spot does not spend a request (backend cache); check the key's credit use in the GraphHopper dashboard afterwards.
+- with `npm run dev:valhalla` running and `VALHALLA_URL` set, ask "chỉ đường từ Hồ Gươm tới Lăng Bác": the route draws, steps are Vietnamese, dragging B reroutes; record Valhalla's RAM with `docker stats --no-stream` and put the number in `backend/README.md` in place of the estimate.
 
 Take one screenshot of the map with a route for the PR.
 
@@ -3887,6 +3832,6 @@ Expected: lint, typecheck, unit, backend, contracts and UI suites all PASS. Fix 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add README.md backend/README.md backend/render.yaml docs/ARCHITECTURE.md src/lib/mapView.ts
-git commit -m "docs(map): street map setup, GraphHopper and map architecture"
+git add README.md backend/README.md docs/ARCHITECTURE.md src/lib/mapView.ts
+git commit -m "docs(map): street map setup, Valhalla and map architecture"
 ```
