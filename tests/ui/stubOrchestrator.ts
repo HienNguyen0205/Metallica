@@ -166,7 +166,7 @@ export const GROUPED_BAR_FLOW: StubEvent[] = [
   { event: "done", data: {}, after: 20 },
 ];
 
-/** get_directions as the backend streams it: the map preview is also the final spec. */
+/** get_directions as the backend streams it (TomTom, default mode = motorbike): the map preview is also the final spec. */
 const MAP_ROUTE_SPEC = {
   type: "map",
   title: "CHỈ ĐƯỜNG",
@@ -195,7 +195,7 @@ export const MAP_FLOW: StubEvent[] = [
   { event: "state", data: { state: "visualizing" }, after: 150 },
   { event: "viz", data: { ...MAP_ROUTE_SPEC, animation: "materialize", interaction: "drill_down" }, after: 20 },
   { event: "state", data: { state: "speaking" }, after: 150 },
-  { event: "answer", data: { text: "Khoảng 2,4 km, chừng 9 phút đi xe máy." }, after: 20 },
+  { event: "answer", data: { text: "Khoảng 2,4 km, chừng 9 phút đi xe máy, chậm 6 phút do kẹt xe." }, after: 20 },
   { event: "done", data: {}, after: 20 },
 ];
 

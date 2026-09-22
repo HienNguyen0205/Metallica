@@ -172,7 +172,7 @@ def _drive_run_query_once():
     async def fake_plan(query, answer, evidence, pinned_type=None):
         return VisualizationPlan(type="radial_gauge", title="t", data=VizData(metrics=[]), answer="a")
 
-    async def fake_agent(query, approve, result, history=(), memories=""):
+    async def fake_agent(query, approve, result, history=(), memories="", emit_steps=False):
         result.text = "answer"
         yield agent.AgentEvent("state", {"state": "processing"})
 

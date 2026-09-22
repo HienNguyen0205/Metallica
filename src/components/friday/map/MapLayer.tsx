@@ -11,7 +11,7 @@ import { ARRIVAL_ZOOM, HANDOFF_ZOOM, LEAVE_ZOOM } from "@/lib/mapView";
 import type { MapProfile } from "@/lib/visualization/types";
 import { STATUS_COLORS, markerLabel, statusOf } from "../visualization/globe/geo";
 import { devRailsEnabled } from "../hud/devRails";
-import { styleUrl, type Endpoint, type MapStyleId, type Place } from "./mapApi";
+import { DEFAULT_PROFILES, fetchProfiles, styleUrl, withTomTomKey, type Endpoint, type MapStyleId, type Place } from "./mapApi";
 import { MapSearch } from "./MapSearch";
 import { DirectionsPanel } from "./DirectionsPanel";
 import { ContextMenu, PlacePanel, myLocationEndpoint, type MenuState } from "./PlacePanel";
@@ -34,42 +34,12 @@ const STYLE_OPTIONS: { id: MapStyleId; label: string }[] = [
   { id: "dark", label: "Tối" },
   { id: "light", label: "Sáng" },
   { id: "satellite", label: "Vệ tinh" },
-  { id: "terrain", label: "Địa hình" },
 ];
 
-/** Prefer `name:vi` on label layers that show a name (spec §4.1); keep refs/numbers as they are. */
-function preferVietnameseLabels(map: MlMap) {
-  for (const layer of map.getStyle().layers ?? []) {
-    if (layer.type !== "symbol") continue;
-    const field = map.getLayoutProperty(layer.id, "text-field");
-    if (!field || !JSON.stringify(field).includes("name")) continue;
-    map.setLayoutProperty(layer.id, "text-field", ["coalesce", ["get", "name:vi"], ["get", "name"]]);
-  }
-}
-
-/** Toggle the style's own extrusions, or add one over OpenMapTiles `building` if it has none. */
+/** Toggle the style's own 3D building layers (the switch only shows when it has some). */
 function setBuildings3d(map: MlMap, on: boolean) {
-  const style = map.getStyle();
-  const own = style.layers.filter((l) => l.type === "fill-extrusion").map((l) => l.id);
-  if (own.length === 0 && on) {
-    const vector = Object.entries(style.sources).find(([, s]) => s.type === "vector")?.[0];
-    if (vector) {
-      map.addLayer({
-        id: "friday-buildings-3d",
-        type: "fill-extrusion",
-        source: vector,
-        "source-layer": "building",
-        minzoom: 14,
-        paint: {
-          "fill-extrusion-color": "#1c2b3a",
-          "fill-extrusion-height": ["coalesce", ["get", "render_height"], 8],
-          "fill-extrusion-base": ["coalesce", ["get", "render_min_height"], 0],
-          "fill-extrusion-opacity": 0.85,
-        },
-      });
-    }
-  } else {
-    for (const id of own) map.setLayoutProperty(id, "visibility", on ? "visible" : "none");
+  for (const layer of map.getStyle().layers) {
+    if (layer.type === "fill-extrusion") map.setLayoutProperty(layer.id, "visibility", on ? "visible" : "none");
   }
   map.easeTo({ pitch: on ? 55 : 0, duration: 600 });
 }
@@ -83,8 +53,12 @@ export default function MapStage() {
   const [styleId, setStyleId] = useState<MapStyleId>("dark");
   const [layersOpen, setLayersOpen] = useState(false);
   const [buildings, setBuildings] = useState(false);
+  const [traffic, setTraffic] = useState(false);
+  const [has3d, setHas3d] = useState(false);
   const [place, setPlace] = useState<Place | null>(null);
   const [directions, setDirections] = useState<DirectionsValue | null>(null);
+  // Modes the routing plan allows, default first (all four on TomTom).
+  const [profiles, setProfiles] = useState<MapProfile[]>(DEFAULT_PROFILES);
   const [menu, setMenu] = useState<MenuState | null>(null);
   const mode = useFridayStore((s) => s.mapView.mode);
   const rev = useFridayStore((s) => s.mapView.rev);
@@ -102,6 +76,7 @@ export default function MapStage() {
       center: [center.lon, center.lat],
       zoom: HANDOFF_ZOOM,
       attributionControl: { compact: true },
+      transformRequest: (url) => ({ url: withTomTomKey(url) }),
     });
     m.addControl(new NavigationControl({ visualizePitch: true }), "bottom-right");
     m.addControl(new ScaleControl({ unit: "metric" }), "bottom-left");
@@ -109,7 +84,7 @@ export default function MapStage() {
     const slowTimer = setTimeout(() => setSlow(true), SLOW_MS);
     m.on("style.load", () => {
       m.setProjection({ type: "globe" });
-      preferVietnameseLabels(m);
+      setHas3d(m.getStyle().layers.some((l) => l.type === "fill-extrusion"));
     });
     m.once("load", () => {
       loaded = true;
@@ -133,6 +108,12 @@ export default function MapStage() {
     const c = map?.getCenter();
     useFridayStore.getState().closeMap(c ? { lat: c.lat, lon: c.lng } : undefined);
   }, [map]);
+
+  useEffect(() => {
+    const ctrl = new AbortController();
+    fetchProfiles(ctrl.signal).then(setProfiles).catch(() => {});
+    return () => ctrl.abort();
+  }, []);
 
   useEffect(() => {
     if (!failed) return;
@@ -267,11 +248,11 @@ export default function MapStage() {
   }, [map]);
   const directionsTo = (to: Endpoint) => {
     setPlace(null);
-    setDirections((d) => ({ profile: d?.profile ?? "motor_scooter", stops: [d?.stops[0] ?? myLocationEndpoint(), to] }));
+    setDirections((d) => ({ profile: d?.profile ?? profiles[0], stops: [d?.stops[0] ?? myLocationEndpoint(), to] }));
   };
   const directionsFrom = (from: Endpoint) => {
     setPlace(null);
-    setDirections((d) => ({ profile: d?.profile ?? "motor_scooter", stops: [from, d?.stops.at(-1) ?? null] }));
+    setDirections((d) => ({ profile: d?.profile ?? profiles[0], stops: [from, d?.stops.at(-1) ?? null] }));
   };
 
   // My location: blue dot, halo sized to the browser's accuracy radius.
@@ -312,7 +293,13 @@ export default function MapStage() {
     setStyleId(id);
     setLayersOpen(false);
     setBuildings(false);
-    map?.setStyle(styleUrl(id));
+    map?.setStyle(styleUrl(id, traffic));
+  };
+
+  const toggleTraffic = (on: boolean) => {
+    setTraffic(on);
+    setBuildings(false);
+    map?.setStyle(styleUrl(styleId, on));
   };
 
   const visible = ready && (mode === "entering" || mode === "map");
@@ -374,7 +361,7 @@ export default function MapStage() {
           onClick={() => {
             const to = place ? { lat: place.lat, lon: place.lon, label: place.label } : null;
             setPlace(null);
-            setDirections({ profile: "motor_scooter", stops: [myLocationEndpoint(), to] });
+            setDirections({ profile: profiles[0], stops: [myLocationEndpoint(), to] });
           }}
         >
           ↱
@@ -385,7 +372,7 @@ export default function MapStage() {
         <PlacePanel place={place} onClose={() => setPlace(null)} onDirectionsTo={directionsTo} onDirectionsFrom={directionsFrom} />
       )}
       {map && directions && (
-        <DirectionsPanel map={map} value={directions} onChange={setDirections} onClose={() => setDirections(null)} getNear={getNear} />
+        <DirectionsPanel map={map} value={directions} profiles={profiles} onChange={setDirections} onClose={() => setDirections(null)} getNear={getNear} />
       )}
       {menu && (
         <ContextMenu
@@ -421,16 +408,22 @@ export default function MapStage() {
               </button>
             ))}
             <label className="mt-1 flex items-center gap-2 px-2 py-1 text-sm">
-              <input
-                type="checkbox"
-                checked={buildings}
-                onChange={(e) => {
-                  setBuildings(e.target.checked);
-                  if (map) setBuildings3d(map, e.target.checked);
-                }}
-              />
-              Tòa nhà 3D
+              <input type="checkbox" checked={traffic} onChange={(e) => toggleTraffic(e.target.checked)} />
+              Giao thông
             </label>
+            {has3d && (
+              <label className="mt-1 flex items-center gap-2 px-2 py-1 text-sm">
+                <input
+                  type="checkbox"
+                  checked={buildings}
+                  onChange={(e) => {
+                    setBuildings(e.target.checked);
+                    if (map) setBuildings3d(map, e.target.checked);
+                  }}
+                />
+                Tòa nhà 3D
+              </label>
+            )}
           </div>
         )}
       </div>

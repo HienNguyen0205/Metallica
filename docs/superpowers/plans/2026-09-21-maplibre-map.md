@@ -1,5 +1,9 @@
 # MapLibre Street Map Implementation Plan
 
+> **Status:** implemented on `feat/maplibre-map` (commits d11d232…a556286) with self-hosted Valhalla.
+> Routing is being replaced by GraphHopper Cloud — see `docs/superpowers/plans/2026-09-22-graphhopper-routing.md`.
+> Where the two disagree about routing, the delta plan and the revised spec win.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Zooming the globe past its limit hands off to a full-screen, Google-Maps-like MapLibre map (search, place card, context menu, directions), and agent tools can open that map directly for places and routes.

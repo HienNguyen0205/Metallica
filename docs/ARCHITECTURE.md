@@ -427,8 +427,8 @@ size during the crossfade.
   re-aims the map, any other visualization closes it.
 - **`map` spec = route intent.** `spec.data.map` carries waypoints (and an
   optional bbox/center/zoom), never geometry — the map fetches the geometry
-  itself from `POST /geo/route` on the orchestrator, which validates the
-  waypoints and proxies to a local Valhalla. Directions need `VALHALLA_URL`;
+   itself from `POST /geo/route` on the orchestrator, which validates the
+   waypoints and proxies to TomTom (search, places and reverse geocoding go through `/geo/suggest`, `/geo/place`, `/geo/reverse` the same way; Vietnamese turn text is built in `geo/maneuvers.py`). Search and directions need `TOMTOM_API_KEY`;
   unset, the map draws the pins and reports routing as unconfigured.
 - **Preview pinning** (see the preview-pinning comment in backend/friday/api/routes.py): `find_place` and
   `get_directions` (`risk="low"`, `geo.read`) declare deterministic previews,

@@ -82,7 +82,7 @@ class MapWaypoint(LatLon):
 class MapRoute(BaseModel):
     """Route intent: the map fetches geometry from /geo/route itself."""
 
-    profile: Literal["auto", "motor_scooter", "bicycle", "pedestrian"] = "motor_scooter"
+    profile: Literal["auto", "motor_scooter", "bicycle", "pedestrian"] = "auto"
     waypoints: list[MapWaypoint] = Field(min_length=2, max_length=5)
 
 

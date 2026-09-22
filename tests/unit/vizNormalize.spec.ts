@@ -162,7 +162,7 @@ test("map view drops out-of-range and malformed fields", () => {
   expect(sanitizeMapView(null)).toBeUndefined();
   expect(sanitizeMapView({ center: { lat: 91, lon: 0 }, zoom: 30 })).toBeUndefined();
   expect(sanitizeMapView({ bbox: [0, 10, 1, 5] })).toBeUndefined(); // south above north
-  // a route needs 2-5 valid waypoints; an unknown profile falls back to motorbike
+  // a route needs 2-5 valid waypoints; an unknown profile falls back to the default (motorbike)
   expect(sanitizeMapView({ route: { profile: "rocket", waypoints: [{ lat: 1, lon: 1 }] } })).toBeUndefined();
   expect(
     sanitizeMapView({ route: { profile: "rocket", waypoints: [{ lat: 1, lon: 1 }, { lat: 2, lon: "x" }, { lat: 3, lon: 3 }] } }),

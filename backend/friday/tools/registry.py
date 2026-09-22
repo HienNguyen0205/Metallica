@@ -120,10 +120,10 @@ def _build_default_registry() -> dict[str, Tool]:
         Tool(
             name="get_directions",
             description=(
-                "Directions between places in Vietnam, shown on the street map "
-                "with distance and time. from/to are place names or "
-                "'my_location'. profile: motor_scooter (default, xe máy), auto "
-                "(car), bicycle, pedestrian."
+                "Directions between places, shown on the street map with "
+                "distance, time and the current traffic delay. from/to are "
+                "place names or 'my_location'. profile: motor_scooter "
+                "(default, xe máy), auto (car), bicycle, pedestrian."
             ),
             input_schema={
                 "type": "object",

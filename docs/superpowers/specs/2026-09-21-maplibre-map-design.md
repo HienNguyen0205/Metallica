@@ -1,6 +1,6 @@
 # MapLibre street map (globe → map handoff, search, directions) — design
 
-Status: **awaiting review** · Date: 2026-09-21
+Status: **approved** · Date: 2026-09-21 · Revised 2026-09-22: Valhalla → GraphHopper Cloud → **TomTom for tiles, search and routing** (current)
 
 ## 1. Problem
 
@@ -15,20 +15,24 @@ context menu, directions with alternatives and draggable endpoints).
 
 ## 2. Decisions already made
 
-- **Tiles/geocoding: MapTiler** (API key). **Routing: self-hosted Valhalla**,
-  Vietnam extract only. **Default travel mode: motorbike** (`motor_scooter`).
+- **TomTom for everything**: Map Display (tiles/styles), Search/Places
+  (autocomplete, place details, reverse geocoding) and Routing. Chosen over
+  MapTiler + GraphHopper for one vendor, **motorbike routing on the free
+  plan** and real-time traffic; accepted costs: TomTom has no Vietnamese
+  turn instructions (built by us, §6.2) and a tight search budget (§6.1).
+  **Default travel mode: motorbike** (`motor_scooter`).
 - **Full-screen map layer** between the R3F canvas and the HUD.
 - **Approach A** — DOM layer with MapLibre's own `projection: "globe"` for a
   seamless crossfade. Rejected: MapLibre rendered to a texture inside the 3D
   scene (per-frame copy into WebGPU, hand-forwarded input, no DOM UI), and
   replacing the R3F globe with MapLibre's (loses the hologram look).
-- **Dark skin by default** (MapTiler `streets-v2-dark`, cyan `#38e8ff` accent,
-  frosted panels); Google Maps layout and interactions. Layer switcher offers
-  light / satellite (hybrid) / terrain.
+- **Dark skin by default** (TomTom `2/basic_street-dark`, cyan `#38e8ff`
+  accent, frosted panels); Google Maps layout and interactions. Layer switcher
+  offers dark / light / satellite, plus a **traffic** overlay toggle.
 - **Map specs carry route *intent*, not geometry** (§5).
-- **Valhalla is optional**: without `VALHALLA_URL` everything but directions
-  works. Render's free plan (512 MB, ephemeral disk) cannot host it; a
-  production Valhalla is out of scope for this round.
+- **Search and routing are optional**: without `TOMTOM_API_KEY` the map
+  still shows; search and directions say they are unconfigured. Nothing to
+  host, so it deploys on Render as is.
 
 ## 3. State and handoff mechanics
 
@@ -116,19 +120,19 @@ While `mode !== "globe"` the globe's key handler (arrows, `R`, `F`, Space,
 
 In map mode the decorative HUD layers (scanlines, vignette, EdgeTelemetry,
 VizRail, StateRail) are hidden; TopHud, ToolHud, InputBar and ConfirmPrompt
-stay, so the operator can keep talking to FRIDAY over the map. Labels prefer
-`name:vi`, then `name`.
+stay, so the operator can keep talking to FRIDAY over the map. Labels are
+TomTom's local names — Vietnamese inside Vietnam — with no rewriting.
 
 ### 4.2 Interactions
 
 | Area | Behaviour |
 |---|---|
-| Controls | MapLibre's built-in Navigation / Scale / Attribution controls, restyled in CSS. Right-drag or Ctrl+drag rotates/tilts. 3D buildings toggle (MapTiler extrusions). |
+| Controls | MapLibre's built-in Navigation / Scale / Attribution controls, restyled in CSS. Right-drag or Ctrl+drag rotates/tilts. 3D buildings toggle, shown only when the current style has extrusion layers. Traffic toggle overlays TomTom traffic flow. |
 | My location | ◎ uses the **existing opt-in geolocation flow** (`store.location`), no separate GeolocateControl. Blue dot + halo sized by `accuracy`. |
-| Search | MapTiler Geocoding autocomplete, 250 ms debounce, proximity-biased to the map center. ARIA combobox, ↑↓ / Enter / Esc. Picking a result flies there and opens the place card. |
-| Place card | From a POI click or a search pick: name, category, address (reverse geocode), coordinates; buttons **Chỉ đường**, **Từ đây**, **Sao chép tọa độ**. |
+| Search | TomTom Places Suggest through `GET /geo/suggest` (≥3 chars, 400 ms debounce, proximity-biased to the map center); picking a suggestion resolves its position through `GET /geo/place`. ARIA combobox, ↑↓ / Enter / Esc. Picking flies there and opens the place card. Quota exhausted → "Tìm kiếm tạm hết hạn mức". |
+| Place card | From a POI click or a search pick: name, category, address (reverse geocode via `GET /geo/reverse`), coordinates; buttons **Chỉ đường**, **Từ đây**, **Sao chép tọa độ**. |
 | Context menu | Right-click: "Chỉ đường từ đây", "Chỉ đường đến đây", "Đây là đâu?", "Sao chép tọa độ". |
-| Directions | From/To inputs (autocomplete, "Vị trí của tôi"), ⇅ swap, mode tabs 🛵 Xe máy (default) · 🚗 Ô tô · 🚲 Xe đạp · 🚶 Đi bộ. Primary route + up to 2 grey alternatives, click to select. Distance/time summary; step list — hover highlights the segment, click flies to the maneuver. **A/B markers are draggable**; drop reroutes. |
+| Directions | From/To inputs (autocomplete, "Vị trí của tôi"), ⇅ swap, mode tabs from `GET /geo/profiles` (default first): 🛵 Xe máy · 🚗 Ô tô · 🚲 Xe đạp · 🚶 Đi bộ — all on TomTom's free plan. Summary shows the traffic delay when there is one ("chậm 6 phút do kẹt xe"). Primary route + up to 2 grey alternatives, click to select. Distance/time summary; step list — hover highlights the segment, click flies to the maneuver. **A/B markers are draggable**; drop reroutes. |
 | Globe data | The globe viz's `points` / `routes` render on the map with the same status colors. |
 
 ### 4.3 Files (`src/components/friday/map/`)
@@ -138,18 +142,18 @@ stay, so the operator can keep talking to FRIDAY over the map. Labels prefer
 - `MapSearch.tsx` — autocomplete box, reused for the From/To inputs.
 - `PlacePanel.tsx` — place card + context menu.
 - `DirectionsPanel.tsx` — directions panel, route layers, step list.
-- `mapApi.ts` — style URLs, MapTiler geocoding client, `/geo/route` client,
-  polyline6 decoder, maneuver → Vietnamese template table.
+- `mapApi.ts` — TomTom style URLs + key injection, clients for the
+  orchestrator's `/geo/*` endpoints, step-geometry helpers, formatting.
 - `map.css` — control and panel styling.
 
 ### 4.4 Infrastructure
 
 - New dependency: `maplibre-gl` only (no React wrapper), loaded lazily via
   `next/dynamic` so the main bundle does not grow.
-- `NEXT_PUBLIC_MAPTILER_KEY` in `.env.example`; the key is client-visible by
-  design and must be origin-restricted in the MapTiler dashboard.
+- `NEXT_PUBLIC_TOMTOM_MAP_KEY` in `.env.example`; client-visible by design,
+  enabled for Map Display only in the TomTom dashboard.
 - CSP (`src/proxy.ts`): `connect-src` already allows `https:`; add
-  `img-src https://api.maptiler.com` and `worker-src blob:` (MapLibre's
+  `img-src https://api.tomtom.com` and `worker-src blob:` (MapLibre's
   worker). Missing either produces a blank map with no obvious error.
 
 ## 5. Contract: `map` visualization type
@@ -182,8 +186,8 @@ interface MapView {
 `DirectionsPanel` fetches the geometry from `/geo/route` — the same call it
 makes for user-driven directions, drags and mode switches. One route-drawing
 path; no multi-KB polylines in the event stream or memory. The agent tool
-computes its own distance/time for the spoken answer; Valhalla is
-deterministic on the same data, so the drawn route matches.
+computes its own distance/time for the spoken answer; the router answers the
+same question the same way, so the drawn route matches.
 
 **Rendering flow**
 
@@ -204,65 +208,120 @@ deterministic on the same data, so the drawn route matches.
 
 ## 6. Backend
 
-### 6.1 Valhalla (dev/local)
+### 6.1 Provider — TomTom for everything
 
-- `docker/valhalla/compose.yml` using Valhalla's official scripted image: it
-  downloads the Geofabrik Vietnam PBF and builds tiles on first start into a
-  volume; later starts are instant. Port 8002. `npm run dev:valhalla`.
-  `.env.example`: `VALHALLA_URL=http://localhost:8002`. Exact image name and
-  env vars are verified at implementation time.
-- Expected footprint (estimate, to be measured with `docker stats`): build peak
-  ~2–4 GB RAM, 15–40 min; serving ~300–800 MB (tune `mjolnir.max_cache_size`);
-  disk ~1–2 GB.
+One vendor for tiles, search and routing (decided 2026-09-22, replacing
+MapTiler + GraphHopper). Two keys, each enabled only for the products it
+needs in the TomTom dashboard:
 
-### 6.2 Client — `backend/friday/geo/valhalla.py`
+- `NEXT_PUBLIC_TOMTOM_MAP_KEY` — browser; **Map Display only**. Client-visible
+  by necessity (the browser fetches tiles and styles itself).
+- `TOMTOM_API_KEY` — backend; Search, Places, Reverse Geocoding, Routing.
+  Never reaches the browser. Unset → the map still shows, search and
+  directions say they are unconfigured.
 
-`urllib` + `asyncio.to_thread`, the `fetch.py` pattern (no `httpx`).
+Free allowances are **per API, per month** (TomTom pricing, 2026-09-22):
+
+| API | Free / month | Used for |
+|---|---|---|
+| Map Display vector tiles | 200K | the map |
+| Traffic Flow vector tiles | 200K | the traffic layer |
+| Routing | 20K | `/geo/route`, `get_directions` |
+| Reverse Geocoding | 20K | place card, "Đây là đâu?" |
+| Places Search Suggest | 10K | autocomplete as you type |
+| Places Search Details | 5K | resolving the picked suggestion to a position |
+| Search (fuzzy) | 2.5K | agent `find_place` and stop resolution in `get_directions` |
+
+The fuzzy-search budget (~80/day) is the tight one; everything that can use
+a cheaper API does, and every call is cached (§6.3).
+
+### 6.2 Client — `backend/friday/geo/tomtom.py`
+
+`urllib` + `asyncio.to_thread`, the `fetch.py` pattern (no `httpx`). One
+module, one error vocabulary:
+
+- `TomTomUnavailable` — no key, 403, 5xx, unreachable.
+- `QuotaExceeded` — 429 (the month's free allowance is used up).
+- `NoRoute` — Routing 400 ("points … are not connected by the road network").
+- `UnsupportedProfile` — a travel mode outside the contract enum.
+
+Functions:
+
+- `suggest(query, near)` → Places Suggest (`POST /maps/orbis/places/suggest`,
+  headers `TomTom-Api-Key`, `TomTom-Api-Version: 3`) → `[{ref, title,
+  subtitle, type}]`, where `ref` = the result's `more.pathParameters` joined
+  with `/` (e.g. `pois/<id>`); `discoverAction` results are dropped.
+- `place(ref)` → Places Details (`GET /maps/orbis/places/details/{ref}`,
+  `Attributes: position`) → `{lat, lon}`. `ref` must match
+  `^[a-z]+/[A-Za-z0-9_-]+$` (no path injection).
+- `reverse(lat, lon)` → Reverse Geocoding
+  (`/search/2/reverseGeocode/{lat},{lon}.json?language=vi-VN`) → the first
+  `address.freeformAddress` or `None`.
+- `search(query, near, limit)` → fuzzy search
+  (`/search/2/search/{q}.json?language=vi-VN&limit=…`) → `[{label, address,
+  category, lat, lon}]` — agent tools only.
+- `route(waypoints, profile)` → Calculate Route
+  (`/routing/1/calculateRoute/{lat,lon:lat,lon…}/json`) with
+  `travelMode` = `auto→car`, `motor_scooter→motorcycle`, `bicycle→bicycle`,
+  `pedestrian→pedestrian`; `instructionsType=coded`, `traffic=true`,
+  `maxAlternatives=2` (two stops only). **All four modes are on the free
+  plan**, so the default is `motor_scooter` again and `available_profiles()`
+  returns all four (the existing `GET /geo/profiles` and plan-driven tabs stay
+  and simply show everything).
+
+Route wire shape (unchanged from the GraphHopper round, plus traffic delay):
 
 ```python
-async def route(waypoints, profile, alternates=2, language="vi-VN") -> dict
-# → {"routes": [{"distance_m", "duration_s", "shape": "<polyline6>",
-#                "maneuvers": [{"instruction", "type", "distance_m",
-#                               "duration_s", "begin_shape_index"}]}]}
+{"routes": [{"distance_m", "duration_s", "traffic_delay_s",
+             "coordinates": [[lon, lat], ...],
+             "maneuvers": [{"instruction", "maneuver", "distance_m",
+                            "duration_s", "begin_shape_index"}]}]}
 ```
 
-If Valhalla has no `vi-VN` narrative locale, request `en-US` and let the
-frontend render Vietnamese from maneuver `type` (template table in
-`mapApi.ts`).
+- `coordinates` = every leg's `points` in order; `begin_shape_index` = the
+  instruction's `pointIndex`; per-step distance/time = the difference of
+  consecutive `routeOffsetInMeters` / `travelTimeInSeconds`.
+- **Vietnamese instructions are built here**, because TomTom's guidance has
+  no `vi-VN`: `geo/maneuvers.py` maps the 33 maneuver codes to Vietnamese
+  and appends the street ("Rẽ phải vào Hùng Vương", "Vào vòng xuyến, đi lối
+  ra thứ 2"). The UI step list and the tool's `steps` share it.
 
-### 6.3 Proxy — `POST /geo/route`
+### 6.3 Proxy endpoints (all behind `require_known_origin`)
 
-- `require_known_origin`, like the other routes.
-- Validation → 422: 2–5 waypoints, lat ∈ [-90, 90], lon ∈ [-180, 180],
-  `profile` in the enum.
-- 10 s timeout; LRU cache (256 entries) keyed on inputs rounded to 5 decimals,
-  so drags and mode toggles do not refetch.
-- Errors: Valhalla unreachable or unset → `503 {"error": "routing_unavailable"}`
-  (UI: "Chỉ đường chưa được cấu hình"); out of coverage / no path →
-  `422 {"error": "no_route"}` (UI: "Không tìm thấy đường đi (chỉ hỗ trợ trong
-  Việt Nam)").
+| Endpoint | Calls | Notes |
+|---|---|---|
+| `GET /geo/suggest?q=&lat=&lon=` | `suggest` | `q` 3–120 chars; → `{"suggestions": [...]}` |
+| `GET /geo/place?ref=` | `place` | → `{"lat", "lon"}`; bad `ref` → 422 |
+| `GET /geo/reverse?lat=&lon=` | `reverse` | → `{"address": str \| null}` |
+| `POST /geo/route` | `route` | unchanged contract; 422 `no_route` |
+| `GET /geo/profiles` | `available_profiles` | unchanged; now all four modes |
+
+- Errors: `TomTomUnavailable` → `503 {"error": "unavailable"}` (routing keeps
+  its existing `routing_unavailable` code); `QuotaExceeded` →
+  `429 {"error": "quota_exceeded"}` (UI: "Tìm kiếm tạm hết hạn mức" /
+  "Chỉ đường tạm hết hạn mức").
+- One LRU cache per function (256 entries; suggest 512), keyed on inputs
+  with coordinates rounded (5 decimals for route stops, 2 for proximity).
 
 ### 6.4 Agent tools (capability `geo.read`, `risk="low"` — read-only)
 
 | Tool | Input | Model output | Preview spec |
 |---|---|---|---|
-| `find_place` | `query`, `near?` (`"my_location"` or a place name) | ≤5 `{label, category, address, lat, lon}` | `map` with `points` + `bbox` over results |
-| `get_directions` | `from`, `to` (place name or `"my_location"`), `profile` (default `motor_scooter`), `via?` (≤3) | `{from, to, distance_km, duration_min, steps: first 8}` | `map` with `route: {profile, waypoints}` + A/B `points` |
+| `find_place` | `query`, `near?` (`"my_location"` or a place name) | ≤5 `{label, category, address, lat, lon}` (fuzzy search, 1 request) | `map` with `points` + `bbox` over results |
+| `get_directions` | `from`, `to` (place name or `"my_location"`), `profile` (default `motor_scooter`), `via?` (≤3) | `{from, to, distance_km, duration_min, traffic_delay_min, steps: first 8}` | `map` with `route: {profile, waypoints}` + A/B `points` |
 
-- Server-side geocoding uses MapTiler with a separate `MAPTILER_SERVER_KEY`
-  (the frontend key is origin-locked).
-- `"my_location"` reads `CLIENT`; unshared location → the same error dict as
-  `get_client_location`.
-- No `show_map` tool: "show me Hoàn Kiếm" is `find_place`, whose preview opens
-  the map.
-- Without `VALHALLA_URL`, `get_directions` returns an error dict saying routing
-  is not configured.
+- Stops named by the model are resolved with fuzzy search (limit 1); a
+  `"my_location"` stop costs no search.
+- `QuotaExceeded` → an error dict saying the month's free allowance is used up.
+- A `map` preview is the final visualization (orchestrator passes it
+  through; unchanged).
 
 ### 6.5 Privacy
 
-- Operator coordinates sent to MapTiler (external) for proximity bias are
-  rounded to 2 decimals (~1 km). Full precision goes only to the self-hosted
-  Valhalla.
+- Proximity sent to TomTom search/suggest is rounded to 2 decimals (~1 km).
+- Routing needs the real stops, so full-precision coordinates go to TomTom
+  — only for a route the operator asked for, and a `"my_location"` stop only
+  when they already shared their location.
 - The existing memory coordinate guard (`shared_coordinates`) still covers the
   new tools' outputs.
 
@@ -279,23 +338,26 @@ No test touches the real network.
   closes, map viz opens.
 - `overZoom.spec.ts` (new): single scroll does not trigger; sustained scroll
   does; 600 ms idle decays.
-- `mapApi.spec.ts` (new): polyline6 decode against a known sample; maneuver →
-  Vietnamese templates; MapTiler geocoding response parsing.
+- `mapApi.spec.ts` (new): step geometry from `begin_shape_index`; TomTom
+  style URLs and key injection; Vietnamese distance/duration formatting.
 - `contracts.spec.ts` (extend): `map` / `MapView` parity; minimal `{type:"map"}`
   valid.
 - Layout: `map` specs take no slot in `resolveVisualizationLayout`.
 
 **Frontend UI (`tests/ui/map.spec.ts`, new)**
 
-`page.route` intercepts `api.maptiler.com` and serves a minimal style JSON
-(background + one GeoJSON layer, no tiles), so real MapLibre runs offline in
-Chromium; `/geo/route` is stubbed via `stubOrchestrator`.
+`page.route` intercepts `api.tomtom.com` and serves a minimal style JSON
+(background only, no tiles), so real MapLibre runs offline in Chromium; the
+orchestrator's `/geo/*` endpoints are stubbed with `page.route`.
 
 1. Globe zoomed to `MIN_DIST` + more scroll → map layer visible, `mode=map`;
    `Esc` → back to globe.
 2. Agent `map` spec with `route` → map opens, directions panel shows the stubbed
-   distance/time, route layer exists.
-3. Search: autocomplete appears, ↑↓/Enter selects, place card opens.
+   distance/time and traffic delay, route layer exists; motorbike selected
+   by default; switching mode re-asks with the new profile.
+3. Search: suggestions appear after 3 characters, ↑↓/Enter selects, the pick
+   is resolved through `/geo/place`, place card opens; a 429 shows the quota
+   message.
 4. `/geo/route` 503 → "Chỉ đường chưa được cấu hình", map still usable.
 5. `prefers-reduced-motion` → short fade (timed via `mode` changes).
 
@@ -303,27 +365,32 @@ DOM/state assertions only — no map screenshots (fonts/tiles make them flaky).
 
 **Backend (`backend/tests/`)**
 
-- `unit/test_valhalla.py`: normalizing a recorded Valhalla response; error-code
-  → `no_route` mapping; LRU hits on rounded input.
-- `integration/test_geo_route.py`: `/geo/route` against a local fake Valhalla
-  HTTP server (the `fetch` test pattern): 422 validation cases, 503 when unset,
-  origin guard.
-- `unit/test_geo_tools.py`: `find_place` / `get_directions` with fake geocoder
-  and Valhalla; unshared `"my_location"` errors; default profile
-  `motor_scooter`; MapTiler proximity rounded to 2 decimals; preview specs
-  validate as `VisualizationPlan`.
+- `unit/test_tomtom.py`: against a local fake of the TomTom APIs (the
+  `fetch` test pattern): suggest/details/reverse/search/route request shapes
+  (headers, travel-mode mapping, alternatives only for two stops, proximity
+  rounded to 2 decimals), normalization (legs joined, per-step distance and
+  time, traffic delay), `ref` validation, error mapping (400 → no route,
+  429 → quota, 403/5xx/unreachable/no key → unavailable), cache hits.
+- `unit/test_maneuvers.py`: all 33 maneuver codes have Vietnamese text;
+  street joining; roundabout exit numbers; unknown code fallback.
+- `integration/test_geo_route.py`: every `/geo/*` endpoint — validation,
+  error mapping, origin guard.
+- `unit/test_geo_tools.py`: `find_place` / `get_directions` with a fake
+  TomTom module; unshared `"my_location"` errors; default profile
+  `motor_scooter`; quota errors; preview specs validate as
+  `VisualizationPlan`.
+- `integration/test_map_preview_pin.py`: a `map` preview is streamed as the
+  final spec without calling the planner.
 - `test_contracts`: Python schema ↔ JSON contract parity.
-- `backend/evals`: "chỉ đường từ chỗ tôi tới Hồ Gươm" → `get_directions`;
-  "cho xem khu Hoàn Kiếm" → `find_place`.
 
 **Manual checks at implementation (browser preview):** sphere-size match during
 the crossfade; repeated enter/leave frees the WebGL context (no leak).
 
-**Done when** `npm run verify` is green; the map UI tests need neither Valhalla
-nor a real MapTiler key.
+**Done when** `npm run verify` is green; the map UI tests need no TomTom key
+and no network.
 
 ## 8. Out of scope
 
-- Production hosting for Valhalla.
-- Coverage beyond Vietnam.
-- Traffic, transit, offline tiles, saved places, Street View.
+- Paid TomTom tiers; raising limits is a key/plan change, not code.
+- Self-hosted routing or tiles.
+- Transit, offline tiles, saved places, Street View.

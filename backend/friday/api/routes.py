@@ -7,7 +7,7 @@ import uuid
 from collections.abc import AsyncIterator
 from typing import Any
 
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException, Query as QueryParam
 from fastapi.responses import JSONResponse, StreamingResponse
 from openai import APIError, NotFoundError, RateLimitError
 
@@ -17,7 +17,7 @@ from friday.api import dependencies as deps
 from friday.api.dependencies import PENDING, PENDING_OWNERS, guard, require_known_origin
 from friday.api.schemas import ClientContext, Decision, Query, RouteRequest, RunBudget
 from friday.core.config import settings
-from friday.geo import valhalla
+from friday.geo import tomtom
 from friday.events.serializer import sse, sse_envelope
 from friday.memory import consolidate
 from friday.memory import embed as embed_mod
@@ -655,17 +655,65 @@ async def audit_endpoint(run_id: str | None = None, limit: int = 100,
     return {"events": scoped}
 
 
+def _geo_error(err: Exception, unavailable: str = "unavailable") -> JSONResponse:
+    """Quota and outages read differently in the UI, so they stay distinct."""
+    if isinstance(err, tomtom.QuotaExceeded):
+        return JSONResponse(status_code=429, content={"error": "quota_exceeded"})
+    return JSONResponse(status_code=503, content={"error": unavailable})
+
+
+@router.get("/geo/suggest", dependencies=[Depends(require_known_origin)])
+async def geo_suggest(
+    q: str = QueryParam(min_length=3, max_length=120),
+    lat: float | None = QueryParam(default=None, ge=-90, le=90),
+    lon: float | None = QueryParam(default=None, ge=-180, le=180),
+) -> Any:
+    """Autocomplete (spec §6.3) — TomTom Places Suggest, cached."""
+    near = (lat, lon) if lat is not None and lon is not None else None
+    try:
+        return {"suggestions": await tomtom.suggest(q, near)}
+    except (tomtom.TomTomUnavailable, tomtom.QuotaExceeded) as err:
+        return _geo_error(err)
+
+
+@router.get("/geo/place", dependencies=[Depends(require_known_origin)])
+async def geo_place(ref: str = QueryParam(max_length=200, pattern=r"^[a-z]+/[A-Za-z0-9_-]+$")) -> Any:
+    """Position of a picked suggestion — Places Details, only on pick."""
+    try:
+        return await tomtom.place(ref)
+    except (tomtom.TomTomUnavailable, tomtom.QuotaExceeded) as err:
+        return _geo_error(err)
+
+
+@router.get("/geo/reverse", dependencies=[Depends(require_known_origin)])
+async def geo_reverse(
+    lat: float = QueryParam(ge=-90, le=90),
+    lon: float = QueryParam(ge=-180, le=180),
+) -> Any:
+    try:
+        return {"address": await tomtom.reverse(lat, lon)}
+    except (tomtom.TomTomUnavailable, tomtom.QuotaExceeded) as err:
+        return _geo_error(err)
+
+
+@router.get("/geo/profiles", dependencies=[Depends(require_known_origin)])
+async def geo_profiles() -> dict[str, Any]:
+    """Travel modes the routing plan allows, default first — the map's tabs."""
+    return {"profiles": tomtom.available_profiles()}
+
+
 @router.post("/geo/route", dependencies=[Depends(require_known_origin)])
 async def geo_route(body: RouteRequest) -> Any:
-    """Spec §6.3 — one route question for the map UI and nothing else.
-    No model call behind it, so the origin gate is the only guard needed."""
+    """Spec §6.3 — one route question for the map UI; cached in the client."""
     try:
-        # Looked up on the module so tests can swap valhalla.route.
-        return await valhalla.route([w.model_dump() for w in body.waypoints], body.profile)
-    except valhalla.RoutingUnavailable:
-        return JSONResponse(status_code=503, content={"error": "routing_unavailable"})
-    except valhalla.NoRoute:
+        # Looked up on the module so tests can swap tomtom.route.
+        return await tomtom.route([w.model_dump() for w in body.waypoints], body.profile)
+    except (tomtom.TomTomUnavailable, tomtom.QuotaExceeded) as err:
+        return _geo_error(err, "routing_unavailable")
+    except tomtom.NoRoute:
         return JSONResponse(status_code=422, content={"error": "no_route"})
+    except tomtom.UnsupportedProfile:
+        return JSONResponse(status_code=422, content={"error": "unsupported_profile"})
 
 
 @router.get("/health")

@@ -1,24 +1,37 @@
 /**
- * Everything the map talks to (spec §4.3): MapTiler styles + geocoding
- * (browser key, origin-restricted) and the orchestrator's /geo/route.
- * Pure helpers (decode, format, parse) are unit-tested.
+ * Everything the map talks to (spec §4.3): TomTom styles/tiles with the
+ * browser's Map-Display-only key, and the orchestrator's /geo/* endpoints for
+ * search, places, reverse geocoding and routing (the TomTom server key never
+ * reaches the browser). Pure helpers (styles, step geometry, format) are
+ * unit-tested.
  */
 import { getApiBase } from "@/lib/api/session";
 import type { MapProfile } from "@/lib/visualization/types";
 
-export const MAPTILER_KEY = process.env.NEXT_PUBLIC_MAPTILER_KEY ?? "";
+export const TOMTOM_MAP_KEY = process.env.NEXT_PUBLIC_TOMTOM_MAP_KEY ?? "";
 
-export type MapStyleId = "dark" | "light" | "satellite" | "terrain";
+/** Map Styles v2 resource version; confirmed against the live API in Task 0/7. */
+export const TOMTOM_STYLE_VERSION = "22.2.1-*";
 
-const STYLE_PATH: Record<MapStyleId, string> = {
-  dark: "streets-v2-dark",
-  light: "streets-v2",
-  satellite: "hybrid",
-  terrain: "outdoor-v2",
+export type MapStyleId = "dark" | "light" | "satellite";
+
+const STYLES: Record<MapStyleId, { map: string; poi: string; flow: string }> = {
+  dark: { map: "2/basic_street-dark", poi: "2/poi_dark", flow: "2/flow_relative-dark" },
+  light: { map: "2/basic_street-light", poi: "2/poi_light", flow: "2/flow_relative-light" },
+  satellite: { map: "2/hybrid_street-satellite", poi: "2/poi_dark", flow: "2/flow_relative-dark" },
 };
 
-export function styleUrl(id: MapStyleId): string {
-  return `https://api.maptiler.com/maps/${STYLE_PATH[id]}/style.json?key=${encodeURIComponent(MAPTILER_KEY)}`;
+export function styleUrl(id: MapStyleId, traffic = false): string {
+  const s = STYLES[id];
+  const params = new URLSearchParams({ key: TOMTOM_MAP_KEY, map: s.map, poi: s.poi });
+  if (traffic) params.set("traffic_flow", s.flow);
+  return `https://api.tomtom.com/style/1/style/${TOMTOM_STYLE_VERSION}?${params}`;
+}
+
+/** MapLibre `transformRequest`: TomTom tiles/sprites/glyphs named by the style may omit the key. */
+export function withTomTomKey(url: string): string {
+  if (!url.startsWith("https://api.tomtom.com/") || /[?&]key=/.test(url)) return url;
+  return `${url}${url.includes("?") ? "&" : "?"}key=${encodeURIComponent(TOMTOM_MAP_KEY)}`;
 }
 
 export const PROFILE_LABELS: Record<MapProfile, string> = {
@@ -27,6 +40,22 @@ export const PROFILE_LABELS: Record<MapProfile, string> = {
   bicycle: "🚲 Xe đạp",
   pedestrian: "🚶 Đi bộ",
 };
+
+/** All four modes are on TomTom's free plan — the tabs if /geo/profiles cannot be read. */
+export const DEFAULT_PROFILES: MapProfile[] = ["motor_scooter", "auto", "bicycle", "pedestrian"];
+
+/** Travel modes the routing plan allows, default first (spec §6.3). */
+export async function fetchProfiles(signal?: AbortSignal): Promise<MapProfile[]> {
+  try {
+    const res = await fetch(`${getApiBase()}/geo/profiles`, { signal });
+    if (!res.ok) return DEFAULT_PROFILES;
+    const body = (await res.json()) as { profiles?: MapProfile[] };
+    return body.profiles?.length ? body.profiles : DEFAULT_PROFILES;
+  } catch (err) {
+    if ((err as Error).name === "AbortError") throw err;
+    return DEFAULT_PROFILES;
+  }
+}
 
 // ---------- geocoding ----------
 
@@ -45,65 +74,75 @@ export interface Endpoint {
   label: string;
 }
 
-export function parseGeocoding(json: unknown): Place[] {
-  const features = (json as { features?: unknown } | null)?.features;
-  if (!Array.isArray(features)) return [];
-  return features.flatMap((f) => {
-    const feat = f as { center?: unknown; text?: unknown; place_name?: unknown; place_type?: unknown };
-    const c = feat.center;
-    if (!Array.isArray(c) || typeof c[0] !== "number" || typeof c[1] !== "number") return [];
-    const address = typeof feat.place_name === "string" ? feat.place_name : "";
-    const label = typeof feat.text === "string" && feat.text ? feat.text : address;
-    const category =
-      Array.isArray(feat.place_type) && typeof feat.place_type[0] === "string" ? feat.place_type[0] : undefined;
-    return [{ label, address, category, lat: c[1], lon: c[0] }];
-  });
+/** One autocomplete row; its position is fetched only when picked (Places Details is 5K/month). */
+export interface Suggestion {
+  ref: string;
+  title: string;
+  subtitle: string;
+  type: string;
 }
 
+export type SuggestResult =
+  | { ok: true; suggestions: Suggestion[] }
+  | { ok: false; reason: "quota" | "unavailable" };
+
 /** `near` is rounded to ~1 km before it leaves the browser (spec §6.5). */
-export async function searchPlaces(
+export async function suggestPlaces(
   query: string,
   near: { lat: number; lon: number } | null,
   signal?: AbortSignal,
-): Promise<Place[]> {
-  const params = new URLSearchParams({ key: MAPTILER_KEY, language: "vi", limit: "6", autocomplete: "true" });
-  if (near) params.set("proximity", `${near.lon.toFixed(2)},${near.lat.toFixed(2)}`);
-  const res = await fetch(`https://api.maptiler.com/geocoding/${encodeURIComponent(query)}.json?${params}`, { signal });
-  if (!res.ok) throw new Error(`geocoding HTTP ${res.status}`);
-  return parseGeocoding(await res.json());
+): Promise<SuggestResult> {
+  const params = new URLSearchParams({ q: query });
+  if (near) {
+    params.set("lat", near.lat.toFixed(2));
+    params.set("lon", near.lon.toFixed(2));
+  }
+  const res = await fetch(`${getApiBase()}/geo/suggest?${params}`, { signal });
+  if (res.status === 429) return { ok: false, reason: "quota" };
+  if (!res.ok) return { ok: false, reason: "unavailable" };
+  const body = (await res.json()) as { suggestions?: Suggestion[] };
+  return { ok: true, suggestions: body.suggestions ?? [] };
+}
+
+export async function resolvePlace(s: Suggestion, signal?: AbortSignal): Promise<Place | null> {
+  const res = await fetch(`${getApiBase()}/geo/place?${new URLSearchParams({ ref: s.ref })}`, { signal });
+  if (!res.ok) return null;
+  const { lat, lon } = (await res.json()) as { lat: number; lon: number };
+  return { label: s.title, address: s.subtitle, category: s.type || undefined, lat, lon };
 }
 
 export async function reverseGeocode(lat: number, lon: number, signal?: AbortSignal): Promise<Place | null> {
-  const params = new URLSearchParams({ key: MAPTILER_KEY, language: "vi" });
-  const res = await fetch(`https://api.maptiler.com/geocoding/${lon},${lat}.json?${params}`, { signal });
+  const res = await fetch(`${getApiBase()}/geo/reverse?${new URLSearchParams({ lat: String(lat), lon: String(lon) })}`, { signal });
   if (!res.ok) return null;
-  return parseGeocoding(await res.json())[0] ?? null;
+  const { address } = (await res.json()) as { address: string | null };
+  return address ? { label: address, address, lat, lon } : null;
 }
 
 // ---------- routing ----------
 
 export interface Maneuver {
   instruction: string;
-  type: number;
+  /** TomTom maneuver code (e.g. "TURN_RIGHT"); kept for a future turn icon. */
+  maneuver: string;
   distance_m: number;
   duration_s: number;
+  /** Index into `Route.coordinates` where this maneuver starts. */
   begin_shape_index: number;
-}
-
-export interface RouteLeg {
-  shape: string;
-  maneuvers: Maneuver[];
 }
 
 export interface Route {
   distance_m: number;
   duration_s: number;
-  legs: RouteLeg[];
+  /** Extra time from current traffic (TomTom). */
+  traffic_delay_s: number;
+  /** [lon, lat] pairs — GeoJSON order, ready for a LineString. */
+  coordinates: [number, number][];
+  maneuvers: Maneuver[];
 }
 
 export type RouteResult =
   | { ok: true; routes: Route[] }
-  | { ok: false; reason: "unavailable" | "no_route" | "error" };
+  | { ok: false; reason: "unavailable" | "no_route" | "unsupported" | "quota" | "error" };
 
 export async function fetchRoute(stops: Endpoint[], profile: MapProfile, signal?: AbortSignal): Promise<RouteResult> {
   let res: Response;
@@ -120,59 +159,29 @@ export async function fetchRoute(stops: Endpoint[], profile: MapProfile, signal?
     return { ok: false, reason: "unavailable" };
   }
   if (res.status === 503) return { ok: false, reason: "unavailable" };
+  if (res.status === 429) return { ok: false, reason: "quota" };
   if (!res.ok) {
     const body = (await res.json().catch(() => null)) as { error?: string } | null;
-    return { ok: false, reason: body?.error === "no_route" ? "no_route" : "error" };
+    if (body?.error === "no_route") return { ok: false, reason: "no_route" };
+    if (body?.error === "unsupported_profile") return { ok: false, reason: "unsupported" };
+    return { ok: false, reason: "error" };
   }
   const body = (await res.json()) as { routes?: Route[] };
   return { ok: true, routes: body.routes ?? [] };
 }
 
-/** Valhalla's encoded polyline (precision 6) → [lon, lat] pairs, GeoJSON order. */
-export function decodePolyline6(encoded: string): [number, number][] {
-  const out: [number, number][] = [];
-  let index = 0;
-  let lat = 0;
-  let lon = 0;
-  while (index < encoded.length) {
-    for (let axis = 0; axis < 2; axis++) {
-      let result = 0;
-      let shift = 0;
-      let byte: number;
-      do {
-        byte = encoded.charCodeAt(index++) - 63;
-        result |= (byte & 0x1f) << shift;
-        shift += 5;
-      } while (byte >= 0x20);
-      const delta = result & 1 ? ~(result >> 1) : result >> 1;
-      if (axis === 0) lat += delta;
-      else lon += delta;
-    }
-    out.push([lon / 1e6, lat / 1e6]);
-  }
-  return out;
+/** Where maneuver `i` happens. */
+export function maneuverCoordinate(route: Route, i: number): [number, number] | null {
+  const m = route.maneuvers[i];
+  return m ? (route.coordinates[m.begin_shape_index] ?? null) : null;
 }
 
-export function routeCoordinates(route: Route): [number, number][] {
-  return route.legs.flatMap((leg) => decodePolyline6(leg.shape));
-}
-
-/** Where one maneuver happens — `begin_shape_index` is relative to its own leg. */
-export function maneuverCoordinate(route: Route, legIndex: number, maneuverIndex: number): [number, number] | null {
-  const leg = route.legs[legIndex];
-  const m = leg?.maneuvers[maneuverIndex];
-  if (!m) return null;
-  return decodePolyline6(leg.shape)[m.begin_shape_index] ?? null;
-}
-
-/** The stretch one step covers: its maneuver up to the next one (or the leg's end). */
-export function stepCoordinates(route: Route, legIndex: number, maneuverIndex: number): [number, number][] {
-  const leg = route.legs[legIndex];
-  const m = leg?.maneuvers[maneuverIndex];
+/** The stretch step `i` covers: its maneuver up to the next one (or the end). */
+export function stepCoordinates(route: Route, i: number): [number, number][] {
+  const m = route.maneuvers[i];
   if (!m) return [];
-  const coords = decodePolyline6(leg.shape);
-  const end = leg.maneuvers[maneuverIndex + 1]?.begin_shape_index ?? coords.length - 1;
-  return coords.slice(m.begin_shape_index, end + 1);
+  const end = route.maneuvers[i + 1]?.begin_shape_index ?? route.coordinates.length - 1;
+  return route.coordinates.slice(m.begin_shape_index, end + 1);
 }
 
 export function formatDistance(meters: number): string {

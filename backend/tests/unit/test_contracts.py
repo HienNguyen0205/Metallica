@@ -223,7 +223,7 @@ def test_map_view_matches_canonical_schema() -> None:
     assert "map" in VizData.model_fields
     profiles = schema["definitions"]["MapRoute"]["properties"]["profile"]["enum"]
     assert list(get_args(MapRoute.model_fields["profile"].annotation)) == profiles
-    assert MapRoute.model_fields["profile"].default == "motor_scooter"
+    assert MapRoute.model_fields["profile"].default == "auto"
 
 
 if __name__ == "__main__":

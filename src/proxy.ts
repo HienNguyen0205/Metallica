@@ -23,12 +23,12 @@ export function proxy(request: NextRequest) {
   const nonce = Buffer.from(crypto.randomUUID()).toString("base64");
   // React dev uses eval for server-error reconstruction; production never does.
   const isDev = process.env.NODE_ENV === "development";
-  // img-src/worker-src: MapLibre sprites from MapTiler and its blob-module worker (spec §4.4).
+  // img-src/worker-src: MapLibre sprites from TomTom and its blob-module worker (spec §4.4).
   const cspHeader = `
     default-src 'self';
     script-src 'self' 'nonce-${nonce}'${isDev ? " 'unsafe-eval'" : ""};
     style-src 'self' 'unsafe-inline';
-    img-src 'self' data: blob: https://api.maptiler.com;
+    img-src 'self' data: blob: https://api.tomtom.com;
     worker-src 'self' blob:;
     font-src 'self' data:;
     connect-src 'self' https: http://localhost:8000 http://127.0.0.1:8123;
