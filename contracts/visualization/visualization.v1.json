@@ -114,7 +114,7 @@
       "type": "object",
       "required": ["waypoints"],
       "properties": {
-        "profile": { "type": "string", "enum": ["auto", "motor_scooter", "bicycle", "pedestrian"], "default": "motor_scooter" },
+        "profile": { "type": "string", "enum": ["auto", "motor_scooter", "bicycle", "pedestrian"], "default": "auto" },
         "waypoints": {
           "type": "array",
           "minItems": 2,

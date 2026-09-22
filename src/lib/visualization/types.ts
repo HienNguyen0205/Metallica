@@ -66,7 +66,7 @@ export interface GlobeRoute {
   latencyMs?: number;
   status?: "healthy" | "warning" | "critical";
 }
-/** Travel mode for a map route — Valhalla costing names (spec §5). */
+/** Travel mode for a map route (spec §5); the backend maps these to GraphHopper profiles. */
 export type MapProfile = "auto" | "motor_scooter" | "bicycle" | "pedestrian";
 
 export interface MapWaypoint {
