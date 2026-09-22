@@ -150,7 +150,9 @@ class Decision(BaseModel):
 
 
 class RouteRequest(BaseModel):
-    """POST /geo/route — validated here so Valhalla only sees sane input."""
+    """POST /geo/route — validated here so GraphHopper only sees sane input
+    (and no credit is spent on a request that could never succeed)."""
 
     waypoints: list[LatLon] = Field(min_length=2, max_length=5)
-    profile: Literal["auto", "motor_scooter", "bicycle", "pedestrian"] = "motor_scooter"
+    #: None = the plan's default travel mode (see geo/graphhopper.py).
+    profile: Literal["auto", "motor_scooter", "bicycle", "pedestrian"] | None = None

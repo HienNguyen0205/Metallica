@@ -1,4 +1,4 @@
-"""POST /geo/route — validation, error mapping, origin guard.
+"""POST /geo/route and GET /geo/profiles — validation, errors, origin guard.
 
     PYTHONPATH=. python tests/integration/test_geo_route.py
 """
@@ -9,39 +9,39 @@ os.environ["FRIDAY_ALLOWED_ORIGINS"] = "http://localhost:3000"
 
 from fastapi.testclient import TestClient
 
-from friday.geo import valhalla
+from friday.geo import graphhopper as gh
 from friday.main import app
 
 client = TestClient(app)
 A = {"lat": 21.0288, "lon": 105.8525}
 B = {"lat": 21.0368, "lon": 105.8346}
-ROUTE = {"routes": [{"distance_m": 2400, "duration_s": 540, "legs": []}]}
+ROUTE = {"routes": [{"distance_m": 2412, "duration_s": 545, "coordinates": [], "maneuvers": []}]}
+ORIGINAL = gh.route
 
 
 def fake_route(result=None, exc=None):
     calls = []
 
-    async def route(waypoints, profile="motor_scooter", alternates=2, language="vi-VN"):
+    async def route(waypoints, profile=None, locale="vi"):
         calls.append((waypoints, profile))
         if exc is not None:
             raise exc
         return result
 
-    valhalla.route = route
+    gh.route = route
     return calls
 
 
-ORIGINAL = valhalla.route
-
-
-def test_happy_path_defaults_to_motorbike() -> None:
+def test_happy_path_passes_the_profile_through() -> None:
     calls = fake_route(ROUTE)
     try:
         res = client.post("/geo/route", json={"waypoints": [A, B]})
+        client.post("/geo/route", json={"waypoints": [A, B], "profile": "bicycle"})
     finally:
-        valhalla.route = ORIGINAL
+        gh.route = ORIGINAL
     assert res.status_code == 200 and res.json() == ROUTE, res.text
-    assert calls == [([A, B], "motor_scooter")]
+    # no profile → the client picks the plan's default
+    assert calls == [([A, B], None), ([A, B], "bicycle")]
 
 
 def test_validation() -> None:
@@ -56,19 +56,30 @@ def test_validation() -> None:
         ):
             assert client.post("/geo/route", json=body).status_code == 422, body
     finally:
-        valhalla.route = ORIGINAL
+        gh.route = ORIGINAL
 
 
 def test_error_mapping() -> None:
-    fake_route(exc=valhalla.RoutingUnavailable("VALHALLA_URL is not set"))
     try:
-        res = client.post("/geo/route", json={"waypoints": [A, B]})
-        assert res.status_code == 503 and res.json() == {"error": "routing_unavailable"}, res.text
-        fake_route(exc=valhalla.NoRoute("No path could be found for input"))
-        res = client.post("/geo/route", json={"waypoints": [A, B]})
-        assert res.status_code == 422 and res.json() == {"error": "no_route"}, res.text
+        for exc, status, body in (
+            (gh.RoutingUnavailable("no key"), 503, {"error": "routing_unavailable"}),
+            (gh.NoRoute("Connection between locations not found"), 422, {"error": "no_route"}),
+            (gh.UnsupportedProfile("motor_scooter"), 422, {"error": "unsupported_profile"}),
+        ):
+            fake_route(exc=exc)
+            res = client.post("/geo/route", json={"waypoints": [A, B]})
+            assert res.status_code == status and res.json() == body, res.text
     finally:
-        valhalla.route = ORIGINAL
+        gh.route = ORIGINAL
+
+
+def test_profiles_endpoint() -> None:
+    old = os.environ.pop("GRAPHHOPPER_PROFILES", None)
+    try:
+        assert client.get("/geo/profiles").json() == {"profiles": ["auto", "bicycle", "pedestrian"]}
+    finally:
+        if old is not None:
+            os.environ["GRAPHHOPPER_PROFILES"] = old
 
 
 def test_origin_guard() -> None:
@@ -76,7 +87,7 @@ def test_origin_guard() -> None:
     try:
         res = client.post("/geo/route", json={"waypoints": [A, B]}, headers={"origin": "https://evil.example"})
     finally:
-        valhalla.route = ORIGINAL
+        gh.route = ORIGINAL
     assert res.status_code == 403
 
 

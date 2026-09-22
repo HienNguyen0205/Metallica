@@ -17,7 +17,7 @@ from friday.api import dependencies as deps
 from friday.api.dependencies import PENDING, PENDING_OWNERS, guard, require_known_origin
 from friday.api.schemas import ClientContext, Decision, Query, RouteRequest, RunBudget
 from friday.core.config import settings
-from friday.geo import valhalla
+from friday.geo import graphhopper
 from friday.events.serializer import sse, sse_envelope
 from friday.memory import consolidate
 from friday.memory import embed as embed_mod
@@ -655,17 +655,25 @@ async def audit_endpoint(run_id: str | None = None, limit: int = 100,
     return {"events": scoped}
 
 
+@router.get("/geo/profiles", dependencies=[Depends(require_known_origin)])
+async def geo_profiles() -> dict[str, Any]:
+    """Travel modes the routing plan allows, default first — the map's tabs."""
+    return {"profiles": graphhopper.available_profiles()}
+
+
 @router.post("/geo/route", dependencies=[Depends(require_known_origin)])
 async def geo_route(body: RouteRequest) -> Any:
-    """Spec §6.3 — one route question for the map UI and nothing else.
-    No model call behind it, so the origin gate is the only guard needed."""
+    """Spec §6.3 — one route question for the map UI. No model call behind
+    it; the origin gate plus the client's cache guard the credit budget."""
     try:
-        # Looked up on the module so tests can swap valhalla.route.
-        return await valhalla.route([w.model_dump() for w in body.waypoints], body.profile)
-    except valhalla.RoutingUnavailable:
+        # Looked up on the module so tests can swap graphhopper.route.
+        return await graphhopper.route([w.model_dump() for w in body.waypoints], body.profile)
+    except graphhopper.RoutingUnavailable:
         return JSONResponse(status_code=503, content={"error": "routing_unavailable"})
-    except valhalla.NoRoute:
+    except graphhopper.NoRoute:
         return JSONResponse(status_code=422, content={"error": "no_route"})
+    except graphhopper.UnsupportedProfile:
+        return JSONResponse(status_code=422, content={"error": "unsupported_profile"})
 
 
 @router.get("/health")
