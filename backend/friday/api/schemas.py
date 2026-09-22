@@ -150,9 +150,8 @@ class Decision(BaseModel):
 
 
 class RouteRequest(BaseModel):
-    """POST /geo/route — validated here so GraphHopper only sees sane input
-    (and no credit is spent on a request that could never succeed)."""
+    """POST /geo/route — validated here so TomTom only sees sane input (and no request is spent on one that could never succeed)."""
 
     waypoints: list[LatLon] = Field(min_length=2, max_length=5)
-    #: None = the plan's default travel mode (see geo/graphhopper.py).
+    #: None = the default travel mode (motorbike; see geo/tomtom.py).
     profile: Literal["auto", "motor_scooter", "bicycle", "pedestrian"] | None = None

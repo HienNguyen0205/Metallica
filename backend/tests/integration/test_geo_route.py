@@ -1,4 +1,4 @@
-"""POST /geo/route and GET /geo/profiles — validation, errors, origin guard.
+"""The /geo/* proxy endpoints — validation, error mapping, origin guard.
 
     PYTHONPATH=. python tests/integration/test_geo_route.py
 """
@@ -9,86 +9,102 @@ os.environ["FRIDAY_ALLOWED_ORIGINS"] = "http://localhost:3000"
 
 from fastapi.testclient import TestClient
 
-from friday.geo import graphhopper as gh
+from friday.geo import tomtom as tt
 from friday.main import app
 
 client = TestClient(app)
 A = {"lat": 21.0288, "lon": 105.8525}
 B = {"lat": 21.0368, "lon": 105.8346}
-ROUTE = {"routes": [{"distance_m": 2412, "duration_s": 545, "coordinates": [], "maneuvers": []}]}
-ORIGINAL = gh.route
+ROUTE = {"routes": [{"distance_m": 2412, "duration_s": 545, "traffic_delay_s": 0, "coordinates": [], "maneuvers": []}]}
+NAMES = ("suggest", "place", "reverse", "route")
+ORIGINAL = {n: getattr(tt, n) for n in NAMES}
 
 
-def fake_route(result=None, exc=None):
+def fake(name, result=None, exc=None):
     calls = []
 
-    async def route(waypoints, profile=None, locale="vi"):
-        calls.append((waypoints, profile))
+    async def fn(*args, **kwargs):
+        calls.append(args)
         if exc is not None:
             raise exc
         return result
 
-    gh.route = route
+    setattr(tt, name, fn)
     return calls
 
 
-def test_happy_path_passes_the_profile_through() -> None:
-    calls = fake_route(ROUTE)
+def restore():
+    for n, fn in ORIGINAL.items():
+        setattr(tt, n, fn)
+
+
+def test_suggest() -> None:
+    calls = fake("suggest", [{"ref": "pois/hg", "title": "Hồ Gươm", "subtitle": "", "type": "poi"}])
+    try:
+        res = client.get("/geo/suggest", params={"q": "hồ g", "lat": 21.03, "lon": 105.85})
+        assert res.status_code == 200 and res.json()["suggestions"][0]["ref"] == "pois/hg", res.text
+        assert calls == [("hồ g", (21.03, 105.85))]
+        assert client.get("/geo/suggest", params={"q": "hồ"}).status_code == 422  # < 3 chars
+        client.get("/geo/suggest", params={"q": "hồ gươm"})
+        assert calls[-1] == ("hồ gươm", None)
+    finally:
+        restore()
+
+
+def test_place_and_reverse() -> None:
+    fake("place", {"lat": 21.0288, "lon": 105.8525})
+    fake("reverse", "Hoàn Kiếm, Hà Nội")
+    try:
+        assert client.get("/geo/place", params={"ref": "pois/hg"}).json() == {"lat": 21.0288, "lon": 105.8525}
+        assert client.get("/geo/place", params={"ref": "../x"}).status_code == 422
+        assert client.get("/geo/reverse", params={"lat": 21.0288, "lon": 105.8525}).json() == {"address": "Hoàn Kiếm, Hà Nội"}
+        assert client.get("/geo/reverse", params={"lat": 91, "lon": 0}).status_code == 422
+    finally:
+        restore()
+
+
+def test_route_defaults_to_the_plans_mode() -> None:
+    calls = fake("route", ROUTE)
     try:
         res = client.post("/geo/route", json={"waypoints": [A, B]})
-        client.post("/geo/route", json={"waypoints": [A, B], "profile": "bicycle"})
-    finally:
-        gh.route = ORIGINAL
-    assert res.status_code == 200 and res.json() == ROUTE, res.text
-    # no profile → the client picks the plan's default
-    assert calls == [([A, B], None), ([A, B], "bicycle")]
-
-
-def test_validation() -> None:
-    fake_route(ROUTE)
-    try:
-        for body in (
-            {"waypoints": [A]},
-            {"waypoints": [A, B, A, B, A, B]},
-            {"waypoints": [{"lat": 91, "lon": 0}, B]},
-            {"waypoints": [A, {"lat": 0, "lon": 181}]},
-            {"waypoints": [A, B], "profile": "rocket"},
-        ):
+        assert res.status_code == 200 and res.json() == ROUTE, res.text
+        assert calls == [([A, B], None)]
+        for body in ({"waypoints": [A]}, {"waypoints": [A, B], "profile": "rocket"}):
             assert client.post("/geo/route", json=body).status_code == 422, body
     finally:
-        gh.route = ORIGINAL
+        restore()
 
 
 def test_error_mapping() -> None:
     try:
-        for exc, status, body in (
-            (gh.RoutingUnavailable("no key"), 503, {"error": "routing_unavailable"}),
-            (gh.NoRoute("Connection between locations not found"), 422, {"error": "no_route"}),
-            (gh.UnsupportedProfile("motor_scooter"), 422, {"error": "unsupported_profile"}),
-        ):
-            fake_route(exc=exc)
-            res = client.post("/geo/route", json={"waypoints": [A, B]})
-            assert res.status_code == status and res.json() == body, res.text
+        cases = (
+            ("route", lambda: client.post("/geo/route", json={"waypoints": [A, B]}), tt.TomTomUnavailable("no key"), 503, {"error": "routing_unavailable"}),
+            ("route", lambda: client.post("/geo/route", json={"waypoints": [A, B]}), tt.QuotaExceeded(), 429, {"error": "quota_exceeded"}),
+            ("route", lambda: client.post("/geo/route", json={"waypoints": [A, B]}), tt.NoRoute("x"), 422, {"error": "no_route"}),
+            ("suggest", lambda: client.get("/geo/suggest", params={"q": "abc"}), tt.QuotaExceeded(), 429, {"error": "quota_exceeded"}),
+            ("reverse", lambda: client.get("/geo/reverse", params={"lat": 1, "lon": 2}), tt.TomTomUnavailable("x"), 503, {"error": "unavailable"}),
+            ("place", lambda: client.get("/geo/place", params={"ref": "pois/x"}), tt.TomTomUnavailable("x"), 503, {"error": "unavailable"}),
+        )
+        for name, call, exc, status, body in cases:
+            fake(name, exc=exc)
+            res = call()
+            assert res.status_code == status and res.json() == body, (name, res.status_code, res.text)
     finally:
-        gh.route = ORIGINAL
+        restore()
 
 
-def test_profiles_endpoint() -> None:
-    old = os.environ.pop("GRAPHHOPPER_PROFILES", None)
-    try:
-        assert client.get("/geo/profiles").json() == {"profiles": ["auto", "bicycle", "pedestrian"]}
-    finally:
-        if old is not None:
-            os.environ["GRAPHHOPPER_PROFILES"] = old
+def test_profiles_are_all_four() -> None:
+    assert client.get("/geo/profiles").json() == {"profiles": ["motor_scooter", "auto", "bicycle", "pedestrian"]}
 
 
 def test_origin_guard() -> None:
-    fake_route(ROUTE)
+    fake("route", ROUTE)
     try:
-        res = client.post("/geo/route", json={"waypoints": [A, B]}, headers={"origin": "https://evil.example"})
+        evil = {"origin": "https://evil.example"}
+        assert client.post("/geo/route", json={"waypoints": [A, B]}, headers=evil).status_code == 403
+        assert client.get("/geo/suggest", params={"q": "abc"}, headers=evil).status_code == 403
     finally:
-        gh.route = ORIGINAL
-    assert res.status_code == 403
+        restore()
 
 
 if __name__ == "__main__":
