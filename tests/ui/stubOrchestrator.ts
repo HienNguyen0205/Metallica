@@ -166,7 +166,7 @@ export const GROUPED_BAR_FLOW: StubEvent[] = [
   { event: "done", data: {}, after: 20 },
 ];
 
-/** get_directions as the backend streams it: the map preview is also the final spec. */
+/** get_directions as the backend streams it on GraphHopper's free plan (default mode = car): the map preview is also the final spec. */
 const MAP_ROUTE_SPEC = {
   type: "map",
   title: "CHỈ ĐƯỜNG",
@@ -177,7 +177,7 @@ const MAP_ROUTE_SPEC = {
     ],
     map: {
       route: {
-        profile: "motor_scooter",
+        profile: "auto",
         waypoints: [
           { lat: 21.0288, lon: 105.8525, label: "Hồ Gươm" },
           { lat: 21.0368, lon: 105.8346, label: "Lăng Bác" },
@@ -195,7 +195,7 @@ export const MAP_FLOW: StubEvent[] = [
   { event: "state", data: { state: "visualizing" }, after: 150 },
   { event: "viz", data: { ...MAP_ROUTE_SPEC, animation: "materialize", interaction: "drill_down" }, after: 20 },
   { event: "state", data: { state: "speaking" }, after: 150 },
-  { event: "answer", data: { text: "Khoảng 2,4 km, chừng 9 phút đi xe máy." }, after: 20 },
+  { event: "answer", data: { text: "Khoảng 2,4 km, chừng 9 phút đi ô tô." }, after: 20 },
   { event: "done", data: {}, after: 20 },
 ];
 

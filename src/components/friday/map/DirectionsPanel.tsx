@@ -11,7 +11,6 @@ import {
   formatDistance,
   formatDuration,
   maneuverCoordinate,
-  routeCoordinates,
   stepCoordinates,
   type Endpoint,
   type Route,
@@ -19,13 +18,13 @@ import {
 
 const ROUTE_SRC = "friday-route";
 const STEP_SRC = "friday-route-step";
-const PROFILES: MapProfile[] = ["motor_scooter", "auto", "bicycle", "pedestrian"];
 
-type Status = "idle" | "loading" | "ok" | "unavailable" | "no_route" | "error";
+type Status = "idle" | "loading" | "ok" | "unavailable" | "no_route" | "unsupported" | "error";
 const STATUS_TEXT: Partial<Record<Status, string>> = {
   loading: "Đang tìm đường…",
   unavailable: "Chỉ đường chưa được cấu hình",
-  no_route: "Không tìm thấy đường đi (chỉ hỗ trợ trong Việt Nam)",
+  no_route: "Không tìm thấy đường đi",
+  unsupported: "Gói chỉ đường hiện tại không hỗ trợ phương tiện này",
   error: "Không tính được đường đi",
 };
 
@@ -37,7 +36,7 @@ function routeData(routes: Route[], selected: number): GeoJSON.FeatureCollection
     features: routes.map<Line>((r, i) => ({
       type: "Feature",
       properties: { i, selected: i === selected },
-      geometry: { type: "LineString", coordinates: routeCoordinates(r) },
+      geometry: { type: "LineString", coordinates: r.coordinates },
     })),
   };
 }
@@ -71,7 +70,7 @@ function clearRoutes(map: MlMap) {
 }
 
 function fitRoute(map: MlMap, route: Route) {
-  const coords = routeCoordinates(route);
+  const coords = route.coordinates;
   if (coords.length === 0) return;
   const lons = coords.map((c) => c[0]);
   const lats = coords.map((c) => c[1]);
@@ -88,12 +87,15 @@ function fitRoute(map: MlMap, route: Route) {
 export function DirectionsPanel({
   map,
   value,
+  profiles,
   onChange,
   onClose,
   getNear,
 }: {
   map: MlMap;
   value: DirectionsValue;
+  /** Modes the routing plan allows (GET /geo/profiles), default first. */
+  profiles: MapProfile[];
   onChange: (v: DirectionsValue) => void;
   onClose: () => void;
   getNear: () => { lat: number; lon: number } | null;
@@ -183,7 +185,8 @@ export function DirectionsPanel({
   };
   const swap = () => onChange({ ...value, stops: [...value.stops].reverse() });
   const best = routes[selected];
-  const steps = best ? best.legs.flatMap((leg, li) => leg.maneuvers.map((m, mi) => ({ m, li, mi }))) : [];
+  // An agent may ask for a mode the plan lacks; show its tab so the state is honest.
+  const tabs = profiles.includes(value.profile) ? profiles : [...profiles, value.profile];
   const last = value.stops.length - 1;
 
   return (
@@ -200,7 +203,7 @@ export function DirectionsPanel({
       </div>
 
       <div role="tablist" aria-label="Phương tiện" className="mb-3 flex gap-1">
-        {PROFILES.map((p) => (
+        {tabs.map((p) => (
           <button
             key={p}
             type="button"
@@ -252,14 +255,14 @@ export function DirectionsPanel({
             </div>
           )}
           <ol className="mt-3 flex-1 overflow-auto border-t border-cyan-400/15 pt-2">
-            {steps.map(({ m, li, mi }) => (
+            {best.maneuvers.map((m, i) => (
               <li
-                key={`${li}-${mi}`}
+                key={i}
                 className="cursor-pointer rounded px-2 py-1.5 text-sm hover:bg-cyan-400/10"
-                onMouseEnter={() => setStep(stepCoordinates(best, li, mi))}
+                onMouseEnter={() => setStep(stepCoordinates(best, i))}
                 onMouseLeave={() => setStep([])}
                 onClick={() => {
-                  const at = maneuverCoordinate(best, li, mi);
+                  const at = maneuverCoordinate(best, i);
                   if (at) map.flyTo({ center: at, zoom: Math.max(map.getZoom(), 17) });
                 }}
               >

@@ -97,22 +97,25 @@ const ROUTE = {
     {
       distance_m: 2412,
       duration_s: 545,
-      legs: [{
-        shape: "_{nbg@gdv{hEoeGvpQolF~kO",
-        maneuvers: [
-          { instruction: "Đi về hướng tây trên Đinh Tiên Hoàng.", type: 2, distance_m: 1100, duration_s: 250, begin_shape_index: 0 },
-          { instruction: "Rẽ phải vào Hùng Vương.", type: 10, distance_m: 1312, duration_s: 295, begin_shape_index: 1 },
-          { instruction: "Bạn đã đến nơi.", type: 4, distance_m: 0, duration_s: 0, begin_shape_index: 2 },
-        ],
-      }],
+      coordinates: [
+        [105.8525, 21.0288],
+        [105.843, 21.033],
+        [105.8346, 21.0368],
+      ],
+      maneuvers: [
+        { instruction: "Đi về hướng tây trên Đinh Tiên Hoàng", sign: 0, distance_m: 1100, duration_s: 250, begin_shape_index: 0 },
+        { instruction: "Rẽ phải vào Hùng Vương", sign: 2, distance_m: 1312, duration_s: 295, begin_shape_index: 1 },
+        { instruction: "Đến nơi", sign: 4, distance_m: 0, duration_s: 0, begin_shape_index: 2 },
+      ],
     },
-    { distance_m: 2900, duration_s: 610, legs: [{ shape: "_{nbg@gdv{hEoeGvpQolF~kO", maneuvers: [] }] },
+    { distance_m: 2900, duration_s: 610, coordinates: [[105.8525, 21.0288], [105.8346, 21.0368]], maneuvers: [] },
   ],
 };
 
 test("an agent route opens directions with the summary, steps and route layers", async ({ page }) => {
   await stubMapTiler(page);
   await page.route("**/geo/route", (r) => r.fulfill({ json: ROUTE }));
+  await page.route("**/geo/profiles", (r) => r.fulfill({ json: { profiles: ["auto", "bicycle", "pedestrian"] } }));
   const stub = await startStubOrchestrator(MAP_FLOW);
   try {
     await gotoLitScene(page);
@@ -123,8 +126,10 @@ test("an agent route opens directions with the summary, steps and route layers",
     const panel = page.getByTestId("directions-panel");
     await expect(page.getByTestId("directions-summary")).toContainText("9 phút");
     await expect(page.getByTestId("directions-summary")).toContainText("2,4 km");
-    await expect(panel.getByRole("tab", { name: "🛵 Xe máy" })).toHaveAttribute("aria-selected", "true");
-    await expect(panel.getByRole("listitem")).toContainText(["Rẽ phải vào Hùng Vương."]);
+    // free plan: car is selected and there is no motorbike tab
+    await expect(panel.getByRole("tab", { name: "🚗 Ô tô" })).toHaveAttribute("aria-selected", "true");
+    await expect(panel.getByRole("tab", { name: "🛵 Xe máy" })).toHaveCount(0);
+    await expect(panel.getByRole("listitem")).toContainText(["Rẽ phải vào Hùng Vương"]);
     expect(await page.evaluate(() => {
       const m = (window as unknown as { __fridayMap?: { getLayer(id: string): unknown } }).__fridayMap;
       return !!m?.getLayer("friday-route-line") && !!m?.getLayer("friday-route-casing");

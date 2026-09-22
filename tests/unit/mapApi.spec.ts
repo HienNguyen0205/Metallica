@@ -1,49 +1,35 @@
 import { test, expect } from "@playwright/test";
 import {
-  decodePolyline6,
   formatDistance,
   formatDuration,
   maneuverCoordinate,
   parseGeocoding,
-  routeCoordinates,
   stepCoordinates,
   styleUrl,
   type Route,
 } from "@/components/friday/map/mapApi";
 
-const HANOI_SHAPE = "_{nbg@gdv{hEoeGvpQolF~kO"; // Hồ Gươm → Lăng Bác, 3 points
-
-test("decodes Valhalla polyline6 into [lon, lat]", () => {
-  expect(decodePolyline6(HANOI_SHAPE)).toEqual([
+const route: Route = {
+  distance_m: 2412,
+  duration_s: 545,
+  coordinates: [
     [105.8525, 21.0288],
     [105.843, 21.033],
     [105.8346, 21.0368],
-  ]);
-  // Google's reference string, read at precision 6 instead of 5 (values /10).
-  const ref = decodePolyline6("_p~iF~ps|U_ulLnnqC_mqNvxq`@");
-  expect(ref[0][0]).toBeCloseTo(-12.02, 9);
-  expect(ref[2][1]).toBeCloseTo(4.3252, 9);
-  expect(decodePolyline6("")).toEqual([]);
-});
+  ],
+  maneuvers: [
+    { instruction: "a", sign: 0, distance_m: 1100, duration_s: 250, begin_shape_index: 0 },
+    { instruction: "b", sign: 2, distance_m: 1312, duration_s: 295, begin_shape_index: 1 },
+    { instruction: "c", sign: 4, distance_m: 0, duration_s: 0, begin_shape_index: 2 },
+  ],
+};
 
-test("route geometry spans legs and resolves maneuvers per leg", () => {
-  const route: Route = {
-    distance_m: 2400,
-    duration_s: 540,
-    legs: [
-      { shape: HANOI_SHAPE, maneuvers: [
-        { instruction: "a", type: 1, distance_m: 1, duration_s: 1, begin_shape_index: 0 },
-        { instruction: "b", type: 1, distance_m: 1, duration_s: 1, begin_shape_index: 1 },
-      ] },
-      { shape: HANOI_SHAPE, maneuvers: [{ instruction: "c", type: 4, distance_m: 0, duration_s: 0, begin_shape_index: 2 }] },
-    ],
-  };
-  expect(routeCoordinates(route)).toHaveLength(6);
-  expect(maneuverCoordinate(route, 0, 1)).toEqual([105.843, 21.033]);
-  expect(maneuverCoordinate(route, 1, 0)).toEqual([105.8346, 21.0368]);
-  // a step runs from its maneuver to the next one (or the end of the leg)
-  expect(stepCoordinates(route, 0, 0)).toEqual([[105.8525, 21.0288], [105.843, 21.033]]);
-  expect(stepCoordinates(route, 0, 1)).toEqual([[105.843, 21.033], [105.8346, 21.0368]]);
+test("maneuvers resolve to their point and the stretch up to the next one", () => {
+  expect(maneuverCoordinate(route, 1)).toEqual([105.843, 21.033]);
+  expect(maneuverCoordinate(route, 9)).toBeNull();
+  expect(stepCoordinates(route, 0)).toEqual([[105.8525, 21.0288], [105.843, 21.033]]);
+  expect(stepCoordinates(route, 1)).toEqual([[105.843, 21.033], [105.8346, 21.0368]]);
+  expect(stepCoordinates(route, 2)).toEqual([[105.8346, 21.0368]]);
 });
 
 test("parses MapTiler features and skips ones without a center", () => {

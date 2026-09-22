@@ -1,7 +1,7 @@
 /**
  * Everything the map talks to (spec §4.3): MapTiler styles + geocoding
- * (browser key, origin-restricted) and the orchestrator's /geo/route.
- * Pure helpers (decode, format, parse) are unit-tested.
+ * (browser key, origin-restricted) and the orchestrator's /geo/route and /geo/profiles (the GraphHopper key stays on the server).
+ * Pure helpers (parse, step geometry, format) are unit-tested.
  */
 import { getApiBase } from "@/lib/api/session";
 import type { MapProfile } from "@/lib/visualization/types";
@@ -27,6 +27,22 @@ export const PROFILE_LABELS: Record<MapProfile, string> = {
   bicycle: "🚲 Xe đạp",
   pedestrian: "🚶 Đi bộ",
 };
+
+/** GraphHopper's free plan — what the tabs show if /geo/profiles cannot be read. */
+export const FREE_PLAN_PROFILES: MapProfile[] = ["auto", "bicycle", "pedestrian"];
+
+/** Travel modes the routing plan allows, default first (spec §6.3). */
+export async function fetchProfiles(signal?: AbortSignal): Promise<MapProfile[]> {
+  try {
+    const res = await fetch(`${getApiBase()}/geo/profiles`, { signal });
+    if (!res.ok) return FREE_PLAN_PROFILES;
+    const body = (await res.json()) as { profiles?: MapProfile[] };
+    return body.profiles?.length ? body.profiles : FREE_PLAN_PROFILES;
+  } catch (err) {
+    if ((err as Error).name === "AbortError") throw err;
+    return FREE_PLAN_PROFILES;
+  }
+}
 
 // ---------- geocoding ----------
 
@@ -84,26 +100,25 @@ export async function reverseGeocode(lat: number, lon: number, signal?: AbortSig
 
 export interface Maneuver {
   instruction: string;
-  type: number;
+  /** GraphHopper turn sign (-98..8); kept for a future turn icon. */
+  sign: number;
   distance_m: number;
   duration_s: number;
+  /** Index into `Route.coordinates` where this maneuver starts. */
   begin_shape_index: number;
-}
-
-export interface RouteLeg {
-  shape: string;
-  maneuvers: Maneuver[];
 }
 
 export interface Route {
   distance_m: number;
   duration_s: number;
-  legs: RouteLeg[];
+  /** [lon, lat] pairs — GeoJSON order, ready for a LineString. */
+  coordinates: [number, number][];
+  maneuvers: Maneuver[];
 }
 
 export type RouteResult =
   | { ok: true; routes: Route[] }
-  | { ok: false; reason: "unavailable" | "no_route" | "error" };
+  | { ok: false; reason: "unavailable" | "no_route" | "unsupported" | "error" };
 
 export async function fetchRoute(stops: Endpoint[], profile: MapProfile, signal?: AbortSignal): Promise<RouteResult> {
   let res: Response;
@@ -122,57 +137,26 @@ export async function fetchRoute(stops: Endpoint[], profile: MapProfile, signal?
   if (res.status === 503) return { ok: false, reason: "unavailable" };
   if (!res.ok) {
     const body = (await res.json().catch(() => null)) as { error?: string } | null;
-    return { ok: false, reason: body?.error === "no_route" ? "no_route" : "error" };
+    if (body?.error === "no_route") return { ok: false, reason: "no_route" };
+    if (body?.error === "unsupported_profile") return { ok: false, reason: "unsupported" };
+    return { ok: false, reason: "error" };
   }
   const body = (await res.json()) as { routes?: Route[] };
   return { ok: true, routes: body.routes ?? [] };
 }
 
-/** Valhalla's encoded polyline (precision 6) → [lon, lat] pairs, GeoJSON order. */
-export function decodePolyline6(encoded: string): [number, number][] {
-  const out: [number, number][] = [];
-  let index = 0;
-  let lat = 0;
-  let lon = 0;
-  while (index < encoded.length) {
-    for (let axis = 0; axis < 2; axis++) {
-      let result = 0;
-      let shift = 0;
-      let byte: number;
-      do {
-        byte = encoded.charCodeAt(index++) - 63;
-        result |= (byte & 0x1f) << shift;
-        shift += 5;
-      } while (byte >= 0x20);
-      const delta = result & 1 ? ~(result >> 1) : result >> 1;
-      if (axis === 0) lat += delta;
-      else lon += delta;
-    }
-    out.push([lon / 1e6, lat / 1e6]);
-  }
-  return out;
+/** Where maneuver `i` happens. */
+export function maneuverCoordinate(route: Route, i: number): [number, number] | null {
+  const m = route.maneuvers[i];
+  return m ? (route.coordinates[m.begin_shape_index] ?? null) : null;
 }
 
-export function routeCoordinates(route: Route): [number, number][] {
-  return route.legs.flatMap((leg) => decodePolyline6(leg.shape));
-}
-
-/** Where one maneuver happens — `begin_shape_index` is relative to its own leg. */
-export function maneuverCoordinate(route: Route, legIndex: number, maneuverIndex: number): [number, number] | null {
-  const leg = route.legs[legIndex];
-  const m = leg?.maneuvers[maneuverIndex];
-  if (!m) return null;
-  return decodePolyline6(leg.shape)[m.begin_shape_index] ?? null;
-}
-
-/** The stretch one step covers: its maneuver up to the next one (or the leg's end). */
-export function stepCoordinates(route: Route, legIndex: number, maneuverIndex: number): [number, number][] {
-  const leg = route.legs[legIndex];
-  const m = leg?.maneuvers[maneuverIndex];
+/** The stretch step `i` covers: its maneuver up to the next one (or the end). */
+export function stepCoordinates(route: Route, i: number): [number, number][] {
+  const m = route.maneuvers[i];
   if (!m) return [];
-  const coords = decodePolyline6(leg.shape);
-  const end = leg.maneuvers[maneuverIndex + 1]?.begin_shape_index ?? coords.length - 1;
-  return coords.slice(m.begin_shape_index, end + 1);
+  const end = route.maneuvers[i + 1]?.begin_shape_index ?? route.coordinates.length - 1;
+  return route.coordinates.slice(m.begin_shape_index, end + 1);
 }
 
 export function formatDistance(meters: number): string {

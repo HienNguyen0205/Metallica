@@ -11,7 +11,7 @@ import { ARRIVAL_ZOOM, HANDOFF_ZOOM, LEAVE_ZOOM } from "@/lib/mapView";
 import type { MapProfile } from "@/lib/visualization/types";
 import { STATUS_COLORS, markerLabel, statusOf } from "../visualization/globe/geo";
 import { devRailsEnabled } from "../hud/devRails";
-import { styleUrl, type Endpoint, type MapStyleId, type Place } from "./mapApi";
+import { FREE_PLAN_PROFILES, fetchProfiles, styleUrl, type Endpoint, type MapStyleId, type Place } from "./mapApi";
 import { MapSearch } from "./MapSearch";
 import { DirectionsPanel } from "./DirectionsPanel";
 import { ContextMenu, PlacePanel, myLocationEndpoint, type MenuState } from "./PlacePanel";
@@ -85,6 +85,8 @@ export default function MapStage() {
   const [buildings, setBuildings] = useState(false);
   const [place, setPlace] = useState<Place | null>(null);
   const [directions, setDirections] = useState<DirectionsValue | null>(null);
+  // Modes the routing plan allows, default first; free plan until the backend says otherwise.
+  const [profiles, setProfiles] = useState<MapProfile[]>(FREE_PLAN_PROFILES);
   const [menu, setMenu] = useState<MenuState | null>(null);
   const mode = useFridayStore((s) => s.mapView.mode);
   const rev = useFridayStore((s) => s.mapView.rev);
@@ -133,6 +135,12 @@ export default function MapStage() {
     const c = map?.getCenter();
     useFridayStore.getState().closeMap(c ? { lat: c.lat, lon: c.lng } : undefined);
   }, [map]);
+
+  useEffect(() => {
+    const ctrl = new AbortController();
+    fetchProfiles(ctrl.signal).then(setProfiles).catch(() => {});
+    return () => ctrl.abort();
+  }, []);
 
   useEffect(() => {
     if (!failed) return;
@@ -267,11 +275,11 @@ export default function MapStage() {
   }, [map]);
   const directionsTo = (to: Endpoint) => {
     setPlace(null);
-    setDirections((d) => ({ profile: d?.profile ?? "motor_scooter", stops: [d?.stops[0] ?? myLocationEndpoint(), to] }));
+    setDirections((d) => ({ profile: d?.profile ?? profiles[0], stops: [d?.stops[0] ?? myLocationEndpoint(), to] }));
   };
   const directionsFrom = (from: Endpoint) => {
     setPlace(null);
-    setDirections((d) => ({ profile: d?.profile ?? "motor_scooter", stops: [from, d?.stops.at(-1) ?? null] }));
+    setDirections((d) => ({ profile: d?.profile ?? profiles[0], stops: [from, d?.stops.at(-1) ?? null] }));
   };
 
   // My location: blue dot, halo sized to the browser's accuracy radius.
@@ -374,7 +382,7 @@ export default function MapStage() {
           onClick={() => {
             const to = place ? { lat: place.lat, lon: place.lon, label: place.label } : null;
             setPlace(null);
-            setDirections({ profile: "motor_scooter", stops: [myLocationEndpoint(), to] });
+            setDirections({ profile: profiles[0], stops: [myLocationEndpoint(), to] });
           }}
         >
           ↱
@@ -385,7 +393,7 @@ export default function MapStage() {
         <PlacePanel place={place} onClose={() => setPlace(null)} onDirectionsTo={directionsTo} onDirectionsFrom={directionsFrom} />
       )}
       {map && directions && (
-        <DirectionsPanel map={map} value={directions} onChange={setDirections} onClose={() => setDirections(null)} getNear={getNear} />
+        <DirectionsPanel map={map} value={directions} profiles={profiles} onChange={setDirections} onClose={() => setDirections(null)} getNear={getNear} />
       )}
       {menu && (
         <ContextMenu
