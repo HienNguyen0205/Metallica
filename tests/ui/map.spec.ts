@@ -3,8 +3,9 @@ import { gotoLitScene } from "./helpers";
 import { MAP_FLOW, startStubOrchestrator } from "./stubOrchestrator";
 
 /**
- * Street map (spec 2026-09-21). api.maptiler.com is stubbed: a background-only
+ * Street map (spec 2026-09-21). api.tomtom.com is stubbed: a background-only
  * style is enough for real MapLibre to load in Chromium without the network.
+ * Search and reverse geocoding go through the orchestrator, stubbed per test.
  */
 const STYLE = {
   version: 8,
@@ -12,15 +13,23 @@ const STYLE = {
   layers: [{ id: "bg", type: "background", paint: { "background-color": "#0b1620" } }],
 };
 
-export async function stubMapTiler(page: Page, geocode: unknown = { features: [] }) {
-  await page.route("https://api.maptiler.com/maps/**", (r) => r.fulfill({ json: STYLE }));
-  await page.route("https://api.maptiler.com/geocoding/**", (r) => r.fulfill({ json: geocode }));
+export async function stubTomTom(
+  page: Page,
+  opts: { suggestions?: unknown[]; places?: Record<string, unknown>; address?: string | null } = {},
+) {
+  await page.route("https://api.tomtom.com/**", (r) => r.fulfill({ json: STYLE }));
+  await page.route("**/geo/suggest?**", (r) => r.fulfill({ json: { suggestions: opts.suggestions ?? [] } }));
+  await page.route("**/geo/place?**", (r) => {
+    const ref = new URL(r.request().url()).searchParams.get("ref") ?? "";
+    return r.fulfill({ json: opts.places?.[ref] ?? { lat: 21.0288, lon: 105.8525 } });
+  });
+  await page.route("**/geo/reverse?**", (r) => r.fulfill({ json: { address: opts.address ?? null } }));
 }
 
 const layer = (page: Page) => page.getByTestId("map-layer");
 
 test("an agent map spec opens the map; Esc hands back to the globe", async ({ page }) => {
-  await stubMapTiler(page);
+  await stubTomTom(page);
   await page.goto("/?viz=map");
   await expect(layer(page)).toHaveAttribute("data-mode", "map", { timeout: 20_000 });
   await expect(page.locator("html")).toHaveAttribute("data-map", "on");
@@ -30,7 +39,7 @@ test("an agent map spec opens the map; Esc hands back to the globe", async ({ pa
 });
 
 test("zooming the globe past its limit hands off to the map", async ({ page }) => {
-  await stubMapTiler(page);
+  await stubTomTom(page);
   await gotoLitScene(page);
   await page.click(`#viz-rail button:has-text("GLOBE")`);
   await page.waitForTimeout(2000);
@@ -47,21 +56,14 @@ test("zooming the globe past its limit hands off to the map", async ({ page }) =
 
 test("reduced motion shortens the handoff to a quick fade", async ({ page }) => {
   await page.emulateMedia({ reducedMotion: "reduce" });
-  await stubMapTiler(page);
+  await stubTomTom(page);
   await page.goto("/?viz=map");
   await expect(layer(page)).toHaveAttribute("data-mode", "map", { timeout: 20_000 });
   expect(await layer(page).evaluate((el) => getComputedStyle(el).transitionDuration)).toBe("0.15s");
 });
 
-const GEOCODE = {
-  features: [
-    { text: "Hồ Gươm", place_name: "Hồ Gươm, Hoàn Kiếm, Hà Nội", center: [105.8525, 21.0288], place_type: ["poi"] },
-    { text: "Hồ Tây", place_name: "Hồ Tây, Tây Hồ, Hà Nội", center: [105.8194, 21.0583], place_type: ["poi"] },
-  ],
-};
-
 test("search autocompletes, picks with the keyboard and opens the place card", async ({ page }) => {
-  await stubMapTiler(page, GEOCODE);
+  await stubTomTom(page);
   await page.goto("/?viz=map");
   await expect(layer(page)).toHaveAttribute("data-mode", "map", { timeout: 20_000 });
   const box = page.getByRole("combobox", { name: "Tìm kiếm địa điểm" });
@@ -81,7 +83,7 @@ test("search autocompletes, picks with the keyboard and opens the place card", a
 });
 
 test("right-click offers directions from/to and what's here", async ({ page }) => {
-  await stubMapTiler(page, GEOCODE);
+  await stubTomTom(page);
   await page.goto("/?viz=map");
   await expect(layer(page)).toHaveAttribute("data-mode", "map", { timeout: 20_000 });
   const size = page.viewportSize()!;
@@ -113,7 +115,7 @@ const ROUTE = {
 };
 
 test("an agent route opens directions with the summary, steps and route layers", async ({ page }) => {
-  await stubMapTiler(page);
+  await stubTomTom(page);
   await page.route("**/geo/route", (r) => r.fulfill({ json: ROUTE }));
   await page.route("**/geo/profiles", (r) => r.fulfill({ json: { profiles: ["auto", "bicycle", "pedestrian"] } }));
   const stub = await startStubOrchestrator(MAP_FLOW);
@@ -144,7 +146,7 @@ test("an agent route opens directions with the summary, steps and route layers",
 });
 
 test("routing off: directions say so and the map stays usable", async ({ page }) => {
-  await stubMapTiler(page);
+  await stubTomTom(page);
   await page.route("**/geo/route", (r) => r.fulfill({ status: 503, json: { error: "routing_unavailable" } }));
   const stub = await startStubOrchestrator(MAP_FLOW);
   try {

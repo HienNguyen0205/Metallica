@@ -1,24 +1,39 @@
 /**
- * Everything the map talks to (spec §4.3): MapTiler styles + geocoding
- * (browser key, origin-restricted) and the orchestrator's /geo/route and /geo/profiles (the GraphHopper key stays on the server).
- * Pure helpers (parse, step geometry, format) are unit-tested.
+ * Everything the map talks to (spec §4.3): TomTom styles/tiles with the
+ * browser's Map-Display-only key, and the orchestrator's /geo/* endpoints for
+ * search, places, reverse geocoding and routing (the TomTom server key never
+ * reaches the browser). Pure helpers (styles, step geometry, format) are
+ * unit-tested.
  */
 import { getApiBase } from "@/lib/api/session";
 import type { MapProfile } from "@/lib/visualization/types";
 
+export const TOMTOM_MAP_KEY = process.env.NEXT_PUBLIC_TOMTOM_MAP_KEY ?? "";
+
 export const MAPTILER_KEY = process.env.NEXT_PUBLIC_MAPTILER_KEY ?? "";
 
-export type MapStyleId = "dark" | "light" | "satellite" | "terrain";
+/** Map Styles v2 resource version; confirmed against the live API in Task 0/7. */
+export const TOMTOM_STYLE_VERSION = "22.2.1-*";
 
-const STYLE_PATH: Record<MapStyleId, string> = {
-  dark: "streets-v2-dark",
-  light: "streets-v2",
-  satellite: "hybrid",
-  terrain: "outdoor-v2",
+export type MapStyleId = "dark" | "light" | "satellite";
+
+const STYLES: Record<MapStyleId, { map: string; poi: string; flow: string }> = {
+  dark: { map: "2/basic_street-dark", poi: "2/poi_dark", flow: "2/flow_relative-dark" },
+  light: { map: "2/basic_street-light", poi: "2/poi_light", flow: "2/flow_relative-light" },
+  satellite: { map: "2/hybrid_street-satellite", poi: "2/poi_dark", flow: "2/flow_relative-dark" },
 };
 
-export function styleUrl(id: MapStyleId): string {
-  return `https://api.maptiler.com/maps/${STYLE_PATH[id]}/style.json?key=${encodeURIComponent(MAPTILER_KEY)}`;
+export function styleUrl(id: MapStyleId, traffic = false): string {
+  const s = STYLES[id];
+  const params = new URLSearchParams({ key: TOMTOM_MAP_KEY, map: s.map, poi: s.poi });
+  if (traffic) params.set("traffic_flow", s.flow);
+  return `https://api.tomtom.com/style/1/style/${TOMTOM_STYLE_VERSION}?${params}`;
+}
+
+/** MapLibre `transformRequest`: TomTom tiles/sprites/glyphs named by the style may omit the key. */
+export function withTomTomKey(url: string): string {
+  if (!url.startsWith("https://api.tomtom.com/") || /[?&]key=/.test(url)) return url;
+  return `${url}${url.includes("?") ? "&" : "?"}key=${encodeURIComponent(TOMTOM_MAP_KEY)}`;
 }
 
 export const PROFILE_LABELS: Record<MapProfile, string> = {

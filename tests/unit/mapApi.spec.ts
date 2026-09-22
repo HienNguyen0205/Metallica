@@ -6,6 +6,7 @@ import {
   parseGeocoding,
   stepCoordinates,
   styleUrl,
+  withTomTomKey,
   type Route,
 } from "@/components/friday/map/mapApi";
 
@@ -56,7 +57,17 @@ test("formats distance and duration the Vietnamese way", () => {
   expect(formatDuration(5400)).toBe("1 giờ 30 phút");
 });
 
-test("style URLs point at MapTiler maps", () => {
-  expect(styleUrl("dark")).toContain("https://api.maptiler.com/maps/streets-v2-dark/style.json?key=");
-  expect(styleUrl("satellite")).toContain("/maps/hybrid/");
+test("style URLs point at TomTom Map Styles v2, with traffic on demand", () => {
+  const dark = styleUrl("dark");
+  expect(dark).toContain("https://api.tomtom.com/style/1/style/");
+  expect(decodeURIComponent(dark)).toContain("map=2/basic_street-dark");
+  expect(dark).not.toContain("traffic_flow");
+  expect(decodeURIComponent(styleUrl("light", true))).toContain("traffic_flow=2/flow_relative-light");
+});
+
+test("TomTom resource URLs get the map key; others are untouched", () => {
+  expect(withTomTomKey("https://api.tomtom.com/map/1/tile/basic/main/1/0/0.pbf")).toMatch(/\?key=/);
+  expect(withTomTomKey("https://api.tomtom.com/x.json?a=1")).toMatch(/&key=/);
+  expect(withTomTomKey("https://api.tomtom.com/x.json?key=abc")).toBe("https://api.tomtom.com/x.json?key=abc");
+  expect(withTomTomKey("https://example.com/x.png")).toBe("https://example.com/x.png");
 });
