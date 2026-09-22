@@ -14,10 +14,12 @@ export interface LayoutContext {
  * Deterministic spatial layout resolver.
  * No CSS grid — positions are in world units around the central core.
  */
+
 /** Entries drawn in the 3D scene — a `map` spec renders in the DOM map layer, never here. */
 export function sceneEntries<T extends Pick<VisualizationEntry, "spec">>(entries: T[]): T[] {
   return entries.filter((e) => e.spec.type !== "map");
 }
+
 export function resolveVisualizationLayout(
   spec: VisualizationSpec,
   ctx: LayoutContext,

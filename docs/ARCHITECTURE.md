@@ -430,7 +430,7 @@ size during the crossfade.
   itself from `POST /geo/route` on the orchestrator, which validates the
   waypoints and proxies to a local Valhalla. Directions need `VALHALLA_URL`;
   unset, the map draws the pins and reports routing as unconfigured.
-- **Preview pinning** (same rule as §18 above): `find_place` and
+- **Preview pinning** (see the preview-pinning comment in backend/friday/api/routes.py): `find_place` and
   `get_directions` (`risk="low"`, `geo.read`) declare deterministic previews,
   and the planner is pinned to the preview's `map` type so the street map
   cannot flicker into a gauge on the final plan.
