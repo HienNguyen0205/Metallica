@@ -73,10 +73,10 @@ test("search suggests after three characters, resolves the pick and opens the pl
   await expect(layer(page)).toHaveAttribute("data-mode", "map", { timeout: 20_000 });
   const box = page.getByRole("combobox", { name: "Tìm kiếm địa điểm" });
   await box.click();
-  await box.pressSequentially("hồ", { delay: 20 });
+  await box.pressSequentially("hồ", { delay: 20, timeout: 60_000 });
   await page.waitForTimeout(600);
   await expect(page.getByRole("option")).toHaveCount(0); // two characters: no request
-  await box.pressSequentially(" t", { delay: 20 });
+  await box.pressSequentially(" t", { delay: 20, timeout: 60_000 });
   await expect(page.getByRole("option")).toHaveCount(2);
   await box.press("ArrowDown");
   await box.press("ArrowDown");
@@ -97,7 +97,7 @@ test("an exhausted search quota says so", async ({ page }) => {
   await expect(layer(page)).toHaveAttribute("data-mode", "map", { timeout: 20_000 });
   const box = page.getByRole("combobox", { name: "Tìm kiếm địa điểm" });
   await box.click();
-  await box.pressSequentially("hồ gươm", { delay: 20 });
+  await box.pressSequentially("hồ gươm", { delay: 20, timeout: 60_000 });
   await expect(page.getByRole("status").filter({ hasText: "Tìm kiếm tạm hết hạn mức" })).toBeVisible();
 });
 

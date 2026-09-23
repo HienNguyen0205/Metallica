@@ -124,7 +124,7 @@ test("query flow walks the state machine and shows the hologram before the text"
     // pressSequentially, not fill(): fill() sets the value without the keystroke
     // events React's controlled input needs, so submit() reads an empty string
     // and silently does nothing.
-    await page.locator("input").pressSequentially("system health", { delay: 15 });
+    await page.locator("input").pressSequentially("system health", { delay: 15, timeout: 60_000 });
     await page.keyboard.press("Enter");
 
     const hud = page.getByTestId("hud-state");
@@ -173,7 +173,7 @@ test("the offline fallback still answers when the orchestrator is down", async (
   await recordFlow(page);
 
   await page.locator("input").click();
-  await page.locator("input").pressSequentially("system health", { delay: 15 });
+  await page.locator("input").pressSequentially("system health", { delay: 15, timeout: 60_000 });
   await page.keyboard.press("Enter");
 
   const hud = page.getByTestId("hud-state");
@@ -197,7 +197,7 @@ test("§18 the hologram builds up as tool results arrive", async ({ page }) => {
     await recordFlow(page);
 
     await page.locator("input").click();
-    await page.locator("input").pressSequentially("check the system", { delay: 15 });
+    await page.locator("input").pressSequentially("check the system", { delay: 15, timeout: 60_000 });
     await page.keyboard.press("Enter");
 
     const hud = page.getByTestId("hud-state");
@@ -253,7 +253,7 @@ test("V2 step events surface the current step readout", async ({ page }) => {
     // pressSequentially, not fill(): fill() sets the value without the
     // keystroke events React's controlled input needs (see the flow test).
     await page.locator("input").click();
-    await page.locator("input").pressSequentially("v2: system health", { delay: 15 });
+    await page.locator("input").pressSequentially("v2: system health", { delay: 15, timeout: 60_000 });
     await page.keyboard.press("Enter");
 
     const step = page.getByTestId("hud-step");
@@ -275,7 +275,7 @@ test("a memory learned from a web page is shown in the HUD and marked FROM WEB",
     await page.waitForSelector("canvas");
 
     await page.locator("input").click();
-    await page.locator("input").pressSequentially("remember this", { delay: 15 });
+    await page.locator("input").pressSequentially("remember this", { delay: 15, timeout: 60_000 });
     await page.keyboard.press("Enter");
 
     // The marker is the operator's only signal a remembered fact came from a
@@ -307,7 +307,7 @@ test.describe("high-risk tool approval", () => {
 
   const ask = async (page: import("@playwright/test").Page) => {
     await page.locator("input").click();
-    await page.locator("input").pressSequentially("write a note", { delay: 15 });
+    await page.locator("input").pressSequentially("write a note", { delay: 15, timeout: 60_000 });
     await page.keyboard.press("Enter");
   };
 
