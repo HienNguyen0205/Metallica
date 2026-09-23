@@ -4,9 +4,10 @@ from typing import Literal
 
 import logging
 
-from pydantic import BaseModel, Field, ValidationError, field_validator
+from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 
-from friday.schemas.visualization import LatLon
+from friday.geo.route_time import RouteTimeError, route_times
+from friday.schemas.visualization import LatLon, MapAvoid
 
 
 class RunBudget(BaseModel):
@@ -155,3 +156,15 @@ class RouteRequest(BaseModel):
     waypoints: list[LatLon] = Field(min_length=2, max_length=5)
     #: None = the default travel mode (motorbike; see geo/tomtom.py).
     profile: Literal["auto", "motor_scooter", "bicycle", "pedestrian"] | None = None
+    avoid: list[MapAvoid] = Field(default_factory=list, max_length=4)
+    #: ISO 8601 with UTC offset — the browser always sends one (spec 2026-09-23 §4.1).
+    depart_at: str | None = Field(default=None, max_length=40)
+    arrive_at: str | None = Field(default=None, max_length=40)
+
+    @model_validator(mode="after")
+    def _times(self) -> "RouteRequest":
+        try:
+            self.depart_at, self.arrive_at = route_times(self.depart_at, self.arrive_at)
+        except RouteTimeError as err:
+            raise ValueError(str(err)) from err
+        return self
