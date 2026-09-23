@@ -40,6 +40,9 @@ def main(argv: list[str]) -> int:
         return 2
     env = dict(os.environ)
     env["PYTHONPATH"] = BACKEND_DIR + os.pathsep + env.get("PYTHONPATH", "")
+    # load_dotenv never overrides a set variable: without this a local .env
+    # pointing at Redis would have every test write runs to that server.
+    env["FRIDAY_STATE_BACKEND"] = "memory"
     failed: list[str] = []
     for path in files:
         rel = os.path.relpath(path, BACKEND_DIR)

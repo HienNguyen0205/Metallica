@@ -12,7 +12,7 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
-from friday.store import InMemoryStateStore, StateStore, from_run_dict, to_run_dict
+from friday.store import InMemoryStateStore, StateStore, from_run_dict, get_store, to_run_dict
 
 StepKind = Literal[
     "plan", "reason", "search", "tool", "memory_read",
@@ -219,4 +219,4 @@ class RunRegistry:
         self._persist(run)
 
 
-REGISTRY = RunRegistry()
+REGISTRY = RunRegistry(store=get_store())
