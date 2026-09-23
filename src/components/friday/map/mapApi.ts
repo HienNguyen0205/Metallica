@@ -192,6 +192,24 @@ export interface TrafficSection {
   magnitude: number;
 }
 
+/** A rainy stretch of a route (spec 2026-09-23 open-meteo §5.3). */
+export interface WeatherSection {
+  start: number;
+  end: number;
+  category: "rain" | "heavy_rain" | "thunderstorm";
+  probability: number;
+  precip_mm: number;
+  /** Local HH:MM when the rider enters / leaves the stretch. */
+  from_time: string;
+  to_time: string;
+}
+
+export interface RouteWeather {
+  status: "ok" | "unavailable" | "out_of_range";
+  /** Present only with status "ok"; [] means a dry route. */
+  sections?: WeatherSection[];
+}
+
 export interface Route {
   distance_m: number;
   duration_s: number;
@@ -203,6 +221,8 @@ export interface Route {
   departure_time?: string | null;
   arrival_time?: string | null;
   traffic_sections: TrafficSection[];
+  /** Rain along the way at the time it is passed (Open-Meteo). */
+  weather?: RouteWeather;
 }
 
 export type RouteResult =
@@ -276,6 +296,37 @@ export function trafficSegments(route: Route): GeoJSON.FeatureCollection<GeoJSON
       }];
     }),
   };
+}
+
+/** Rainy stretches of one route as line features for the weather overlay. */
+export function weatherSegments(route: Route): GeoJSON.FeatureCollection<GeoJSON.LineString, { category: WeatherSection["category"] }> {
+  return {
+    type: "FeatureCollection",
+    features: (route.weather?.sections ?? []).flatMap((s) => {
+      const coordinates = route.coordinates.slice(s.start, s.end + 1);
+      if (coordinates.length < 2) return [];
+      return [{
+        type: "Feature" as const,
+        properties: { category: s.category },
+        geometry: { type: "LineString" as const, coordinates },
+      }];
+    }),
+  };
+}
+
+const WEATHER_LABELS: Record<WeatherSection["category"], string> = { rain: "mưa", heavy_rain: "mưa to", thunderstorm: "dông" };
+
+/** The directions panel's one weather line, or null when there is nothing to say. */
+export function weatherLine(route: Route): string | null {
+  const weather = route.weather;
+  if (weather?.status !== "ok") return null;
+  const parts = (weather.sections ?? []).map((s) => {
+    const when = s.from_time === s.to_time ? s.from_time : `${s.from_time}–${s.to_time}`;
+    return `${WEATHER_LABELS[s.category]} ${when} (${Math.round(s.probability)}%)`;
+  });
+  if (parts.length === 0) return "Không mưa trên đường";
+  const line = parts.join(" · ");
+  return line[0].toUpperCase() + line.slice(1);
 }
 
 export function formatDistance(meters: number): string {

@@ -13,6 +13,7 @@ from friday.geo.tools import (
     run_find_place,
     run_get_directions,
 )
+from friday.weather.tools import preview_get_weather, run_get_weather
 from .integrations.search import run_search_web
 from .client.metrics import (
     HISTORY_METRICS,
@@ -85,8 +86,8 @@ def _build_default_registry() -> dict[str, Tool]:
             description=(
                 "Read the operator's location (lat/lon with the browser's "
                 "accuracy radius in metres) and timezone - only when they "
-                "turned location on. Use for 'here', 'near me', local weather or local "
-                "time. If it is not shared, say so; never guess a place."
+                "turned location on. Use for 'here', 'near me' or local time. "
+                "If it is not shared, say so; never guess a place."
             ),
             input_schema={"type": "object", "properties": {}, "required": []},
             risk="low",
@@ -126,7 +127,10 @@ def _build_default_registry() -> dict[str, Tool]:
                 "profile: motor_scooter (default, xe máy), auto (car), bicycle, "
                 "pedestrian. Use arrive_at when the user asks when to leave to "
                 "arrive on time, depart_at for a later departure; call "
-                "get_current_time first if you need today's date."
+                "get_current_time first if you need today's date. Also reports "
+                "rain along the way at the time the operator will pass (rain, "
+                "with the step it starts near); mention it when present, "
+                "especially on a motorbike."
             ),
             input_schema={
                 "type": "object",
@@ -158,6 +162,29 @@ def _build_default_registry() -> dict[str, Tool]:
             capabilities=("geo.read",),
             preview=preview_get_directions,
             timeout_s=25,
+        ),
+        Tool(
+            name="get_weather",
+            description=(
+                "Current conditions and forecast for a place or the operator's "
+                "location. span: now (right now), today (next 24 hours), week "
+                "(7 days). place is a place name or 'my_location' (default). "
+                "Prefer this over search_web for any weather question."
+            ),
+            input_schema={
+                "type": "object",
+                "properties": {
+                    "place": {"type": "string", "description": "a place name, or 'my_location' (default)"},
+                    "span": {"type": "string", "enum": ["now", "today", "week"], "description": "default now"},
+                },
+            },
+            # Reads a public forecast; the only operator data sent is a ~1 km
+            # position, and only when they already shared their location.
+            risk="low",
+            run=run_get_weather,
+            capabilities=("geo.read",),
+            preview=preview_get_weather,
+            timeout_s=15,
         ),
         Tool(
             name="get_current_time",
@@ -196,11 +223,11 @@ def _build_default_registry() -> dict[str, Tool]:
             description=(
                 "Search the public web and return extracts from the top results. "
                 "Use for anything this host cannot measure itself: current events, "
-                "documentation, prices, weather, or any fact you are unsure of. "
+                "documentation, prices, or any fact you are unsure of. "
                 "Prefer this over answering from memory when the answer could have "
                 "changed since training. Results come from a search index, not "
-                "live sources: for fast-moving numbers such as prices, scores or "
-                "weather, say the value is approximate and may lag rather than "
+                "live sources: for fast-moving numbers such as prices or scores, "
+                "say the value is approximate and may lag rather than "
                 "presenting it as the current one."
             ),
             input_schema={

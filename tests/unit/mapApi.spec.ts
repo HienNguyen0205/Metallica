@@ -11,6 +11,8 @@ import {
   styleUrl,
   toOffsetIso,
   trafficSegments,
+  weatherLine,
+  weatherSegments,
   withTomTomKey,
   type Route,
 } from "@/components/friday/map/mapApi";
@@ -99,4 +101,26 @@ test("traffic sections become coloured segments of the route line", () => {
     [[105.843, 21.033], [105.8346, 21.0368]],
   ]);
   expect(fc.features.map((f) => f.properties)).toEqual([{ magnitude: 3, closure: false }, { magnitude: 4, closure: true }]);
+});
+
+test("rain on the route becomes dashed segments and one panel line", () => {
+  const wet: Route = {
+    ...route,
+    weather: {
+      status: "ok",
+      sections: [
+        { start: 0, end: 1, category: "rain", probability: 80, precip_mm: 1.2, from_time: "07:52", to_time: "07:57" },
+        { start: 2, end: 2, category: "thunderstorm", probability: 90.4, precip_mm: 5, from_time: "08:01", to_time: "08:01" },
+      ],
+    },
+  };
+  const fc = weatherSegments(wet);
+  expect(fc.features.map((f) => f.geometry.coordinates)).toEqual([[[105.8525, 21.0288], [105.843, 21.033]]]);
+  expect(fc.features.map((f) => f.properties)).toEqual([{ category: "rain" }]);
+  expect(weatherLine(wet)).toBe("Mưa 07:52–07:57 (80%) · dông 08:01 (90%)");
+  expect(weatherLine({ ...route, weather: { status: "ok", sections: [] } })).toBe("Không mưa trên đường");
+  for (const weather of [undefined, { status: "unavailable" as const }, { status: "out_of_range" as const }]) {
+    expect(weatherLine({ ...route, weather })).toBeNull();
+    expect(weatherSegments({ ...route, weather }).features).toEqual([]);
+  }
 });

@@ -325,6 +325,7 @@ say in its own permissions.
 | `read_file` | low | reads one text file under the sandbox, truncated with a flag |
 | `find_place` | low (`geo.read`) | TomTom fuzzy search (`TOMTOM_API_KEY`), pins a map preview |
 | `get_directions` | low (`geo.read`) | TomTom routing with traffic (`TOMTOM_API_KEY`), Vietnamese steps, pins a route preview |
+| `get_weather` | low (`geo.read`) | Open-Meteo forecast for a place or `my_location` — span now/today/week pins gauges, a 24 h line or 7-day bars |
 | `write_note` | high | writes a markdown file under `notes/` |
 
 `get_process_list` ranks by memory, not CPU: `cpu_percent` reads 0.0 the first
@@ -410,6 +411,7 @@ numbers is indistinguishable from a real one.
 | Variable | Default | Description |
 | --- | --- | --- |
 | `TOMTOM_API_KEY` | unset | Server key for `/geo/suggest`, `/geo/place`, `/geo/reverse`, `POST /geo/route` and the geo tools; enable Search, Places, Reverse Geocoding and Routing; never sent to the browser. Unset: map works, search/directions report unconfigured. |
+| `OPEN_METEO_API_KEY` | unset | Open-Meteo customer key, for commercial use. Unset: the free non-commercial endpoint (~10K calls/day), no key. Powers `get_weather` and rain along routes. |
 
 Free allowances are per API per month (TomTom pricing, 2026-09-22): Map Display vector tiles 200K, Traffic Flow vector tiles 200K, Routing 20K, Reverse Geocoding 20K, Places Suggest 10K, Places Details 5K, fuzzy Search 2.5K.
 

@@ -18,6 +18,7 @@ from friday.api.dependencies import PENDING, PENDING_OWNERS, guard, require_know
 from friday.api.schemas import ClientContext, Decision, Query, RouteRequest, RunBudget
 from friday.core.config import settings
 from friday.geo import tomtom
+from friday.weather import route_weather
 from friday.events.serializer import sse, sse_envelope
 from friday.memory import consolidate
 from friday.memory import embed as embed_mod
@@ -704,10 +705,14 @@ async def geo_profiles() -> dict[str, Any]:
 
 @router.post("/geo/route", dependencies=[Depends(require_known_origin)])
 async def geo_route(body: RouteRequest) -> Any:
-    """Spec §6.3 — one route question for the map UI; cached in the client."""
+    """Spec §6.3 — one route question for the map UI; cached in the client.
+
+    Rain along each route rides on the same answer (spec 2026-09-23
+    open-meteo §6.1); weather never turns a route into an error.
+    """
     try:
         # Looked up on the module so tests can swap tomtom.route.
-        return await tomtom.route(
+        result = await tomtom.route(
             [w.model_dump() for w in body.waypoints],
             body.profile,
             avoid=body.avoid,
@@ -720,6 +725,7 @@ async def geo_route(body: RouteRequest) -> Any:
         return JSONResponse(status_code=422, content={"error": "no_route"})
     except tomtom.UnsupportedProfile:
         return JSONResponse(status_code=422, content={"error": "unsupported_profile"})
+    return {"routes": await route_weather.attach_weather(result["routes"])}
 
 
 @router.get("/health")

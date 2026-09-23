@@ -67,7 +67,9 @@ def test_route_defaults_to_the_plans_mode() -> None:
     calls = fake("route", ROUTE)
     try:
         res = client.post("/geo/route", json={"waypoints": [A, B]})
-        assert res.status_code == 200 and res.json() == ROUTE, res.text
+        # No geometry in the fake route, so weather is unavailable without any request.
+        assert res.status_code == 200 and res.json() == {
+            "routes": [{**ROUTE["routes"][0], "weather": {"status": "unavailable"}}]}, res.text
         assert calls == [([A, B], None)]
         for body in ({"waypoints": [A]}, {"waypoints": [A, B], "profile": "rocket"}):
             assert client.post("/geo/route", json=body).status_code == 422, body
@@ -134,6 +136,42 @@ def test_route_options_pass_through_and_times_are_checked() -> None:
         ):
             assert client.post("/geo/route", json=body).status_code == 422, body
     finally:
+        restore()
+
+
+def test_route_carries_weather_and_survives_an_outage() -> None:
+    from datetime import datetime, timedelta, timezone
+
+    from friday.weather import openmeteo
+
+    depart = datetime.now(timezone(timedelta(hours=7))).replace(microsecond=0)
+    timed = {"distance_m": 2412, "duration_s": 545, "traffic_delay_s": 0,
+             "departure_time": depart.isoformat(), "arrival_time": (depart + timedelta(seconds=545)).isoformat(),
+             "coordinates": [[105.8525, 21.0288], [105.8346, 21.0368]],
+             "maneuvers": [{"instruction": "a", "maneuver": "DEPART", "distance_m": 2412, "duration_s": 545,
+                            "begin_shape_index": 0}]}
+    days = [(depart + timedelta(days=d)).strftime("%Y-%m-%d") for d in (0, 1)]
+    times = [f"{d}T{h:02d}:00" for d in days for h in range(24)]
+
+    async def dry(points, **_):
+        return [{"utc_offset_seconds": 25200, "hourly": {"time": times, "precipitation_probability": [0] * 48,
+                                                          "precipitation": [0.0] * 48, "weather_code": [0] * 48}}
+                for _ in points]
+
+    async def down(*_args, **_kwargs):
+        raise openmeteo.WeatherUnavailable("down")
+
+    fake("route", {"routes": [timed]})
+    orig = openmeteo.forecast
+    try:
+        openmeteo.forecast = dry
+        res = client.post("/geo/route", json={"waypoints": [A, B]})
+        assert res.status_code == 200 and res.json()["routes"][0]["weather"] == {"status": "ok", "sections": []}, res.text
+        openmeteo.forecast = down
+        res = client.post("/geo/route", json={"waypoints": [A, B]})
+        assert res.status_code == 200 and res.json()["routes"][0]["weather"] == {"status": "unavailable"}, res.text
+    finally:
+        openmeteo.forecast = orig
         restore()
 
 
