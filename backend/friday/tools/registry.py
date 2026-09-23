@@ -86,8 +86,8 @@ def _build_default_registry() -> dict[str, Tool]:
             description=(
                 "Read the operator's location (lat/lon with the browser's "
                 "accuracy radius in metres) and timezone - only when they "
-                "turned location on. Use for 'here', 'near me', local weather or local "
-                "time. If it is not shared, say so; never guess a place."
+                "turned location on. Use for 'here', 'near me' or local time. "
+                "If it is not shared, say so; never guess a place."
             ),
             input_schema={"type": "object", "properties": {}, "required": []},
             risk="low",

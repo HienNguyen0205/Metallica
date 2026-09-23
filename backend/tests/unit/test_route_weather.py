@@ -141,6 +141,33 @@ def test_outage_and_missing_geometry_are_unavailable() -> None:
     assert len(calls) == 1, "a route without geometry asks nothing"
 
 
+def test_any_weather_failure_is_unavailable_never_an_exception() -> None:
+    calls: list = []
+    install(calls, exc=RuntimeError("boom"))
+    try:
+        [out] = asyncio.run(rw.attach_weather([trip()]))
+        assert out["weather"] == {"status": "unavailable"}
+    finally:
+        restore()
+
+    async def malformed(points, **_):
+        return [{"utc_offset_seconds": 25200} for _ in points]  # no hourly at all
+
+    calls.clear()
+    openmeteo.forecast = malformed
+    rw._utcnow = lambda: NOW
+    try:
+        [out] = asyncio.run(rw.attach_weather([trip()]))
+        assert out["weather"] == {"status": "unavailable"}
+        # and a departure_time that samples() cannot parse funnels the same way
+        bad_trip = trip()
+        bad_trip["departure_time"] = "not-a-date"
+        [bad] = asyncio.run(rw.attach_weather([bad_trip]))
+        assert bad["weather"] == {"status": "unavailable"}
+    finally:
+        restore()
+
+
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
         if name.startswith("test_") and callable(fn):

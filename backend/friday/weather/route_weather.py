@@ -58,7 +58,9 @@ def _hour_index(loc: dict[str, Any], at: datetime) -> int | None:
     local = at.astimezone(timezone.utc) + timedelta(seconds=loc.get("utc_offset_seconds", 0))
     try:
         return loc["hourly"]["time"].index(local.strftime("%Y-%m-%dT%H:00"))
-    except (KeyError, ValueError):
+    except ValueError:
+        # The hour simply is not covered. A missing hourly/time block is a
+        # malformed response — the KeyError funnels to "unavailable".
         return None
 
 
@@ -108,36 +110,39 @@ def _sections(route: dict[str, Any], plan: list[dict[str, Any]], readings: list[
 
 async def attach_weather(routes: list[dict[str, Any]]) -> list[dict[str, Any]]:
     copies = [dict(r) for r in routes]
-    plans = [samples(r) for r in copies]
-    wanted = [s for plan in plans for s in plan]
 
     def mark(status: str) -> list[dict[str, Any]]:
         for c in copies:
             c["weather"] = {"status": status}
         return copies
 
-    if not wanted:
-        return mark("unavailable")
-    now = _utcnow()
-    earliest = min(s["at"] for s in wanted)
-    latest = max(s["at"] for s in wanted)
-    if earliest < now - PAST_SLACK or latest > now + timedelta(days=openmeteo.MAX_DAYS):
-        return mark("out_of_range")
-    # +2: today counts, and a local date can run a day ahead of UTC.
-    days = min(openmeteo.MAX_DAYS, (latest.astimezone(timezone.utc).date() - now.date()).days + 2)
     try:
+        plans = [samples(r) for r in copies]
+        wanted = [s for plan in plans for s in plan]
+        if not wanted:
+            return mark("unavailable")
+        now = _utcnow()
+        earliest = min(s["at"] for s in wanted)
+        latest = max(s["at"] for s in wanted)
+        if earliest < now - PAST_SLACK or latest > now + timedelta(days=openmeteo.MAX_DAYS):
+            return mark("out_of_range")
+        # +2: today counts, and a local date can run a day ahead of UTC.
+        days = min(openmeteo.MAX_DAYS, (latest.astimezone(timezone.utc).date() - now.date()).days + 2)
         # Looked up on the module so tests can swap openmeteo.forecast.
         located = await asyncio.wait_for(
             openmeteo.forecast([(s["lat"], s["lon"]) for s in wanted], hourly=FIELDS, forecast_days=days),
             openmeteo.TIMEOUT_S,
         )
-    except (openmeteo.WeatherUnavailable, TimeoutError) as err:
+        readings = iter([_reading(loc, s["at"]) for loc, s in zip(located, wanted)])
+        for c, plan in zip(copies, plans):
+            if not plan:
+                c["weather"] = {"status": "unavailable"}
+                continue
+            c["weather"] = {"status": "ok", "sections": _sections(c, plan, [next(readings) for _ in plan])}
+        return copies
+    except Exception as err:
+        # Intentionally anything, not just WeatherUnavailable/TimeoutError: a
+        # malformed route, a nonsense forecast body or a parsing bug must still
+        # never break the route — weather adds no new failure mode.
         log.warning("route weather unavailable: %s", err)
         return mark("unavailable")
-    readings = iter([_reading(loc, s["at"]) for loc, s in zip(located, wanted)])
-    for c, plan in zip(copies, plans):
-        if not plan:
-            c["weather"] = {"status": "unavailable"}
-            continue
-        c["weather"] = {"status": "ok", "sections": _sections(c, plan, [next(readings) for _ in plan])}
-    return copies

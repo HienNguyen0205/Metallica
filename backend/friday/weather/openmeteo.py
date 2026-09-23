@@ -7,6 +7,7 @@ OPEN_METEO_API_KEY switches to the customer endpoint.
 """
 
 import asyncio
+import http.client
 import json
 import os
 import urllib.error
@@ -54,7 +55,7 @@ def _get(url: str) -> Any:
         except (ValueError, OSError, AttributeError):
             reason = ""
         raise WeatherUnavailable(f"open-meteo HTTP {err.code}: {reason}".rstrip(": ")) from err
-    except (urllib.error.URLError, TimeoutError, OSError, ValueError) as err:
+    except (urllib.error.URLError, TimeoutError, OSError, ValueError, http.client.HTTPException) as err:
         raise WeatherUnavailable(str(err)) from err
 
 
@@ -86,6 +87,10 @@ async def forecast(
     if located is None:
         url, extra = _endpoint()
         raw = await asyncio.to_thread(_get, f"{url}?{urllib.parse.urlencode({**params, **extra})}")
+        # A 200 can still carry {"error": true, "reason": ...} — check before it
+        # ever reaches the cache.
+        if isinstance(raw, dict) and raw.get("error"):
+            raise WeatherUnavailable(str(raw.get("reason") or "open-meteo error"))
         located = raw if isinstance(raw, list) else [raw]
         if len(located) != len(unique) or not all(isinstance(loc, dict) for loc in located):
             raise WeatherUnavailable("unexpected response shape")

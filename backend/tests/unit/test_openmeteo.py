@@ -5,10 +5,12 @@ errors — plus the weather-code table. No external network.
 """
 
 import asyncio
+import http.client
 import json
 import os
 import threading
 import urllib.parse
+import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from friday.geo import tomtom
@@ -17,6 +19,8 @@ from friday.weather.codes import describe
 
 CALLS: list[dict] = []
 STATUS = {"code": 200}
+#: When non-empty the fake answers 200 with this body instead of locations.
+ERROR_BODY: dict = {}
 ENV = ("FRIDAY_OPEN_METEO_URL", "OPEN_METEO_API_KEY")
 
 
@@ -33,7 +37,9 @@ class _Handler(BaseHTTPRequestHandler):
         url = urllib.parse.urlparse(self.path)
         query = urllib.parse.parse_qs(url.query)
         CALLS.append({"path": url.path, "query": query})
-        if STATUS["code"] != 200:
+        if ERROR_BODY:
+            body = ERROR_BODY
+        elif STATUS["code"] != 200:
             body = {"error": True, "reason": "Latitude must be in range of -90 to 90°."}
         else:
             lats = [float(x) for x in query["latitude"][0].split(",")]
@@ -63,6 +69,7 @@ def with_server(fn):
     _set_env({"FRIDAY_OPEN_METEO_URL": f"http://127.0.0.1:{server.server_address[1]}", "OPEN_METEO_API_KEY": None})
     CALLS.clear()
     STATUS["code"] = 200
+    ERROR_BODY.clear()
     om.clear_cache()
     try:
         fn()
@@ -162,6 +169,34 @@ def test_weather_codes_read_in_vietnamese() -> None:
     assert describe(95) == "dông"
     assert describe(99) == "dông kèm mưa đá"
     assert describe(12) == "không rõ" and describe(None) == "không rõ"
+
+
+def test_an_error_body_with_status_200_is_unavailable() -> None:
+    def run():
+        ERROR_BODY.update({"error": True, "reason": "nope"})
+        try:
+            message = raises(om.forecast([(21.0, 105.8)], hourly=["precipitation"]))
+            assert "nope" in message, message
+        finally:
+            ERROR_BODY.clear()
+        # and nothing poisoned the cache: a clean follow-up call hits the network again
+        out = asyncio.run(om.forecast([(21.0, 105.8)], hourly=["precipitation"]))
+        assert out[0]["latitude"] == 21.0 and len(CALLS) == 2, CALLS
+
+    with_server(run)
+
+
+def test_a_broken_http_response_is_unavailable() -> None:
+    def boom(*_args, **_kwargs):
+        raise http.client.BadStatusLine("x")
+
+    om.clear_cache()  # so the call reaches the (swapped) network
+    orig = urllib.request.urlopen
+    urllib.request.urlopen = boom
+    try:
+        assert "x" in raises(om.forecast([(21.0, 105.8)], hourly=["precipitation"]))
+    finally:
+        urllib.request.urlopen = orig
 
 
 if __name__ == "__main__":
