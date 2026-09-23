@@ -410,6 +410,7 @@ numbers is indistinguishable from a real one.
 | Variable | Default | Description |
 | --- | --- | --- |
 | `TOMTOM_API_KEY` | unset | Server key for `/geo/suggest`, `/geo/place`, `/geo/reverse`, `POST /geo/route` and the geo tools; enable Search, Places, Reverse Geocoding and Routing; never sent to the browser. Unset: map works, search/directions report unconfigured. |
+| `OPEN_METEO_API_KEY` | unset | Open-Meteo customer key, for commercial use. Unset: the free non-commercial endpoint (~10K calls/day), no key. Powers `get_weather` and rain along routes. |
 
 Free allowances are per API per month (TomTom pricing, 2026-09-22): Map Display vector tiles 200K, Traffic Flow vector tiles 200K, Routing 20K, Reverse Geocoding 20K, Places Suggest 10K, Places Details 5K, fuzzy Search 2.5K.
 
