@@ -325,6 +325,7 @@ say in its own permissions.
 | `read_file` | low | reads one text file under the sandbox, truncated with a flag |
 | `find_place` | low (`geo.read`) | TomTom fuzzy search (`TOMTOM_API_KEY`), pins a map preview |
 | `get_directions` | low (`geo.read`) | TomTom routing with traffic (`TOMTOM_API_KEY`), Vietnamese steps, pins a route preview |
+| `get_weather` | low (`geo.read`) | Open-Meteo forecast for a place or `my_location` — span now/today/week pins gauges, a 24 h line or 7-day bars |
 | `write_note` | high | writes a markdown file under `notes/` |
 
 `get_process_list` ranks by memory, not CPU: `cpu_percent` reads 0.0 the first

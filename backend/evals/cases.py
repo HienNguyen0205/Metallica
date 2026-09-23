@@ -225,4 +225,16 @@ CASES = [
             "b_other.md": "# Other\n\nUnrelated section here.\n",
         },
     },
+    {
+        "id": "tool_selection/weather_uses_forecast",
+        "area": "tool_selection",
+        "input": "thời tiết hôm nay thế nào",
+        # get_weather answers NO_LOCATION (an error dict) → failed_support triggers
+        # the one bounded replan; the scripted model plainly reports it again.
+        "script": [("tool", "get_weather", {"span": "today"}), ("text", "Bạn chưa chia sẻ vị trí."),
+                   ("text", "Bạn chưa chia sẻ vị trí.")],
+        "must_call": ["get_weather"],
+        "must_not_call": ["search_web"],
+        "approve": "never",
+    },
 ]
