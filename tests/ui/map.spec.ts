@@ -129,8 +129,11 @@ const ROUTE = {
         { instruction: "Rẽ phải vào Hùng Vương", maneuver: "TURN_RIGHT", distance_m: 1312, duration_s: 295, begin_shape_index: 1 },
         { instruction: "Đến nơi", maneuver: "ARRIVE", distance_m: 0, duration_s: 0, begin_shape_index: 2 },
       ],
+      departure_time: "2026-09-23T07:52:00+07:00",
+      arrival_time: "2026-09-23T08:01:05+07:00",
+      traffic_sections: [{ start: 0, end: 1, category: "jam", delay_s: 360, magnitude: 3 }],
     },
-    { distance_m: 2900, duration_s: 610, traffic_delay_s: 0, coordinates: [[105.8525, 21.0288], [105.8346, 21.0368]], maneuvers: [] },
+    { distance_m: 2900, duration_s: 610, traffic_delay_s: 0, coordinates: [[105.8525, 21.0288], [105.8346, 21.0368]], maneuvers: [], traffic_sections: [] },
   ],
 };
 
@@ -152,13 +155,19 @@ test("an agent route opens directions with the summary, steps and route layers",
     await expect(page.getByTestId("directions-summary")).toContainText("2,4 km");
     await expect(panel.getByRole("tab", { name: "🛵 Xe máy" })).toHaveAttribute("aria-selected", "true");
     await expect(page.getByTestId("directions-summary")).toContainText("chậm 6 phút do kẹt xe");
+    await expect(panel.getByLabel("Tránh cao tốc")).toBeChecked(); // from the agent spec
+    await expect(page.getByTestId("directions-times")).toHaveText("Khởi hành 07:52 → Đến 08:01");
     await expect(panel.getByRole("listitem")).toContainText(["Rẽ phải vào Hùng Vương"]);
     expect(await page.evaluate(() => {
       const m = (window as unknown as { __fridayMap?: { getLayer(id: string): unknown } }).__fridayMap;
-      return !!m?.getLayer("friday-route-line") && !!m?.getLayer("friday-route-casing");
+      return !!m?.getLayer("friday-route-line") && !!m?.getLayer("friday-route-casing") && !!m?.getLayer("friday-route-traffic");
     })).toBe(true);
     // switching mode re-asks the route with the new profile
-    const asked = page.waitForRequest((r) => r.url().endsWith("/geo/route") && r.postDataJSON().profile === "pedestrian");
+    const asked = page.waitForRequest((r) => {
+      if (!r.url().endsWith("/geo/route")) return false;
+      const body = r.postDataJSON();
+      return body.profile === "pedestrian" && body.avoid.length === 0;
+    });
     await panel.getByRole("tab", { name: "🚶 Đi bộ" }).click();
     await asked;
   } finally {
@@ -192,6 +201,36 @@ test("routing off: directions say so and the map stays usable", async ({ page })
     await page.keyboard.press("Enter");
     await expect(page.getByTestId("directions-status")).toHaveText("Chỉ đường chưa được cấu hình", { timeout: 20_000 });
     await expect(page.getByRole("combobox", { name: "Tìm kiếm địa điểm" })).toBeEnabled();
+  } finally {
+    await stub.close();
+  }
+});
+
+test("arrive-by sends arrive_at with an offset; motorbike brings back the motorway rule", async ({ page }) => {
+  await stubTomTom(page);
+  await page.route("**/geo/route", (r) => r.fulfill({ json: ROUTE }));
+  const stub = await startStubOrchestrator(MAP_FLOW);
+  try {
+    await gotoLitScene(page);
+    await page.locator("input").click();
+    await page.locator("input").pressSequentially("chỉ đường tới lăng bác", { delay: 15, timeout: 60_000 });
+    await page.keyboard.press("Enter");
+    const panel = page.getByTestId("directions-panel");
+    await expect(page.getByTestId("directions-summary")).toContainText("9 phút", { timeout: 20_000 });
+
+    const arrive = page.waitForRequest((r) => {
+      if (!r.url().endsWith("/geo/route")) return false;
+      const body = r.postDataJSON();
+      return /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:00[+-]\d{2}:\d{2}$/.test(body.arrive_at ?? "") && !("depart_at" in body);
+    });
+    await panel.getByLabel("Thời gian").selectOption("arrive");
+    await arrive;
+    await expect(panel.getByLabel("Chọn giờ")).toBeVisible();
+
+    await panel.getByRole("tab", { name: "🚗 Ô tô" }).click();
+    await expect(panel.getByLabel("Tránh cao tốc")).not.toBeChecked();
+    await panel.getByRole("tab", { name: "🛵 Xe máy" }).click();
+    await expect(panel.getByLabel("Tránh cao tốc")).toBeChecked();
   } finally {
     await stub.close();
   }
