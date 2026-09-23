@@ -3,6 +3,7 @@
 from friday.schemas.visualization import (
     GeoPoint,
     LatLon,
+    MapAvoid,
     MapRoute,
     MapView,
     MapWaypoint,
@@ -18,6 +19,7 @@ from friday.schemas.visualization import (
 __all__ = [
     "GeoPoint",
     "LatLon",
+    "MapAvoid",
     "MapRoute",
     "MapView",
     "MapWaypoint",

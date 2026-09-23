@@ -226,6 +226,16 @@ def test_map_view_matches_canonical_schema() -> None:
     assert MapRoute.model_fields["profile"].default == "auto"
 
 
+def test_map_route_options_match_canonical_schema() -> None:
+    from friday.schemas.visualization import MapAvoid, MapRoute
+
+    schema = load("visualization", "visualization.v1.json")
+    props = schema["definitions"]["MapRoute"]["properties"]
+    assert set(MapRoute.model_fields) == set(props), set(MapRoute.model_fields) ^ set(props)
+    assert list(get_args(MapAvoid)) == props["avoid"]["items"]["enum"]
+    MapRoute(waypoints=[{"lat": 1, "lon": 1}, {"lat": 2, "lon": 2}], avoid=["tolls"], depart_at="2026-09-24T08:00:00+07:00")
+
+
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
         if name.startswith("test_") and callable(fn):

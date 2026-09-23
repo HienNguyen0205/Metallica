@@ -69,6 +69,9 @@ export interface GlobeRoute {
 /** Travel mode for a map route (spec §5); the backend maps these to TomTom travel modes. */
 export type MapProfile = "auto" | "motor_scooter" | "bicycle" | "pedestrian";
 
+/** Roads a route may avoid (spec 2026-09-23 §3); the backend maps them to TomTom's names. */
+export type MapAvoid = "tolls" | "motorways" | "ferries" | "unpaved";
+
 export interface MapWaypoint {
   lat: number;
   lon: number;
@@ -86,7 +89,15 @@ export interface MapView {
   zoom?: number;
   /** [west, south, east, north]; wins over center/zoom. */
   bbox?: [number, number, number, number];
-  route?: { profile: MapProfile; waypoints: MapWaypoint[] };
+  route?: {
+    profile: MapProfile;
+    waypoints: MapWaypoint[];
+    avoid?: MapAvoid[];
+    /** ISO 8601 with UTC offset. Excludes `arrive_at`. */
+    depart_at?: string;
+    /** ISO 8601 with UTC offset. Excludes `depart_at`. */
+    arrive_at?: string;
+  };
 }
 export interface TimelineEvent {
   label: string;

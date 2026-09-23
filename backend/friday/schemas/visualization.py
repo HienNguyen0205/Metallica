@@ -79,11 +79,18 @@ class MapWaypoint(LatLon):
     label: str | None = None
 
 
+MapAvoid = Literal["tolls", "motorways", "ferries", "unpaved"]
+
+
 class MapRoute(BaseModel):
     """Route intent: the map fetches geometry from /geo/route itself."""
 
     profile: Literal["auto", "motor_scooter", "bicycle", "pedestrian"] = "auto"
     waypoints: list[MapWaypoint] = Field(min_length=2, max_length=5)
+    avoid: list[MapAvoid] | None = None
+    #: ISO 8601 with UTC offset; excludes arrive_at (validated at /geo/route).
+    depart_at: str | None = None
+    arrive_at: str | None = None
 
 
 class MapView(BaseModel):
