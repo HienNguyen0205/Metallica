@@ -164,6 +164,26 @@ def test_reverse_and_search() -> None:
     with_server(run)
 
 
+def test_a_truncated_response_is_unavailable_not_a_crash() -> None:
+    import http.client
+    import urllib.request
+
+    def cut_off(*_args, **_kwargs):
+        # A chunked body that stops mid-stream (seen live from TomTom Search).
+        raise http.client.IncompleteRead(b"")
+
+    orig = urllib.request.urlopen
+    urllib.request.urlopen = cut_off
+    try:
+        tt._http("http://127.0.0.1:9/x")
+    except tt.TomTomUnavailable:
+        pass
+    else:
+        raise AssertionError("expected TomTomUnavailable")
+    finally:
+        urllib.request.urlopen = orig
+
+
 def test_route_request_and_normalization() -> None:
     def run():
         out = asyncio.run(tt.route([A, B]))

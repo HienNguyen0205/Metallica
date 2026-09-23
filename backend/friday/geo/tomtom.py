@@ -9,6 +9,7 @@ to_thread shape as tools/integrations/fetch.py; no HTTP dependency.
 """
 
 import asyncio
+import http.client
 import json
 import os
 import re
@@ -142,7 +143,8 @@ def _http(url: str, *, body: dict | None = None, headers: dict | None = None, no
         if err.code == 400 and no_route_on_400:
             raise NoRoute(_message(err)) from err
         raise TomTomUnavailable(f"tomtom HTTP {err.code}: {_message(err)}") from err
-    except (urllib.error.URLError, TimeoutError, OSError, ValueError) as err:
+    # HTTPException: a body cut off mid-stream (IncompleteRead) — seen live.
+    except (urllib.error.URLError, TimeoutError, OSError, ValueError, http.client.HTTPException) as err:
         raise TomTomUnavailable(str(err)) from err
 
 

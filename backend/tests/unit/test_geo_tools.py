@@ -209,6 +209,46 @@ def test_directions_without_weather_say_so() -> None:
     assert out["weather_status"] == "unavailable" and out["rain"] == []
 
 
+def test_a_named_street_must_match_by_name() -> None:
+    import unicodedata
+
+    # What TomTom really answered for "đường trần thị năm", a street it does
+    # not have: a restaurant near Hà Nội, a different street near Q12.
+    mai = {"label": "Nhà Hàng Trần Thị Mai", "address": "Số 85, Đường Trần Duy Hưng, Hà Nội",
+           "category": "poi", "lat": 21.011255, "lon": 105.800651}
+    he = {"label": "Đường Trần Thị Hè, Hiệp Thành, Hồ Chí Minh", "address": "Đường Trần Thị Hè, Hiệp Thành, Hồ Chí Minh",
+          "category": "street", "lat": 10.880219, "lon": 106.630647}
+    nam = {"label": "Đường Trần Thị Năm, Tân Chánh Hiệp, Hồ Chí Minh", "address": "Tân Chánh Hiệp, Hồ Chí Minh",
+           "category": "street", "lat": 10.86, "lon": 106.62}
+    decomposed = unicodedata.normalize("NFD", "Đường Trần Thị Năm")
+    try:
+        seen = fake({"a": [HG], "đường trần thị năm": [mai, he]}, route=ROUTE)
+        out = run(tools.run_get_directions({"from": "a", "to": "đường trần thị năm"}))
+        assert out == tools.no_match("đường trần thị năm"), out
+        assert "not in the map data" in out["error"], "the model is told to stop, not to retry"
+        assert seen["route"] == [], "a wrong street is never routed to"
+        # find_place drops the near-namesakes too, instead of offering them as leads.
+        assert run(tools.run_find_place({"query": "đường trần thị năm"})) == tools.no_match("đường trần thị năm")
+
+        fake({"a": [HG], "đường trần thị năm": [he, nam], decomposed: [mai, nam]}, route=ROUTE)
+        assert run(tools.run_get_directions({"from": "a", "to": "đường trần thị năm"}))["to"] == nam
+        assert run(tools.run_get_directions({"from": "a", "to": decomposed}))["to"] == nam, "NFD input still matches"
+        fake({"a": [HG], "đường trần thị năm quận 12": [he, nam]}, route=ROUTE)
+        out = run(tools.run_get_directions({"from": "a", "to": "đường trần thị năm quận 12"}))
+        assert out["to"] == nam, "an area after the name still matches the street"
+        # A short street name inside the asked one is not a match ("Đường Năm").
+        short = {**he, "label": "Đường Năm, Hồ Chí Minh"}
+        fake({"a": [HG], "đường trần thị năm": [short]}, route=ROUTE)
+        assert "error" in run(tools.run_get_directions({"from": "a", "to": "đường trần thị năm"}))
+
+        # Anything that is not "<street word> <name>" keeps the top hit: aliases
+        # such as "lăng bác" → "Lăng Chủ tịch Hồ Chí Minh" must still resolve.
+        fake({"a": [HG], "lăng bác": [mai]}, route=ROUTE)
+        assert run(tools.run_get_directions({"from": "a", "to": "lăng bác"}))["to"] == mai
+    finally:
+        restore()
+
+
 def test_registered_low_risk_geo_read() -> None:
     for name in ("find_place", "get_directions"):
         tool = registry.get(name)

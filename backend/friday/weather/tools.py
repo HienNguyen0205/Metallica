@@ -10,7 +10,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from friday.geo import tomtom
-from friday.geo.tools import MY_LOCATION, NO_LOCATION, QUOTA, _first, _is_me, _operator
+from friday.geo.tools import MY_LOCATION, NO_LOCATION, QUOTA, _first, _is_me, _operator, no_match
 
 from . import openmeteo
 from .codes import describe
@@ -43,7 +43,7 @@ async def _place(ref: str) -> dict[str, Any]:
     except tomtom.TomTomUnavailable as err:
         return {"error": f"place search unavailable: {err}"}
     if hit is None:
-        return {"error": f"no place matches '{ref}'"}
+        return no_match(ref)
     return {"label": hit["label"], "lat": hit["lat"], "lon": hit["lon"]}
 
 

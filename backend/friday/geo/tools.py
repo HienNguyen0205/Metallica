@@ -4,6 +4,7 @@ Each returns an error dict rather than raising, like every other tool, and a
 `map` preview that the orchestrator passes through unchanged (routes.py).
 """
 
+import unicodedata
 from typing import Any
 
 from friday.tools.client.metrics import CLIENT
@@ -40,9 +41,44 @@ def _clock(iso: str | None) -> dict[str, str] | None:
     return {"local": iso[11:16], "iso": iso} if iso else None
 
 
-async def _first(query: str, near: tuple[float, float] | None) -> dict[str, Any] | None:
+#: Words naming a kind of road, not the road itself.
+STREET_WORDS = {"đường", "phố", "ngõ", "hẻm", "kiệt"}
+
+
+def _street_name(text: str) -> str | None:
+    """"Đường Trần Thị Năm" → "trần thị năm"; None when no street is named."""
+    words = unicodedata.normalize("NFC", text).lower().split()
+    return " ".join(words[1:]) if len(words) > 1 and words[0] in STREET_WORDS else None
+
+
+def _names_street(asked: str, hit: dict[str, Any]) -> bool:
+    """The hit is the asked street; words after its name ("… quận 12") are fine."""
+    street = _street_name(hit["label"].split(",")[0])
+    return bool(street) and (asked == street or asked.startswith(street + " "))
+
+
+def no_match(ref: str) -> dict[str, str]:
+    # Worded as final: a missing place used to send the model hunting through
+    # spellings, find_place and search_web until MAX_TURNS.
+    return {"error": f"no place matches '{ref}' — it is not in the map data; tell the operator instead of retrying"}
+
+
+async def _search(query: str, near: tuple[float, float] | None) -> list[dict[str, Any]]:
     # Looked up on the module so tests can swap tomtom.search.
-    hits = await tomtom.search(query, near=near, limit=1)
+    hits = await tomtom.search(query, near=near)
+    asked = _street_name(query)
+    if asked is None:
+        return hits
+    # Fuzzy search always answers something: for a street missing from the map
+    # data it offers a near-namesake ("Trần Thị Hè" for "Trần Thị Năm") or a
+    # shop. A named street must match by name, or it is not found.
+    # ponytail: only "<street word> <name> …" is checked; "123 đường X" keeps
+    # every hit — strip a leading house number if that needs it too.
+    return [h for h in hits if _names_street(asked, h)]
+
+
+async def _first(query: str, near: tuple[float, float] | None) -> dict[str, Any] | None:
+    hits = await _search(query, near)
     return hits[0] if hits else None
 
 
@@ -60,15 +96,15 @@ async def run_find_place(payload: dict[str, Any]) -> dict[str, Any]:
         elif near_ref:
             anchor = await _first(str(near_ref), None)
             if anchor is None:
-                return {"error": f"no place matches '{near_ref}'"}
+                return no_match(str(near_ref))
             near = (anchor["lat"], anchor["lon"])
-        places = await tomtom.search(query, near=near)
+        places = await _search(query, near)
     except tomtom.QuotaExceeded:
         return QUOTA
     except tomtom.TomTomUnavailable as err:
         return {"error": f"place search unavailable: {err}"}
     if not places:
-        return {"error": f"no place matches '{query}'"}
+        return no_match(query)
     return {"places": places}
 
 
@@ -115,7 +151,7 @@ async def run_get_directions(payload: dict[str, Any]) -> dict[str, Any]:
                 continue
             place = await _first(str(ref), me)
             if place is None:
-                return {"error": f"no place matches '{ref}'"}
+                return no_match(str(ref))
             stops.append(place)
         # Looked up on the module so tests can swap tomtom.route.
         result = await tomtom.route(
