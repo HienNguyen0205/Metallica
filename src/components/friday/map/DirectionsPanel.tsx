@@ -19,6 +19,8 @@ import {
   stepCoordinates,
   toOffsetIso,
   trafficSegments,
+  weatherLine,
+  weatherSegments,
   type Endpoint,
   type Route,
   type RouteTime,
@@ -27,6 +29,7 @@ import {
 const ROUTE_SRC = "friday-route";
 const STEP_SRC = "friday-route-step";
 const TRAFFIC_SRC = "friday-route-traffic";
+const WEATHER_SRC = "friday-route-weather-src";
 
 type Status = "idle" | "loading" | "ok" | "unavailable" | "no_route" | "unsupported" | "quota" | "error";
 const STATUS_TEXT: Partial<Record<Status, string>> = {
@@ -57,15 +60,18 @@ function drawRoutes(map: MlMap, routes: Route[], selected: number, step: [number
   const stepData: GeoJSON.Feature<GeoJSON.LineString> = { type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: step } };
   const empty: GeoJSON.FeatureCollection = { type: "FeatureCollection", features: [] };
   const trafficData = routes[selected] ? trafficSegments(routes[selected]) : empty;
+  const weatherData = routes[selected] ? weatherSegments(routes[selected]) : empty;
   const src = map.getSource(ROUTE_SRC) as GeoJSONSource | undefined;
   if (src) {
     src.setData(data);
     (map.getSource(STEP_SRC) as GeoJSONSource).setData(stepData);
     (map.getSource(TRAFFIC_SRC) as GeoJSONSource).setData(trafficData);
+    (map.getSource(WEATHER_SRC) as GeoJSONSource).setData(weatherData);
     return;
   }
   map.addSource(ROUTE_SRC, { type: "geojson", data });
   map.addSource(TRAFFIC_SRC, { type: "geojson", data: trafficData });
+  map.addSource(WEATHER_SRC, { type: "geojson", data: weatherData });
   map.addSource(STEP_SRC, { type: "geojson", data: stepData });
   const layout: LineLayerSpecification["layout"] = { "line-join": "round", "line-cap": "round", "line-sort-key": ["case", ["get", "selected"], 1, 0] };
   map.addLayer({ id: "friday-route-casing", type: "line", source: ROUTE_SRC, layout, paint: { "line-color": ["case", ["get", "selected"], "#0b3d4a", "#1f2a33"], "line-width": 10 } });
@@ -80,14 +86,23 @@ function drawRoutes(map: MlMap, routes: Route[], selected: number, step: [number
     id: "friday-route-closure", type: "line", source: TRAFFIC_SRC, filter: ["get", "closure"],
     paint: { "line-color": "#7f1d1d", "line-width": 5, "line-dasharray": [1.5, 1] },
   });
+  // Rain on the selected route (spec 2026-09-23 open-meteo §7.2): dashed and offset so congestion stays visible.
+  map.addLayer({
+    id: "friday-route-weather", type: "line", source: WEATHER_SRC,
+    layout: { "line-join": "round" },
+    paint: {
+      "line-color": ["match", ["get", "category"], "heavy_rain", "#2563eb", "thunderstorm", "#a855f7", "#38bdf8"],
+      "line-width": 4, "line-offset": 5, "line-dasharray": [1, 1.5],
+    },
+  });
   map.addLayer({ id: "friday-route-step", type: "line", source: STEP_SRC, layout: { "line-join": "round", "line-cap": "round" }, paint: { "line-color": "#eafcff", "line-width": 7 } });
 }
 
 function clearRoutes(map: MlMap) {
   // The map may already be removed when the panel unmounts with it.
   try {
-    for (const id of ["friday-route-step", "friday-route-closure", "friday-route-traffic", "friday-route-line", "friday-route-casing"]) if (map.getLayer(id)) map.removeLayer(id);
-    for (const id of [STEP_SRC, TRAFFIC_SRC, ROUTE_SRC]) if (map.getSource(id)) map.removeSource(id);
+    for (const id of ["friday-route-step", "friday-route-weather", "friday-route-closure", "friday-route-traffic", "friday-route-line", "friday-route-casing"]) if (map.getLayer(id)) map.removeLayer(id);
+    for (const id of [STEP_SRC, WEATHER_SRC, TRAFFIC_SRC, ROUTE_SRC]) if (map.getSource(id)) map.removeSource(id);
   } catch {
     /* map gone */
   }
@@ -209,6 +224,7 @@ export function DirectionsPanel({
   };
   const swap = () => onChange({ ...value, stops: [...value.stops].reverse() });
   const best = routes[selected];
+  const rain = best ? weatherLine(best) : null;
   // An agent may ask for a mode the plan lacks; show its tab so the state is honest.
   const tabs = profiles.includes(value.profile) ? profiles : [...profiles, value.profile];
   const last = value.stops.length - 1;
@@ -313,6 +329,13 @@ export function DirectionsPanel({
                 Khởi hành {formatClock(best.departure_time)}
               </span>{" "}
               → Đến {formatClock(best.arrival_time)}
+            </div>
+          )}
+          {rain && (
+            <div data-testid="directions-weather" className="mt-1 text-xs text-sky-200">
+              {rain}
+              {/* CC BY 4.0 — credit wherever weather shows (spec §2). */}
+              <span className="ml-2 text-[10px] text-slate-500">Thời tiết: Open-Meteo</span>
             </div>
           )}
           {routes.length > 1 && (

@@ -132,6 +132,10 @@ const ROUTE = {
       departure_time: "2026-09-23T07:52:00+07:00",
       arrival_time: "2026-09-23T08:01:05+07:00",
       traffic_sections: [{ start: 0, end: 1, category: "jam", delay_s: 360, magnitude: 3 }],
+      weather: {
+        status: "ok",
+        sections: [{ start: 1, end: 2, category: "rain", probability: 80, precip_mm: 1.2, from_time: "07:57", to_time: "08:01" }],
+      },
     },
     { distance_m: 2900, duration_s: 610, traffic_delay_s: 0, coordinates: [[105.8525, 21.0288], [105.8346, 21.0368]], maneuvers: [], traffic_sections: [] },
   ],
@@ -158,9 +162,11 @@ test("an agent route opens directions with the summary, steps and route layers",
     await expect(panel.getByLabel("Tránh cao tốc")).toBeChecked(); // from the agent spec
     await expect(page.getByTestId("directions-times")).toHaveText("Khởi hành 07:52 → Đến 08:01");
     await expect(panel.getByRole("listitem")).toContainText(["Rẽ phải vào Hùng Vương"]);
+    await expect(page.getByTestId("directions-weather")).toContainText("Mưa 07:57–08:01 (80%)");
+    await expect(page.getByTestId("directions-weather")).toContainText("Thời tiết: Open-Meteo");
     expect(await page.evaluate(() => {
       const m = (window as unknown as { __fridayMap?: { getLayer(id: string): unknown } }).__fridayMap;
-      return !!m?.getLayer("friday-route-line") && !!m?.getLayer("friday-route-casing") && !!m?.getLayer("friday-route-traffic");
+      return !!m?.getLayer("friday-route-line") && !!m?.getLayer("friday-route-casing") && !!m?.getLayer("friday-route-traffic") && !!m?.getLayer("friday-route-weather");
     })).toBe(true);
     // switching mode re-asks the route with the new profile
     const asked = page.waitForRequest((r) => {
