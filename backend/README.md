@@ -380,30 +380,11 @@ prompt-injection surface by construction. The containment is the §11 gate rathe
 than filtering: every consequential tool is `risk="high"` and blocks on a human,
 so a page instructing FRIDAY to write a note still has to get past the operator.
 
-Three providers are tried in order, each falling through on failure:
-
-| Order | Provider | Credentials | Free allowance |
-| --- | --- | --- | --- |
-| 1 | Google Programmable Search | `GOOGLE_SEARCH_API_KEY` + `GOOGLE_SEARCH_CX` | 100/day, **resets daily** |
-| 2 | Tavily | `TAVILY_API_KEY` | fixed credit balance |
-| 3 | DuckDuckGo | none | unlimited but rate-limited |
-
-Google leads on quota shape, not answer quality — Tavily returns extracted page
-text and Google only snippets. But Google's hundred come back every morning
-while Tavily's credits, once spent, stay spent, so the renewable allowance goes
-first and the finite one is held in reserve for the days it has run out.
-
-Falling through on **failure** rather than only on a missing key is the whole
-point: a balance runs out mid-conversation, and what arrives then is a 401.
-
-With nothing configured search still works, on a scrape of DuckDuckGo's HTML
-endpoint. Measured, that serves roughly a dozen requests before answering every
-query with a captcha for several minutes, and it mixes sponsored results in
-among the real ones — filtered here, because an advert summarised into an answer
-is indistinguishable from a fact. Treat it as the tail of the chain, not a
-plan: every measurement above ran from a residential connection, and search
-engines refuse datacenter addresses far more readily, so on a deployed host it
-may be blocked from the first call.
+Search runs on Tavily (`TAVILY_API_KEY`), which returns extracted page text
+and a synthesised answer rather than snippets. Its free tier is a fixed credit
+balance: once spent it stays spent, and what arrives then is a 401. An optional
+`TAVILY_API_KEY_2` is tried on that failure; with no key at all `search_web`
+returns an error.
 
 Results are trimmed to 5 items of 600 characters. That is a context budget, not
 a display choice: tool output is replayed on every later turn of the same
