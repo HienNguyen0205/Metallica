@@ -30,7 +30,8 @@ SEARCH = {"results": [
 
 def trip(length, time, delay):
     return {
-        "summary": {"lengthInMeters": length, "travelTimeInSeconds": time, "trafficDelayInSeconds": delay},
+        "summary": {"lengthInMeters": length, "travelTimeInSeconds": time, "trafficDelayInSeconds": delay,
+                    "departureTime": "2026-09-23T07:52:00+07:00", "arrivalTime": "2026-09-23T08:01:05+07:00"},
         "legs": [{"points": [{"latitude": 21.0288, "longitude": 105.8525}, {"latitude": 21.033, "longitude": 105.843},
                              {"latitude": 21.0368, "longitude": 105.8346}]}],
         "guidance": {"instructions": [
@@ -38,6 +39,13 @@ def trip(length, time, delay):
             {"maneuver": "TURN_RIGHT", "street": "Hùng Vương", "routeOffsetInMeters": 1100, "travelTimeInSeconds": 250, "pointIndex": 1},
             {"maneuver": "ARRIVE", "routeOffsetInMeters": length, "travelTimeInSeconds": time, "pointIndex": 2},
         ]},
+        "sections": [
+            {"sectionType": "TRAVEL_MODE", "startPointIndex": 0, "endPointIndex": 2, "travelMode": "motorcycle"},
+            {"sectionType": "TRAFFIC", "startPointIndex": 0, "endPointIndex": 1, "simpleCategory": "JAM",
+             "magnitudeOfDelay": 3, "delayInSeconds": 360, "effectiveSpeedInKmh": 9},
+            {"sectionType": "TRAFFIC", "startPointIndex": 1, "endPointIndex": 2, "simpleCategory": "ROAD_CLOSURE",
+             "magnitudeOfDelay": 4, "delayInSeconds": 0},
+        ],
     }
 
 
@@ -166,6 +174,12 @@ def test_route_request_and_normalization() -> None:
         assert q["traffic"] == ["true"] and q["maxAlternatives"] == ["2"]
         assert len(out["routes"]) == 2
         r = out["routes"][0]
+        assert q["sectionType"] == ["traffic"] and "avoid" not in q and "departAt" not in q
+        assert (r["departure_time"], r["arrival_time"]) == ("2026-09-23T07:52:00+07:00", "2026-09-23T08:01:05+07:00")
+        assert r["traffic_sections"] == [
+            {"start": 0, "end": 1, "category": "jam", "delay_s": 360, "magnitude": 3},
+            {"start": 1, "end": 2, "category": "road_closure", "delay_s": 0, "magnitude": 4},
+        ], r["traffic_sections"]
         assert (r["distance_m"], r["duration_s"], r["traffic_delay_s"]) == (2412, 545, 360)
         assert r["coordinates"] == [[105.8525, 21.0288], [105.843, 21.033], [105.8346, 21.0368]]
         assert r["maneuvers"][1] == {"instruction": "Rẽ phải vào Hùng Vương", "maneuver": "TURN_RIGHT",
@@ -239,6 +253,46 @@ def test_no_key_or_unreachable_is_unavailable() -> None:
                 os.environ.pop(k, None)
             else:
                 os.environ[k] = v
+
+
+def test_route_options_are_sent_and_keyed() -> None:
+    def run():
+        asyncio.run(tt.route([A, B], "auto", avoid=["tolls", "unpaved"], arrive_at="2026-09-24T08:00:00+07:00"))
+        q = CALLS[0]["query"]
+        assert sorted(q["avoid"]) == ["tollRoads", "unpavedRoads"], q
+        assert q["arriveAt"] == ["2026-09-24T08:00:00+07:00"] and "departAt" not in q
+        asyncio.run(tt.route([A, B], "auto", avoid=["unpaved", "tolls"], arrive_at="2026-09-24T08:00:00+07:00"))
+        assert len(CALLS) == 1, "avoid order does not matter to the cache"
+        asyncio.run(tt.route([A, B], "auto", avoid=["tolls", "unpaved"], depart_at="2026-09-24T08:00:00+07:00"))
+        assert len(CALLS) == 2 and CALLS[1]["query"]["departAt"] == ["2026-09-24T08:00:00+07:00"]
+        try:
+            asyncio.run(tt.route([A, B], "auto", avoid=["cliffs"]))
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("unknown avoid value must be refused")
+    with_server(run)
+
+
+def test_now_routes_go_stale_after_two_minutes_timed_ones_do_not() -> None:
+    clock = {"t": 1000.0}
+    original = tt._now
+    tt._now = lambda: clock["t"]
+
+    def run():
+        asyncio.run(tt.route([A, B], "auto"))
+        asyncio.run(tt.route([A, B], "auto", depart_at="2026-09-24T08:00:00+07:00"))
+        clock["t"] += 119
+        asyncio.run(tt.route([A, B], "auto"))
+        assert len(CALLS) == 2, "still fresh"
+        clock["t"] += 2
+        asyncio.run(tt.route([A, B], "auto"))
+        asyncio.run(tt.route([A, B], "auto", depart_at="2026-09-24T08:00:00+07:00"))
+        assert len(CALLS) == 3, "the 'now' route refetched, the timed one did not"
+    try:
+        with_server(run)
+    finally:
+        tt._now = original
 
 
 if __name__ == "__main__":
