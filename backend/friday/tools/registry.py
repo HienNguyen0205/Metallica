@@ -343,7 +343,8 @@ def _build_default_registry() -> dict[str, Tool]:
             risk="low",
             run=run_fetch_url,
             capabilities=("web.read",),
-            timeout_s=20.0,
+            # direct read (15s) plus the Firecrawl fallback (30s)
+            timeout_s=50.0,
         ),
         Tool(
             name="search_docs",

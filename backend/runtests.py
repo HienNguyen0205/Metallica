@@ -43,6 +43,8 @@ def main(argv: list[str]) -> int:
     # load_dotenv never overrides a set variable: without this a local .env
     # pointing at Redis would have every test write runs to that server.
     env["FRIDAY_STATE_BACKEND"] = "memory"
+    # Same for the paid fallback: fixtures stand in for it, credits must not.
+    env["FIRECRAWL_API_KEY"] = ""
     failed: list[str] = []
     for path in files:
         rel = os.path.relpath(path, BACKEND_DIR)

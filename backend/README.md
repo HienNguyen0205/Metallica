@@ -382,9 +382,16 @@ so a page instructing FRIDAY to write a note still has to get past the operator.
 
 Search runs on Tavily (`TAVILY_API_KEY`), which returns extracted page text
 and a synthesised answer rather than snippets. Its free tier is a fixed credit
-balance: once spent it stays spent, and what arrives then is a 401. An optional
-`TAVILY_API_KEY_2` is tried on that failure; with no key at all `search_web`
-returns an error.
+balance: once spent it stays spent, and what arrives then is a 401. On that — or
+any — failure the query goes to Firecrawl (`FIRECRAWL_API_KEY`), which returns
+title and description per result and no answer; page content is not requested,
+because it costs credits per result and `fetch_url` reads the one page the model
+wants. With neither key `search_web` returns an error.
+
+`fetch_url` reads pages with stdlib first. With `FIRECRAWL_API_KEY` set, a read
+that fails — 403/429/5xx, timeout, PDF, or under 200 characters of text (a
+JS-rendered shell) — is retried through Firecrawl's `/scrape`, which renders the
+page and returns main-content markdown. 404/410 and private hosts never go there.
 
 Results are trimmed to 5 items of 600 characters. That is a context budget, not
 a display choice: tool output is replayed on every later turn of the same

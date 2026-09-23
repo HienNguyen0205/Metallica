@@ -19,12 +19,12 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
     log.info("planner configured: %s", configured())
     log.info("model: %s at %s", model(), base_url())
     log.info("allowed origins: %s", settings.allowed_origins)
-    # Named and counted, because a mistyped second key is otherwise invisible
-    # until the first one runs out — the worst moment to find out.
+    # Named, because a missing fallback key is otherwise invisible until the
+    # first provider runs out — the worst moment to find out.
     keyed = search_providers()
     log.info("search providers: %s", ", ".join(keyed) or "none")
     if not keyed:
-        log.warning("TAVILY_API_KEY is not set - search_web will return an error")
+        log.warning("no TAVILY_API_KEY or FIRECRAWL_API_KEY - search_web will return an error")
     if not configured():
         log.warning("no provider key set - every query will return an error event")
     if not settings.allowed_origins:

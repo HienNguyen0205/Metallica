@@ -1,11 +1,11 @@
-"""§10 web search, against a local fake standing in for Tavily.
+"""§10 web search, against a local fake standing in for Tavily and Firecrawl.
 
     PYTHONPATH=. python tests/integration/test_search.py
 
-No key, no network. What is under test: that a spent key hands over to the
-second one rather than failing the turn, that failures are named, that results
-are trimmed before reaching the model, and that no key means an error rather
-than a request.
+No key, no network. What is under test is the chain: that Tavily answers first,
+that it running out mid-conversation hands over to Firecrawl rather than failing
+the turn, that unconfigured providers are never contacted, that failures are
+named, and that results are trimmed before reaching the model.
 """
 
 import asyncio
@@ -14,18 +14,31 @@ import os
 import threading
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
-from friday.tools.integrations import search
+from friday.tools.integrations import firecrawl, search
 
 PORT = 8129
 
-#: Status per bearer token this test; absent means 200.
+#: How each provider should behave this test; absent means 200.
 plan: dict[str, int] = {}
-#: Tokens actually used, in order.
+#: Providers actually contacted, in order.
 hits: list[str] = []
+#: Last JSON body each provider received.
+bodies: dict[str, dict] = {}
 
-BODY = {
-    "answer": "a synthesis",
-    "results": [{"title": "T" * 500, "url": "https://t.example", "content": "x" * 5000}] * 12,
+RESPONSES = {
+    "tavily": {
+        "answer": "a synthesis",
+        "results": [{"title": "T" * 500, "url": "https://t.example", "content": "x" * 5000}] * 12,
+    },
+    "firecrawl": {
+        "success": True,
+        "data": {
+            "web": [
+                {"title": "F one", "url": "https://f.example/1", "description": "from firecrawl"},
+                {"title": "F two", "url": "https://f.example/2", "description": "also firecrawl"},
+            ]
+        },
+    },
 }
 
 
@@ -34,17 +47,17 @@ class Handler(BaseHTTPRequestHandler):
         # Drain the request body first: leaving it unread makes the client see a
         # connection reset instead of the status we are trying to simulate.
         length = int(self.headers.get("content-length", 0))
-        if length:
-            self.rfile.read(length)
+        raw = self.rfile.read(length) if length else b"{}"
 
-        token = self.headers.get("authorization", "").removeprefix("Bearer ")
-        hits.append(token)
-        status = plan.get(token, 200)
+        who = "firecrawl" if self.path.startswith("/v2/") else "tavily"
+        hits.append(who)
+        bodies[who] = json.loads(raw)
+        status = plan.get(who, 200)
 
         self.send_response(status)
         self.send_header("content-type", "application/json")
         self.end_headers()
-        self.wfile.write(b'{"detail":"nope"}' if status >= 400 else json.dumps(BODY).encode())
+        self.wfile.write(b'{"detail":"nope"}' if status >= 400 else json.dumps(RESPONSES[who]).encode())
 
     def log_message(self, *_args) -> None:
         pass
@@ -54,16 +67,17 @@ def serve() -> HTTPServer:
     server = HTTPServer(("127.0.0.1", PORT), Handler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     search.TAVILY_URL = f"http://127.0.0.1:{PORT}/search"
+    firecrawl.FIRECRAWL_URL = f"http://127.0.0.1:{PORT}/v2"
     return server
 
 
-def setup(*keys: str, **statuses: int) -> None:
+def setup(*, tavily: bool, firecrawl: bool, **statuses: int) -> None:
     hits.clear()
     plan.clear()
     plan.update(statuses)
-    for var, value in zip(("TAVILY_API_KEY", "TAVILY_API_KEY_2"), (*keys, None, None)):
-        if value:
-            os.environ[var] = value
+    for var, on in (("TAVILY_API_KEY", tavily), ("FIRECRAWL_API_KEY", firecrawl)):
+        if on:
+            os.environ[var] = "k"
         else:
             os.environ.pop(var, None)
 
@@ -72,36 +86,52 @@ def run(query: str = "python asyncio") -> dict:
     return asyncio.run(search.run_search_web({"query": query}))
 
 
-def test_one_key_answers() -> None:
-    setup("k1")
+def test_tavily_answers_first() -> None:
+    setup(tavily=True, firecrawl=True)
     out = run()
 
-    assert hits == ["k1"], hits
+    assert hits == ["tavily"], "the rest of the chain must not be called on success"
     assert out["source"] == "tavily"
     assert out["answer"] == "a synthesis"
 
 
-def test_a_spent_key_hands_over_to_the_second_one() -> None:
-    """Two Tavily keys are two balances: 401 on the first must not end the turn."""
-    setup("k1", "k2", k1=401)
+def test_spent_tavily_hands_over_to_firecrawl() -> None:
+    """401 is what Tavily's balance running out looks like, mid-conversation."""
+    setup(tavily=True, firecrawl=True)
+    plan["tavily"] = 401
+
     out = run()
 
-    assert hits == ["k1", "k2"], "the second key must be tried before giving up"
-    assert out["source"] == "tavily"
-    assert "error" not in out
+    assert hits == ["tavily", "firecrawl"], hits
+    assert out["source"] == "firecrawl"
+    assert out["results"][0] == {
+        "title": "F one", "url": "https://f.example/1", "content": "from firecrawl",
+    }
+    # page content costs credits per result; search must not ask for it
+    assert "scrapeOptions" not in bodies["firecrawl"], bodies["firecrawl"]
+
+
+def test_firecrawl_alone_searches() -> None:
+    setup(tavily=False, firecrawl=True)
+    out = run()
+
+    assert hits == ["firecrawl"], "unconfigured providers must not be contacted"
+    assert out["source"] == "firecrawl"
 
 
 def test_every_failure_is_named() -> None:
-    setup("k1", "k2", k1=401, k2=429)
+    setup(tavily=True, firecrawl=True)
+    plan.update({"tavily": 401, "firecrawl": 402})
+
     out = run()
 
-    # the operator needs to know which key to go and fix
-    assert "key 1: tavily returned 401" in out["error"]
-    assert "key 2: tavily returned 429" in out["error"]
+    # the operator needs to know which provider to go and fix
+    assert "tavily returned 401" in out["error"]
+    assert "firecrawl returned 402" in out["error"]
 
 
 def test_no_key_is_an_error_without_touching_the_network() -> None:
-    setup()
+    setup(tavily=False, firecrawl=False)
     out = run()
 
     assert "TAVILY_API_KEY" in out["error"]
@@ -109,7 +139,7 @@ def test_no_key_is_an_error_without_touching_the_network() -> None:
 
 
 def test_results_reach_the_model_trimmed() -> None:
-    setup("k1")
+    setup(tavily=True, firecrawl=False)
     out = run()
 
     assert len(out["results"]) == search.MAX_RESULTS
@@ -119,7 +149,7 @@ def test_results_reach_the_model_trimmed() -> None:
 
 
 def test_empty_query_is_refused_without_touching_the_network() -> None:
-    setup("k1")
+    setup(tavily=True, firecrawl=True)
     assert "error" in run("   ")
     assert hits == []
 
