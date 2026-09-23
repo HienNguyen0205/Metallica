@@ -6,7 +6,7 @@
  * unit-tested.
  */
 import { getApiBase } from "@/lib/api/session";
-import type { MapProfile } from "@/lib/visualization/types";
+import type { MapAvoid, MapProfile } from "@/lib/visualization/types";
 
 export const TOMTOM_MAP_KEY = process.env.NEXT_PUBLIC_TOMTOM_MAP_KEY ?? "";
 
@@ -15,16 +15,19 @@ export const TOMTOM_STYLE_VERSION = "22.2.1-*";
 
 export type MapStyleId = "dark" | "light" | "satellite";
 
-const STYLES: Record<MapStyleId, { map: string; poi: string; flow: string }> = {
-  dark: { map: "2/basic_street-dark", poi: "2/poi_dark", flow: "2/flow_relative-dark" },
-  light: { map: "2/basic_street-light", poi: "2/poi_light", flow: "2/flow_relative-light" },
-  satellite: { map: "2/hybrid_street-satellite", poi: "2/poi_dark", flow: "2/flow_relative-dark" },
+const STYLES: Record<MapStyleId, { map: string; poi: string; flow: string; incidents: string }> = {
+  dark: { map: "2/basic_street-dark", poi: "2/poi_dark", flow: "2/flow_relative-dark", incidents: "2/incidents_dark" },
+  light: { map: "2/basic_street-light", poi: "2/poi_light", flow: "2/flow_relative-light", incidents: "2/incidents_light" },
+  satellite: { map: "2/hybrid_street-satellite", poi: "2/poi_dark", flow: "2/flow_relative-dark", incidents: "2/incidents_dark" },
 };
 
 export function styleUrl(id: MapStyleId, traffic = false): string {
   const s = STYLES[id];
   const params = new URLSearchParams({ key: TOMTOM_MAP_KEY, map: s.map, poi: s.poi });
-  if (traffic) params.set("traffic_flow", s.flow);
+  if (traffic) {
+    params.set("traffic_flow", s.flow);
+    params.set("traffic_incidents", s.incidents);
+  }
   return `https://api.tomtom.com/style/1/style/${TOMTOM_STYLE_VERSION}?${params}`;
 }
 
@@ -40,6 +43,56 @@ export const PROFILE_LABELS: Record<MapProfile, string> = {
   bicycle: "🚲 Xe đạp",
   pedestrian: "🚶 Đi bộ",
 };
+
+export const AVOID_ORDER: MapAvoid[] = ["tolls", "motorways", "ferries", "unpaved"];
+export const AVOID_LABELS: Record<MapAvoid, string> = {
+  tolls: "Tránh trạm thu phí",
+  motorways: "Tránh cao tốc",
+  ferries: "Tránh phà",
+  unpaved: "Tránh đường đất",
+};
+
+/** Motorbikes are banned from Vietnamese expressways (spec 2026-09-23 §2). */
+export function defaultAvoid(profile: MapProfile): MapAvoid[] {
+  return profile === "motor_scooter" ? ["motorways"] : [];
+}
+
+/** Switching mode keeps the user's choices but moves the motorbike motorway rule with it. */
+export function avoidForProfile(avoid: MapAvoid[], from: MapProfile, to: MapProfile): MapAvoid[] {
+  const kept = from === "motor_scooter" ? avoid.filter((a) => a !== "motorways") : avoid;
+  return to === "motor_scooter" && !kept.includes("motorways") ? [...kept, "motorways"] : kept;
+}
+
+export type RouteTime = { kind: "now" } | { kind: "depart" | "arrive"; at: string };
+
+export interface RouteOptions {
+  avoid: MapAvoid[];
+  time: RouteTime;
+}
+
+/** `<input type="datetime-local">` value (no offset) → ISO with the browser's offset. */
+export function toOffsetIso(local: string, offsetMin = -new Date(local).getTimezoneOffset()): string {
+  const sign = offsetMin >= 0 ? "+" : "-";
+  const abs = Math.abs(offsetMin);
+  const hh = String(Math.floor(abs / 60)).padStart(2, "0");
+  const mm = String(abs % 60).padStart(2, "0");
+  const base = local.length === 16 ? `${local}:00` : local;
+  return `${base}${sign}${hh}:${mm}`;
+}
+
+/** Default for a newly picked time: the next quarter hour, as a datetime-local value. */
+export function nextQuarterHourLocal(now = new Date()): string {
+  const d = new Date(now);
+  d.setSeconds(0, 0);
+  d.setMinutes(Math.ceil((d.getMinutes() + 1) / 15) * 15);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+/** HH:MM of an ISO time as written (TomTom answers in the route's local time). */
+export function formatClock(iso: string): string {
+  return iso.slice(11, 16);
+}
 
 /** All four modes are on TomTom's free plan — the tabs if /geo/profiles cannot be read. */
 export const DEFAULT_PROFILES: MapProfile[] = ["motor_scooter", "auto", "bicycle", "pedestrian"];
@@ -130,6 +183,15 @@ export interface Maneuver {
   begin_shape_index: number;
 }
 
+export interface TrafficSection {
+  start: number;
+  end: number;
+  category: "jam" | "road_work" | "road_closure" | "other";
+  delay_s: number;
+  /** 0 unknown, 1 minor … 4 indefinite (TomTom magnitudeOfDelay). */
+  magnitude: number;
+}
+
 export interface Route {
   distance_m: number;
   duration_s: number;
@@ -138,19 +200,35 @@ export interface Route {
   /** [lon, lat] pairs — GeoJSON order, ready for a LineString. */
   coordinates: [number, number][];
   maneuvers: Maneuver[];
+  departure_time?: string | null;
+  arrival_time?: string | null;
+  traffic_sections: TrafficSection[];
 }
 
 export type RouteResult =
   | { ok: true; routes: Route[] }
   | { ok: false; reason: "unavailable" | "no_route" | "unsupported" | "quota" | "error" };
 
-export async function fetchRoute(stops: Endpoint[], profile: MapProfile, signal?: AbortSignal): Promise<RouteResult> {
+export async function fetchRoute(
+  stops: Endpoint[],
+  profile: MapProfile,
+  options: RouteOptions,
+  signal?: AbortSignal,
+): Promise<RouteResult> {
+  const { time } = options;
+  const body = {
+    waypoints: stops.map(({ lat, lon }) => ({ lat, lon })),
+    profile,
+    avoid: options.avoid,
+    ...(time.kind === "depart" ? { depart_at: time.at } : {}),
+    ...(time.kind === "arrive" ? { arrive_at: time.at } : {}),
+  };
   let res: Response;
   try {
     res = await fetch(`${getApiBase()}/geo/route`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ waypoints: stops.map(({ lat, lon }) => ({ lat, lon })), profile }),
+      body: JSON.stringify(body),
       signal,
     });
   } catch (err) {
@@ -161,13 +239,13 @@ export async function fetchRoute(stops: Endpoint[], profile: MapProfile, signal?
   if (res.status === 503) return { ok: false, reason: "unavailable" };
   if (res.status === 429) return { ok: false, reason: "quota" };
   if (!res.ok) {
-    const body = (await res.json().catch(() => null)) as { error?: string } | null;
-    if (body?.error === "no_route") return { ok: false, reason: "no_route" };
-    if (body?.error === "unsupported_profile") return { ok: false, reason: "unsupported" };
+    const errorBody = (await res.json().catch(() => null)) as { error?: string } | null;
+    if (errorBody?.error === "no_route") return { ok: false, reason: "no_route" };
+    if (errorBody?.error === "unsupported_profile") return { ok: false, reason: "unsupported" };
     return { ok: false, reason: "error" };
   }
-  const body = (await res.json()) as { routes?: Route[] };
-  return { ok: true, routes: body.routes ?? [] };
+  const data = (await res.json()) as { routes?: Route[] };
+  return { ok: true, routes: data.routes ?? [] };
 }
 
 /** Where maneuver `i` happens. */
@@ -182,6 +260,22 @@ export function stepCoordinates(route: Route, i: number): [number, number][] {
   if (!m) return [];
   const end = route.maneuvers[i + 1]?.begin_shape_index ?? route.coordinates.length - 1;
   return route.coordinates.slice(m.begin_shape_index, end + 1);
+}
+
+/** Congested stretches of one route as line features for the overlay layers. */
+export function trafficSegments(route: Route): GeoJSON.FeatureCollection<GeoJSON.LineString, { magnitude: number; closure: boolean }> {
+  return {
+    type: "FeatureCollection",
+    features: (route.traffic_sections ?? []).flatMap((s) => {
+      const coordinates = route.coordinates.slice(s.start, s.end + 1);
+      if (coordinates.length < 2) return [];
+      return [{
+        type: "Feature" as const,
+        properties: { magnitude: s.magnitude, closure: s.category === "road_closure" },
+        geometry: { type: "LineString" as const, coordinates },
+      }];
+    }),
+  };
 }
 
 export function formatDistance(meters: number): string {

@@ -173,3 +173,17 @@ test("normalizeVisualization sanitizes data.map", () => {
   const spec = normalizeVisualization({ type: "map", data: { map: { zoom: 99, center: { lat: 1, lon: 2 } } } });
   expect(spec.data?.map).toEqual({ center: { lat: 1, lon: 2 } });
 });
+
+test("map route options: known avoid values, offset times, never both times", () => {
+  const w = [{ lat: 1, lon: 1 }, { lat: 2, lon: 2 }];
+  expect(
+    sanitizeMapView({ route: { profile: "auto", waypoints: w, avoid: ["tolls", "rocket", "tolls", "ferries"], depart_at: "2026-09-24T08:00:00+07:00" } }),
+  ).toEqual({ route: { profile: "auto", waypoints: w, avoid: ["tolls", "ferries"], depart_at: "2026-09-24T08:00:00+07:00" } });
+  // naive times are dropped; with both, arrive_at goes
+  expect(sanitizeMapView({ route: { profile: "auto", waypoints: w, depart_at: "2026-09-24T08:00" } })).toEqual({ route: { profile: "auto", waypoints: w } });
+  expect(
+    sanitizeMapView({ route: { profile: "auto", waypoints: w, depart_at: "2026-09-24T08:00Z", arrive_at: "2026-09-24T09:00Z" } })?.route,
+  ).toEqual({ profile: "auto", waypoints: w, depart_at: "2026-09-24T08:00Z" });
+  expect(sanitizeMapView({ route: { profile: "auto", waypoints: w, arrive_at: "2026-09-24T09:00:00-05:30", avoid: "tolls" } })?.route)
+    .toEqual({ profile: "auto", waypoints: w, arrive_at: "2026-09-24T09:00:00-05:30" });
+});

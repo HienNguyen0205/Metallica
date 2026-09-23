@@ -8,10 +8,10 @@ import { useFridayStore } from "@/lib/store";
 import { shareLocation } from "@/lib/geolocation";
 import { useReducedMotion } from "@/lib/useReducedMotion";
 import { ARRIVAL_ZOOM, HANDOFF_ZOOM, LEAVE_ZOOM } from "@/lib/mapView";
-import type { MapProfile } from "@/lib/visualization/types";
+import type { MapAvoid, MapProfile } from "@/lib/visualization/types";
 import { STATUS_COLORS, markerLabel, statusOf } from "../visualization/globe/geo";
 import { devRailsEnabled } from "../hud/devRails";
-import { DEFAULT_PROFILES, fetchProfiles, styleUrl, withTomTomKey, type Endpoint, type MapStyleId, type Place } from "./mapApi";
+import { DEFAULT_PROFILES, defaultAvoid, fetchProfiles, styleUrl, withTomTomKey, type Endpoint, type MapStyleId, type Place, type RouteTime } from "./mapApi";
 import { MapSearch } from "./MapSearch";
 import { DirectionsPanel } from "./DirectionsPanel";
 import { ContextMenu, PlacePanel, myLocationEndpoint, type MenuState } from "./PlacePanel";
@@ -28,6 +28,12 @@ export interface DirectionsValue {
   profile: MapProfile;
   /** First is "from", last is "to"; null = not chosen yet. */
   stops: (Endpoint | null)[];
+  avoid: MapAvoid[];
+  time: RouteTime;
+}
+
+function newDirections(profile: MapProfile, stops: (Endpoint | null)[]): DirectionsValue {
+  return { profile, stops, avoid: defaultAvoid(profile), time: { kind: "now" } };
 }
 
 const STYLE_OPTIONS: { id: MapStyleId; label: string }[] = [
@@ -138,13 +144,16 @@ export default function MapStage() {
       // Synchronous apply is intentional: the open request and its route state land on the same commit.
       // eslint-disable-next-line react-hooks/set-state-in-effect
       setPlace(null);
+      const r = view.route;
       setDirections({
-        profile: view.route.profile,
-        stops: view.route.waypoints.map((w) => ({
+        profile: r.profile,
+        stops: r.waypoints.map((w) => ({
           lat: w.lat,
           lon: w.lon,
           label: w.label ?? `${w.lat.toFixed(5)}, ${w.lon.toFixed(5)}`,
         })),
+        avoid: r.avoid ?? defaultAvoid(r.profile),
+        time: r.depart_at ? { kind: "depart", at: r.depart_at } : r.arrive_at ? { kind: "arrive", at: r.arrive_at } : { kind: "now" },
       });
       return; // DirectionsPanel frames the route once it arrives
     }
@@ -248,11 +257,11 @@ export default function MapStage() {
   }, [map]);
   const directionsTo = (to: Endpoint) => {
     setPlace(null);
-    setDirections((d) => ({ profile: d?.profile ?? profiles[0], stops: [d?.stops[0] ?? myLocationEndpoint(), to] }));
+    setDirections((d) => ({ ...(d ?? newDirections(profiles[0], [])), stops: [d?.stops[0] ?? myLocationEndpoint(), to] }));
   };
   const directionsFrom = (from: Endpoint) => {
     setPlace(null);
-    setDirections((d) => ({ profile: d?.profile ?? profiles[0], stops: [from, d?.stops.at(-1) ?? null] }));
+    setDirections((d) => ({ ...(d ?? newDirections(profiles[0], [])), stops: [from, d?.stops.at(-1) ?? null] }));
   };
 
   // My location: blue dot, halo sized to the browser's accuracy radius.
@@ -361,7 +370,7 @@ export default function MapStage() {
           onClick={() => {
             const to = place ? { lat: place.lat, lon: place.lon, label: place.label } : null;
             setPlace(null);
-            setDirections({ profile: profiles[0], stops: [myLocationEndpoint(), to] });
+            setDirections(newDirections(profiles[0], [myLocationEndpoint(), to]));
           }}
         >
           ↱

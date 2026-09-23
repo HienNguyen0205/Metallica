@@ -12,6 +12,7 @@ import asyncio
 import json
 import os
 import re
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -29,6 +30,14 @@ PROFILE_ORDER = ("motor_scooter", "auto", "bicycle", "pedestrian")
 TRAVEL_MODE = {"motor_scooter": "motorcycle", "auto": "car", "bicycle": "bicycle", "pedestrian": "pedestrian"}
 #: A Places Details path ("pois/<id>"); anything else is refused, never fetched.
 PLACE_REF = re.compile(r"^[a-z]+/[A-Za-z0-9_-]+$")
+#: Contract avoid names (spec 2026-09-23 §3) → TomTom's.
+AVOID = {"tolls": "tollRoads", "motorways": "motorways", "ferries": "ferries", "unpaved": "unpavedRoads"}
+TRAFFIC_CATEGORY = {"JAM": "jam", "ROAD_WORK": "road_work", "ROAD_CLOSURE": "road_closure"}
+#: A route for "now" carries live traffic, which goes stale; timed routes do not.
+NOW_TTL_S = 120
+
+#: Monotonic clock for cache expiry; tests swap it.
+_now = time.monotonic
 
 
 class TomTomUnavailable(Exception):
@@ -60,18 +69,26 @@ def coarse(lat: float, lon: float) -> tuple[float, float]:
 
 
 class _Lru:
+    """LRU with optional per-entry expiry (used for live-traffic routes)."""
+
     def __init__(self, size: int) -> None:
         self.size = size
-        self.data: "OrderedDict[str, Any]" = OrderedDict()
+        self.data: "OrderedDict[str, tuple[Any, float | None]]" = OrderedDict()
 
     def get(self, key: str) -> Any:
-        if key not in self.data:
+        entry = self.data.get(key)
+        if entry is None:
+            return None
+        value, expires = entry
+        if expires is not None and _now() >= expires:
+            del self.data[key]
             return None
         self.data.move_to_end(key)
-        return self.data[key]
+        return value
 
-    def put(self, key: str, value: Any) -> Any:
-        self.data[key] = value
+    def put(self, key: str, value: Any, ttl: float | None = None) -> Any:
+        self.data[key] = (value, None if ttl is None else _now() + ttl)
+        self.data.move_to_end(key)
         if len(self.data) > self.size:
             self.data.popitem(last=False)
         return value
@@ -129,12 +146,12 @@ def _http(url: str, *, body: dict | None = None, headers: dict | None = None, no
         raise TomTomUnavailable(str(err)) from err
 
 
-async def _cached(name: str, key: str, fetch: Callable[[], Any]) -> Any:
+async def _cached(name: str, key: str, fetch: Callable[[], Any], ttl: float | None = None) -> Any:
     cache = _CACHES[name]
     hit = cache.get(key)
     if hit is not None:
         return hit
-    return cache.put(key, await asyncio.to_thread(fetch))
+    return cache.put(key, await asyncio.to_thread(fetch), ttl)
 
 
 # ---------- places (autocomplete) ----------
@@ -239,25 +256,60 @@ def _normalize(route: dict[str, Any]) -> dict[str, Any]:
         "distance_m": round(total_m),
         "duration_s": round(total_s),
         "traffic_delay_s": round(summary.get("trafficDelayInSeconds", 0)),
+        "departure_time": summary.get("departureTime"),
+        "arrival_time": summary.get("arrivalTime"),
+        "traffic_sections": [
+            {
+                "start": s.get("startPointIndex", 0),
+                "end": s.get("endPointIndex", 0),
+                "category": TRAFFIC_CATEGORY.get(s.get("simpleCategory"), "other"),
+                "delay_s": round(s.get("delayInSeconds", 0)),
+                "magnitude": int(s.get("magnitudeOfDelay", 0)),
+            }
+            for s in route.get("sections", [])
+            if s.get("sectionType") == "TRAFFIC"
+        ],
         "coordinates": coords,
         "maneuvers": maneuvers,
     }
 
 
-async def route(waypoints: list[dict], profile: str | None = None) -> dict[str, Any]:
+async def route(
+    waypoints: list[dict],
+    profile: str | None = None,
+    *,
+    avoid: list[str] | tuple[str, ...] = (),
+    depart_at: str | None = None,
+    arrive_at: str | None = None,
+) -> dict[str, Any]:
+    """Times arrive validated and normalized (geo/route_time.py)."""
     key = _key()
     profile = profile or default_profile()
     if profile not in TRAVEL_MODE:
         raise UnsupportedProfile(profile)
+    unknown = [a for a in avoid if a not in AVOID]
+    if unknown:
+        raise ValueError(f"unknown avoid value(s): {', '.join(unknown)}")
+    avoids = sorted(set(avoid))
     stops = ":".join(f"{w['lat']},{w['lon']}" for w in waypoints)
-    params = {"key": key, "travelMode": TRAVEL_MODE[profile], "instructionsType": "coded",
-              "traffic": "true", "routeRepresentation": "polyline"}
+    params: list[tuple[str, str]] = [
+        ("key", key), ("travelMode", TRAVEL_MODE[profile]), ("instructionsType", "coded"),
+        ("traffic", "true"), ("routeRepresentation", "polyline"), ("sectionType", "traffic"),
+    ]
+    params += [("avoid", AVOID[a]) for a in avoids]
+    if depart_at:
+        params.append(("departAt", depart_at))
+    elif arrive_at:
+        params.append(("arriveAt", arrive_at))
     # Alternatives only between two stops.
     if len(waypoints) == 2:
-        params["maxAlternatives"] = "2"
+        params.append(("maxAlternatives", "2"))
     url = f"{_base()}/routing/1/calculateRoute/{stops}/json?{urllib.parse.urlencode(params)}"
-    cache_key = json.dumps([[(round(w["lat"], 5), round(w["lon"], 5)) for w in waypoints], profile])
-    raw = await _cached("route", cache_key, lambda: _http(url, no_route_on_400=True))
+    cache_key = json.dumps([
+        [(round(w["lat"], 5), round(w["lon"], 5)) for w in waypoints], profile, avoids, depart_at, arrive_at,
+    ])
+    ttl = NOW_TTL_S if not (depart_at or arrive_at) else None
+    raw = await _cached("route", cache_key, lambda: _http(url, no_route_on_400=True), ttl)
     routes = [_normalize(r) for r in raw.get("routes", [])]
     if not routes:
         raise NoRoute("no routes")

@@ -1,4 +1,4 @@
-import type { MapProfile, MapView, VisualizationSpec, VizData } from "@/lib/visualization/types";
+import type { MapAvoid, MapProfile, MapView, VisualizationSpec, VizData } from "@/lib/visualization/types";
 
 /**
  * Backend-compatible normalization — fills defaults so renderers never
@@ -47,6 +47,13 @@ function sanitizeUnit(value: unknown): string | undefined {
 }
 
 const MAP_PROFILES: ReadonlySet<string> = new Set(["auto", "motor_scooter", "bicycle", "pedestrian"]);
+const MAP_AVOID: ReadonlySet<string> = new Set(["tolls", "motorways", "ferries", "unpaved"]);
+/** An ISO 8601 time that carries its own offset — a naive one would mean a different instant per server. */
+const OFFSET_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})$/;
+
+function sanitizeTime(value: unknown): string | undefined {
+  return typeof value === "string" && OFFSET_TIME.test(value) && !Number.isNaN(Date.parse(value)) ? value : undefined;
+}
 
 function finiteIn(value: unknown, lo: number, hi: number): value is number {
   return typeof value === "number" && Number.isFinite(value) && value >= lo && value <= hi;
@@ -77,7 +84,10 @@ export function sanitizeMapView(value: unknown): MapView | undefined {
   ) {
     out.bbox = [b[0], b[1], b[2], b[3]];
   }
-  const r = v.route as { profile?: unknown; waypoints?: unknown } | null | undefined;
+  const r = v.route as
+    | { profile?: unknown; waypoints?: unknown; avoid?: unknown; depart_at?: unknown; arrive_at?: unknown }
+    | null
+    | undefined;
   if (r && Array.isArray(r.waypoints)) {
     const waypoints = r.waypoints.flatMap((w) => {
       const p = sanitizeLatLon(w);
@@ -87,7 +97,17 @@ export function sanitizeMapView(value: unknown): MapView | undefined {
     });
     if (waypoints.length >= 2 && waypoints.length <= 5) {
       const profile = MAP_PROFILES.has(r.profile as string) ? (r.profile as MapProfile) : "motor_scooter";
-      out.route = { profile, waypoints };
+      const route: NonNullable<MapView["route"]> = { profile, waypoints };
+      if (Array.isArray(r.avoid)) {
+        const avoid = [...new Set(r.avoid.filter((a): a is MapAvoid => MAP_AVOID.has(a as string)))];
+        if (avoid.length > 0) route.avoid = avoid;
+      }
+      // TomTom takes one or the other; a departure is the more common ask.
+      const depart = sanitizeTime(r.depart_at);
+      const arrive = sanitizeTime(r.arrive_at);
+      if (depart) route.depart_at = depart;
+      else if (arrive) route.arrive_at = arrive;
+      out.route = route;
     }
   }
   return Object.keys(out).length > 0 ? out : undefined;

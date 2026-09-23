@@ -178,6 +178,7 @@ const MAP_ROUTE_SPEC = {
     map: {
       route: {
         profile: "motor_scooter",
+        avoid: ["motorways"],
         waypoints: [
           { lat: 21.0288, lon: 105.8525, label: "Hồ Gươm" },
           { lat: 21.0368, lon: 105.8346, label: "Lăng Bác" },

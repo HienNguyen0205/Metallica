@@ -75,3 +75,11 @@ test("visualization schema declares the map type and MapView on VizData", () => 
   expect(viz.definitions.MapRoute.properties.waypoints.minItems).toBe(2);
   expect(viz.definitions.MapRoute.properties.waypoints.maxItems).toBe(5);
 });
+
+test("map routes carry avoid options and one departure or arrival time", () => {
+  const props = viz.definitions.MapRoute.properties;
+  expect(Object.keys(props).sort()).toEqual(["arrive_at", "avoid", "depart_at", "profile", "waypoints"]);
+  expect(props.avoid.items.enum).toEqual(["tolls", "motorways", "ferries", "unpaved"]);
+  expect(props.depart_at.type).toBe("string");
+  expect(props.arrive_at.type).toBe("string");
+});

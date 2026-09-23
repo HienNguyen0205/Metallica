@@ -707,7 +707,13 @@ async def geo_route(body: RouteRequest) -> Any:
     """Spec §6.3 — one route question for the map UI; cached in the client."""
     try:
         # Looked up on the module so tests can swap tomtom.route.
-        return await tomtom.route([w.model_dump() for w in body.waypoints], body.profile)
+        return await tomtom.route(
+            [w.model_dump() for w in body.waypoints],
+            body.profile,
+            avoid=body.avoid,
+            depart_at=body.depart_at,
+            arrive_at=body.arrive_at,
+        )
     except (tomtom.TomTomUnavailable, tomtom.QuotaExceeded) as err:
         return _geo_error(err, "routing_unavailable")
     except tomtom.NoRoute:

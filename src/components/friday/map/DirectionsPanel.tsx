@@ -2,22 +2,31 @@
 
 import { useEffect, useState } from "react";
 import { Marker, type GeoJSONSource, type LineLayerSpecification, type Map as MlMap, type MapLayerMouseEvent } from "maplibre-gl";
-import type { MapProfile } from "@/lib/visualization/types";
+import type { MapAvoid, MapProfile } from "@/lib/visualization/types";
 import type { DirectionsValue } from "./MapLayer";
 import { MapSearch } from "./MapSearch";
 import {
+  AVOID_LABELS,
+  AVOID_ORDER,
   PROFILE_LABELS,
+  avoidForProfile,
   fetchRoute,
+  formatClock,
   formatDistance,
   formatDuration,
   maneuverCoordinate,
+  nextQuarterHourLocal,
   stepCoordinates,
+  toOffsetIso,
+  trafficSegments,
   type Endpoint,
   type Route,
+  type RouteTime,
 } from "./mapApi";
 
 const ROUTE_SRC = "friday-route";
 const STEP_SRC = "friday-route-step";
+const TRAFFIC_SRC = "friday-route-traffic";
 
 type Status = "idle" | "loading" | "ok" | "unavailable" | "no_route" | "unsupported" | "quota" | "error";
 const STATUS_TEXT: Partial<Record<Status, string>> = {
@@ -46,25 +55,39 @@ function routeData(routes: Route[], selected: number): GeoJSON.FeatureCollection
 function drawRoutes(map: MlMap, routes: Route[], selected: number, step: [number, number][]) {
   const data = routeData(routes, selected);
   const stepData: GeoJSON.Feature<GeoJSON.LineString> = { type: "Feature", properties: {}, geometry: { type: "LineString", coordinates: step } };
+  const empty: GeoJSON.FeatureCollection = { type: "FeatureCollection", features: [] };
+  const trafficData = routes[selected] ? trafficSegments(routes[selected]) : empty;
   const src = map.getSource(ROUTE_SRC) as GeoJSONSource | undefined;
   if (src) {
     src.setData(data);
     (map.getSource(STEP_SRC) as GeoJSONSource).setData(stepData);
+    (map.getSource(TRAFFIC_SRC) as GeoJSONSource).setData(trafficData);
     return;
   }
   map.addSource(ROUTE_SRC, { type: "geojson", data });
+  map.addSource(TRAFFIC_SRC, { type: "geojson", data: trafficData });
   map.addSource(STEP_SRC, { type: "geojson", data: stepData });
   const layout: LineLayerSpecification["layout"] = { "line-join": "round", "line-cap": "round", "line-sort-key": ["case", ["get", "selected"], 1, 0] };
   map.addLayer({ id: "friday-route-casing", type: "line", source: ROUTE_SRC, layout, paint: { "line-color": ["case", ["get", "selected"], "#0b3d4a", "#1f2a33"], "line-width": 10 } });
   map.addLayer({ id: "friday-route-line", type: "line", source: ROUTE_SRC, layout, paint: { "line-color": ["case", ["get", "selected"], "#38e8ff", "#6b7c8a"], "line-width": 5 } });
+  // Congestion on the selected route (spec 2026-09-23 §5.2): 0–1 yellow, 2 orange, 3–4 red; closures dark red, dashed.
+  map.addLayer({
+    id: "friday-route-traffic", type: "line", source: TRAFFIC_SRC, filter: ["!", ["get", "closure"]],
+    layout: { "line-join": "round", "line-cap": "round" },
+    paint: { "line-color": ["match", ["get", "magnitude"], [0, 1], "#fbbf24", 2, "#fb923c", "#f87171"], "line-width": 5 },
+  });
+  map.addLayer({
+    id: "friday-route-closure", type: "line", source: TRAFFIC_SRC, filter: ["get", "closure"],
+    paint: { "line-color": "#7f1d1d", "line-width": 5, "line-dasharray": [1.5, 1] },
+  });
   map.addLayer({ id: "friday-route-step", type: "line", source: STEP_SRC, layout: { "line-join": "round", "line-cap": "round" }, paint: { "line-color": "#eafcff", "line-width": 7 } });
 }
 
 function clearRoutes(map: MlMap) {
   // The map may already be removed when the panel unmounts with it.
   try {
-    for (const id of ["friday-route-step", "friday-route-line", "friday-route-casing"]) if (map.getLayer(id)) map.removeLayer(id);
-    for (const id of [STEP_SRC, ROUTE_SRC]) if (map.getSource(id)) map.removeSource(id);
+    for (const id of ["friday-route-step", "friday-route-closure", "friday-route-traffic", "friday-route-line", "friday-route-casing"]) if (map.getLayer(id)) map.removeLayer(id);
+    for (const id of [STEP_SRC, TRAFFIC_SRC, ROUTE_SRC]) if (map.getSource(id)) map.removeSource(id);
   } catch {
     /* map gone */
   }
@@ -118,7 +141,7 @@ export function DirectionsPanel({
     }
     const ctrl = new AbortController();
     setStatus("loading");
-    fetchRoute(stops, value.profile, ctrl.signal)
+    fetchRoute(stops, value.profile, { avoid: value.avoid, time: value.time }, ctrl.signal)
       .then((r) => {
         if (!r.ok) {
           setRoutes([]);
@@ -190,6 +213,12 @@ export function DirectionsPanel({
   const tabs = profiles.includes(value.profile) ? profiles : [...profiles, value.profile];
   const last = value.stops.length - 1;
 
+  const at = value.time.kind === "now" ? null : value.time.at;
+  const setTime = (kind: RouteTime["kind"]) =>
+    onChange({ ...value, time: kind === "now" ? { kind } : { kind, at: at ?? toOffsetIso(nextQuarterHourLocal()) } });
+  const toggleAvoid = (a: MapAvoid, on: boolean) =>
+    onChange({ ...value, avoid: on ? [...value.avoid, a] : value.avoid.filter((x) => x !== a) });
+
   return (
     <section
       data-testid="directions-panel"
@@ -211,12 +240,46 @@ export function DirectionsPanel({
             role="tab"
             aria-selected={value.profile === p}
             className={`flex-1 rounded-full px-2 py-1 text-xs ${value.profile === p ? "bg-cyan-400 text-slate-950" : "hover:bg-cyan-400/10"}`}
-            onClick={() => onChange({ ...value, profile: p })}
+            onClick={() => onChange({ ...value, profile: p, avoid: avoidForProfile(value.avoid, value.profile, p) })}
           >
             {PROFILE_LABELS[p]}
           </button>
         ))}
       </div>
+
+      <div className="mb-2 flex items-center gap-2">
+        <select
+          aria-label="Thời gian"
+          value={value.time.kind}
+          onChange={(e) => setTime(e.target.value as RouteTime["kind"])}
+          className="friday-map-chip !rounded-lg !px-2 !py-1 text-xs"
+        >
+          <option value="now">Đi ngay</option>
+          <option value="depart">Khởi hành lúc</option>
+          <option value="arrive">Đến lúc</option>
+        </select>
+        {at && (
+          <input
+            type="datetime-local"
+            aria-label="Chọn giờ"
+            value={at.slice(0, 16)}
+            onChange={(e) => e.target.value && onChange({ ...value, time: { kind: value.time.kind as "depart" | "arrive", at: toOffsetIso(e.target.value) } })}
+            className="friday-map-chip !rounded-lg !px-2 !py-1 text-xs"
+          />
+        )}
+      </div>
+
+      <details className="mb-2 text-xs">
+        <summary className="cursor-pointer text-slate-300">Tùy chọn{value.avoid.length ? ` (${value.avoid.length})` : ""}</summary>
+        <div className="mt-1 grid grid-cols-2 gap-1">
+          {AVOID_ORDER.map((a) => (
+            <label key={a} className="flex items-center gap-1.5">
+              <input type="checkbox" checked={value.avoid.includes(a)} onChange={(e) => toggleAvoid(a, e.target.checked)} />
+              {AVOID_LABELS[a]}
+            </label>
+          ))}
+        </div>
+      </details>
 
       <div className="flex items-center gap-2">
         <div className="flex flex-1 flex-col gap-2">
@@ -243,6 +306,15 @@ export function DirectionsPanel({
               <span className="text-sm text-amber-200">chậm {formatDuration(best.traffic_delay_s)} do kẹt xe</span>
             )}
           </div>
+          {best.departure_time && best.arrival_time && (
+            <div data-testid="directions-times" className="mt-1 text-xs text-slate-300">
+              {/* With "Đến lúc" the departure time is the answer (spec 2026-09-23 §5.2). */}
+              <span className={value.time.kind === "arrive" ? "font-semibold text-cyan-200" : undefined}>
+                Khởi hành {formatClock(best.departure_time)}
+              </span>{" "}
+              → Đến {formatClock(best.arrival_time)}
+            </div>
+          )}
           {routes.length > 1 && (
             <div className="mt-2 flex gap-2">
               {routes.map((r, i) => (

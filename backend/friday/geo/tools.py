@@ -9,9 +9,13 @@ from typing import Any
 from friday.tools.client.metrics import CLIENT
 
 from . import tomtom
+from .route_time import DEFAULT_OFFSET_MIN, RouteTimeError, route_times
 
 MY_LOCATION = "my_location"
 MAX_STEPS = 8
+AVOID_VALUES = ("tolls", "motorways", "ferries", "unpaved")
+#: Motorbikes are banned from Vietnamese expressways (spec 2026-09-23 §2).
+MOTORBIKE_AVOID = ["motorways"]
 NO_LOCATION = {"error": "the operator has not shared their location"}
 QUOTA = {"error": "the map provider's free allowance for this month is used up"}
 
@@ -23,6 +27,16 @@ def _operator() -> tuple[float, float] | None:
 
 def _is_me(ref: Any) -> bool:
     return str(ref).strip().lower() == MY_LOCATION
+
+
+def _operator_offset() -> int:
+    offset = (CLIENT.get() or {}).get("utc_offset_min")
+    return DEFAULT_OFFSET_MIN if offset is None else offset
+
+
+def _clock(iso: str | None) -> dict[str, str] | None:
+    """TomTom answers in the route's local time; HH:MM is what gets spoken."""
+    return {"local": iso[11:16], "iso": iso} if iso else None
 
 
 async def _first(query: str, near: tuple[float, float] | None) -> dict[str, Any] | None:
@@ -61,6 +75,21 @@ async def run_get_directions(payload: dict[str, Any]) -> dict[str, Any]:
     profile = payload.get("profile") or tomtom.default_profile()
     if profile not in tomtom.PROFILE_ORDER:
         return {"error": f"unknown profile '{profile}'"}
+    requested_avoid = payload.get("avoid")
+    if requested_avoid is None:
+        avoid = list(MOTORBIKE_AVOID) if profile == "motor_scooter" else []
+    else:
+        unknown = [a for a in requested_avoid if a not in AVOID_VALUES]
+        if unknown:
+            return {"error": f"unknown avoid value(s): {', '.join(map(str, unknown))}; use {', '.join(AVOID_VALUES)}"}
+        avoid = sorted(set(requested_avoid))
+    try:
+        depart_at, arrive_at = route_times(
+            payload.get("depart_at"), payload.get("arrive_at"), assume_offset_min=_operator_offset()
+        )
+    except RouteTimeError as err:
+        # Checked before any geocoding, so a bad time costs no quota.
+        return {"error": str(err)}
     refs = [payload.get("from"), *list(payload.get("via") or [])[:3], payload.get("to")]
     if not refs[0] or not refs[-1]:
         return {"error": "from and to are required"}
@@ -78,7 +107,13 @@ async def run_get_directions(payload: dict[str, Any]) -> dict[str, Any]:
                 return {"error": f"no place matches '{ref}'"}
             stops.append(place)
         # Looked up on the module so tests can swap tomtom.route.
-        result = await tomtom.route([{"lat": s["lat"], "lon": s["lon"]} for s in stops], profile)
+        result = await tomtom.route(
+            [{"lat": s["lat"], "lon": s["lon"]} for s in stops],
+            profile,
+            avoid=avoid,
+            depart_at=depart_at,
+            arrive_at=arrive_at,
+        )
     except tomtom.QuotaExceeded:
         return QUOTA
     except tomtom.TomTomUnavailable:
@@ -96,6 +131,12 @@ async def run_get_directions(payload: dict[str, Any]) -> dict[str, Any]:
         "distance_km": round(best["distance_m"] / 1000, 1),
         "duration_min": round(best["duration_s"] / 60),
         "traffic_delay_min": round(best.get("traffic_delay_s", 0) / 60),
+        "avoid": avoid,
+        "depart_at": depart_at,
+        "arrive_at": arrive_at,
+        "departure_time": _clock(best.get("departure_time")),
+        "arrival_time": _clock(best.get("arrival_time")),
+        "jams": sum(1 for s in best.get("traffic_sections", []) if s["category"] == "jam"),
         "steps": [m["instruction"] for m in best["maneuvers"]][:MAX_STEPS],
     }
 
@@ -123,14 +164,20 @@ def preview_get_directions(output: dict[str, Any]) -> dict[str, Any]:
     stops = [output["from"], *output["via"], output["to"]]
     last = len(stops) - 1
     ids = ["A" if i == 0 else "B" if i == last else f"V{i}" for i in range(len(stops))]
+    route: dict[str, Any] = {
+        "profile": output["profile"],
+        "waypoints": [{"lat": s["lat"], "lon": s["lon"], "label": s["label"]} for s in stops],
+    }
+    if output.get("avoid"):
+        route["avoid"] = output["avoid"]
+    for key in ("depart_at", "arrive_at"):
+        if output.get(key):
+            route[key] = output[key]
     return {
         "type": "map",
         "title": "CHỈ ĐƯỜNG",
         "data": {
             "points": [_point(s, ids[i]) for i, s in enumerate(stops)],
-            "map": {"route": {
-                "profile": output["profile"],
-                "waypoints": [{"lat": s["lat"], "lon": s["lon"], "label": s["label"]} for s in stops],
-            }},
+            "map": {"route": route},
         },
     }

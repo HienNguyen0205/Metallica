@@ -107,6 +107,36 @@ def test_origin_guard() -> None:
         restore()
 
 
+def test_route_options_pass_through_and_times_are_checked() -> None:
+    seen = []
+
+    async def route(waypoints, profile=None, **options):
+        seen.append(options)
+        return ROUTE
+
+    tt.route = route
+    try:
+        from datetime import datetime, timedelta, timezone
+
+        soon = (datetime.now(timezone(timedelta(hours=7))) + timedelta(hours=2)).isoformat(timespec="seconds")
+        res = client.post("/geo/route", json={"waypoints": [A, B], "avoid": ["tolls", "motorways"], "arrive_at": soon})
+        assert res.status_code == 200, res.text
+        assert seen[-1] == {"avoid": ["tolls", "motorways"], "depart_at": None, "arrive_at": soon}, seen[-1]
+        client.post("/geo/route", json={"waypoints": [A, B]})
+        assert seen[-1] == {"avoid": [], "depart_at": None, "arrive_at": None}
+        past = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
+        for body in (
+            {"waypoints": [A, B], "depart_at": soon, "arrive_at": soon},  # both
+            {"waypoints": [A, B], "depart_at": "2026-09-24T08:00"},       # no offset
+            {"waypoints": [A, B], "depart_at": past},                     # past
+            {"waypoints": [A, B], "depart_at": "2099-01-01T08:00:00Z"},   # too far
+            {"waypoints": [A, B], "avoid": ["cliffs"]},                   # unknown avoid
+        ):
+            assert client.post("/geo/route", json=body).status_code == 422, body
+    finally:
+        restore()
+
+
 if __name__ == "__main__":
     for name, fn in sorted(globals().items()):
         if name.startswith("test_") and callable(fn):
