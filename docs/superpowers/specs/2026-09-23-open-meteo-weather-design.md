@@ -57,8 +57,8 @@ async def forecast(
 - Points are rounded to 2 decimals (~1 km) before they leave — privacy, and
   the cache key. Duplicate rounded points are sent once and fanned back out.
 - Cache: `tomtom._Lru(256)` reused (not copied), key = rounded points + field lists + `forecast_days`,
-  **TTL 15 minutes** (Open-Meteo's models update hourly at best). A clock hook
-  `_now` like `tomtom._now` for tests.
+  **TTL 15 minutes** (Open-Meteo's models update hourly at best). Expiry reads
+  `tomtom._now`, the shared LRU's clock, which tests swap.
 - Base URL: `https://api.open-meteo.com/v1/forecast`; with
   `OPEN_METEO_API_KEY` set, `https://customer-api.open-meteo.com/v1/forecast`
   plus `apikey=`. Test hook `FRIDAY_OPEN_METEO_URL`, like `FRIDAY_TOMTOM_URL`.
@@ -292,7 +292,7 @@ No test touches the real network.
   wrapped to a list; rounding + dedup fan-out; 15-minute expiry (clock
   injected); API-key host switch; HTTP error body, 429, timeout →
   `WeatherUnavailable`.
-- `test_weather_codes.py`: known codes, unknown → "không rõ".
+- `test_openmeteo.py` also covers `describe`: known codes, unknown → "không rõ".
 - `test_weather_tool.py`: each span's output and preview type/series;
   `my_location` without a shared location; no place match; weather outage
   → error dict.
@@ -308,10 +308,10 @@ No test touches the real network.
 
 **Frontend**
 - `mapApi.spec.ts`: `weatherSegments` slices, skips short sections, empty
-  without weather.
+  without weather; `weatherLine` text, dry line, and `null` for
+  `unavailable` / `out_of_range` / missing.
 - `map.spec.ts`: stub route with weather sections → panel line with times and
-  credit, `friday-route-weather` layer exists; `status "unavailable"` → no
-  line.
+  credit, `friday-route-weather` layer exists.
 
 **Done when** `npm run verify` is green (it runs the backend suite too).
 
