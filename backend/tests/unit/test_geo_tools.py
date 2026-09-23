@@ -13,28 +13,35 @@ from friday.tools.client import metrics as cm
 
 HG = {"label": "Hồ Gươm", "address": "Hồ Hoàn Kiếm, Hà Nội", "category": "poi", "lat": 21.0288, "lon": 105.8525}
 LB = {"label": "Lăng Bác", "address": "Ba Đình, Hà Nội", "category": "poi", "lat": 21.0368, "lon": 105.8346}
-ROUTE = {"routes": [{"distance_m": 2412, "duration_s": 545, "traffic_delay_s": 360, "coordinates": [], "maneuvers": [
+ROUTE = {"routes": [{"distance_m": 2412, "duration_s": 545, "traffic_delay_s": 360,
+                     "departure_time": "2026-09-23T07:52:00+07:00", "arrival_time": "2026-09-23T08:01:05+07:00",
+                     "traffic_sections": [
+                         {"start": 0, "end": 1, "category": "jam", "delay_s": 360, "magnitude": 3},
+                         {"start": 1, "end": 2, "category": "road_work", "delay_s": 0, "magnitude": 1},
+                     ], "coordinates": [], "maneuvers": [
     {"instruction": f"Bước {i}", "maneuver": "STRAIGHT", "distance_m": 10, "duration_s": 5, "begin_shape_index": i} for i in range(12)
 ]}]}
 
 
-def run(coro, location=None):
+def run(coro, location=None, client=None):
     async def go():
-        cm.CLIENT.set(ClientContext(location=location).model_dump(exclude_none=True) if location else {})
+        ctx = {**(client or {}), **({"location": location} if location else {})}
+        cm.CLIENT.set(ClientContext(**ctx).model_dump(exclude_none=True) if ctx else {})
         return await coro
 
     return asyncio.run(go())
 
 
 def fake(search_hits=None, route=None, route_exc=None):
-    seen = {"search": [], "route": []}
+    seen = {"search": [], "route": [], "options": []}
 
     async def search(query, near=None, limit=5):
         seen["search"].append((query, near, limit))
         return (search_hits or {}).get(query, [])[:limit]
 
-    async def route_fn(waypoints, profile=None):
+    async def route_fn(waypoints, profile=None, **options):
         seen["route"].append((waypoints, profile))
+        seen["options"].append(options)
         if route_exc:
             raise route_exc
         return route
@@ -88,11 +95,15 @@ def test_directions_default_to_motorbike_and_cap_steps() -> None:
     finally:
         restore()
     assert seen["route"] == [([{"lat": 21.0288, "lon": 105.8525}, {"lat": 21.0368, "lon": 105.8346}], "motor_scooter")]
+    assert seen["options"] == [{"avoid": ["motorways"], "depart_at": None, "arrive_at": None}]
     assert out["distance_km"] == 2.4 and out["duration_min"] == 9 and out["profile"] == "motor_scooter"
     assert out["traffic_delay_min"] == 6
+    assert out["avoid"] == ["motorways"] and out["jams"] == 1
+    assert out["departure_time"] == {"local": "07:52", "iso": "2026-09-23T07:52:00+07:00"}
+    assert out["arrival_time"]["local"] == "08:01"
     assert out["steps"] == [f"Bước {i}" for i in range(8)]
     spec = tools.preview_get_directions(out)
-    assert spec["data"]["map"]["route"] == {"profile": "motor_scooter", "waypoints": [
+    assert spec["data"]["map"]["route"] == {"profile": "motor_scooter", "avoid": ["motorways"], "waypoints": [
         {"lat": 21.0288, "lon": 105.8525, "label": "Hồ Gươm"},
         {"lat": 21.0368, "lon": 105.8346, "label": "Lăng Bác"},
     ]}
@@ -134,6 +145,35 @@ def test_find_place_quota_is_an_error_dict() -> None:
     tomtom.search = quota
     try:
         assert "allowance" in run(tools.run_find_place({"query": "cafe"}))["error"]
+    finally:
+        restore()
+
+
+def test_explicit_avoid_and_times() -> None:
+    seen = fake({"a": [HG], "b": [LB]}, route=ROUTE)
+    try:
+        out = run(tools.run_get_directions({"from": "a", "to": "b", "profile": "auto", "arrive_at": "2099-01-01T08:00"}))
+        assert "more than a year ahead" in out["error"]
+        assert seen["route"] == [], "a bad time is refused before any request"
+
+        run(tools.run_get_directions({"from": "a", "to": "b", "avoid": []}))
+        assert seen["options"][-1]["avoid"] == [], "explicit [] avoids nothing, even on a motorbike"
+
+        from datetime import datetime, timedelta, timezone
+
+        local = (datetime.now(timezone(timedelta(hours=-5))) + timedelta(hours=3)).strftime("%Y-%m-%dT%H:%M")
+        out = run(tools.run_get_directions({"from": "a", "to": "b", "profile": "auto", "avoid": ["tolls"],
+                                            "depart_at": local}), client={"utc_offset_min": -300})
+        assert seen["options"][-1] == {"avoid": ["tolls"], "depart_at": f"{local}:00-05:00", "arrive_at": None}
+        route = tools.preview_get_directions(out)["data"]["map"]["route"]
+        assert route["avoid"] == ["tolls"] and route["depart_at"] == f"{local}:00-05:00" and "arrive_at" not in route
+
+        local7 = (datetime.now(timezone(timedelta(hours=7))) + timedelta(hours=3)).strftime("%Y-%m-%dT%H:%M")
+        run(tools.run_get_directions({"from": "a", "to": "b", "arrive_at": local7}))
+        assert seen["options"][-1]["arrive_at"] == f"{local7}:00+07:00", "no browser offset → +07:00"
+
+        out = run(tools.run_get_directions({"from": "a", "to": "b", "avoid": ["cliffs"]}))
+        assert "avoid" in out["error"]
     finally:
         restore()
 

@@ -121,9 +121,12 @@ def _build_default_registry() -> dict[str, Tool]:
             name="get_directions",
             description=(
                 "Directions between places, shown on the street map with "
-                "distance, time and the current traffic delay. from/to are "
-                "place names or 'my_location'. profile: motor_scooter "
-                "(default, xe máy), auto (car), bicycle, pedestrian."
+                "distance, time, departure/arrival clock times and the current "
+                "traffic delay. from/to are place names or 'my_location'. "
+                "profile: motor_scooter (default, xe máy), auto (car), bicycle, "
+                "pedestrian. Use arrive_at when the user asks when to leave to "
+                "arrive on time, depart_at for a later departure; call "
+                "get_current_time first if you need today's date."
             ),
             input_schema={
                 "type": "object",
@@ -132,6 +135,21 @@ def _build_default_registry() -> dict[str, Tool]:
                     "to": {"type": "string"},
                     "profile": {"type": "string", "enum": ["motor_scooter", "auto", "bicycle", "pedestrian"]},
                     "via": {"type": "array", "items": {"type": "string"}, "maxItems": 3},
+                    "avoid": {
+                        "type": "array",
+                        "items": {"type": "string", "enum": ["tolls", "motorways", "ferries", "unpaved"]},
+                        "description": "roads to avoid. Omit for the default (motorbikes avoid motorways, "
+                                       "which are closed to them in Vietnam); [] avoids nothing",
+                    },
+                    "depart_at": {
+                        "type": "string",
+                        "description": "ISO 8601 departure time, e.g. 2026-09-24T08:00; the operator's UTC "
+                                       "offset is assumed when none is given. Never together with arrive_at",
+                    },
+                    "arrive_at": {
+                        "type": "string",
+                        "description": "ISO 8601 arrival deadline, same format. Never together with depart_at",
+                    },
                 },
                 "required": ["from", "to"],
             },
