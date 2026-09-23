@@ -178,6 +178,37 @@ def test_explicit_avoid_and_times() -> None:
         restore()
 
 
+def test_directions_report_rain_near_a_street() -> None:
+    from friday.weather import route_weather
+
+    orig = route_weather.attach_weather
+
+    async def wet(routes):
+        return [{**r, "weather": {"status": "ok", "sections": [
+            {"start": 3, "end": 5, "category": "rain", "probability": 80, "precip_mm": 1.2,
+             "from_time": "07:55", "to_time": "07:58"}]}} for r in routes]
+
+    route_weather.attach_weather = wet
+    fake({"a": [HG], "b": [LB]}, route=ROUTE)
+    try:
+        out = run(tools.run_get_directions({"from": "a", "to": "b"}))
+    finally:
+        route_weather.attach_weather = orig
+        restore()
+    assert out["weather_status"] == "ok"
+    assert out["rain"] == [{"from": "07:55", "to": "07:58", "category": "rain", "probability": 80, "near": "Bước 3"}]
+
+
+def test_directions_without_weather_say_so() -> None:
+    fake({"a": [HG], "b": [LB]}, route=ROUTE)
+    try:
+        out = run(tools.run_get_directions({"from": "a", "to": "b"}))
+    finally:
+        restore()
+    # ROUTE has no coordinates, so no forecast is asked for.
+    assert out["weather_status"] == "unavailable" and out["rain"] == []
+
+
 def test_registered_low_risk_geo_read() -> None:
     for name in ("find_place", "get_directions"):
         tool = registry.get(name)

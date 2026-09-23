@@ -127,7 +127,10 @@ def _build_default_registry() -> dict[str, Tool]:
                 "profile: motor_scooter (default, xe máy), auto (car), bicycle, "
                 "pedestrian. Use arrive_at when the user asks when to leave to "
                 "arrive on time, depart_at for a later departure; call "
-                "get_current_time first if you need today's date."
+                "get_current_time first if you need today's date. Also reports "
+                "rain along the way at the time the operator will pass (rain, "
+                "with the step it starts near); mention it when present, "
+                "especially on a motorbike."
             ),
             input_schema={
                 "type": "object",

@@ -7,6 +7,7 @@ Each returns an error dict rather than raising, like every other tool, and a
 from typing import Any
 
 from friday.tools.client.metrics import CLIENT
+from friday.weather import route_weather
 
 from . import tomtom
 from .route_time import DEFAULT_OFFSET_MIN, RouteTimeError, route_times
@@ -71,6 +72,16 @@ async def run_find_place(payload: dict[str, Any]) -> dict[str, Any]:
     return {"places": places}
 
 
+def _rain(route: dict[str, Any]) -> list[dict[str, Any]]:
+    """Rainy stretches of one route, each named by the step it starts in."""
+    out = []
+    for s in route["weather"].get("sections", []):
+        near = next((m["instruction"] for m in reversed(route["maneuvers"]) if m["begin_shape_index"] <= s["start"]), None)
+        out.append({"from": s["from_time"], "to": s["to_time"], "category": s["category"],
+                    "probability": s["probability"], "near": near})
+    return out
+
+
 async def run_get_directions(payload: dict[str, Any]) -> dict[str, Any]:
     profile = payload.get("profile") or tomtom.default_profile()
     if profile not in tomtom.PROFILE_ORDER:
@@ -122,7 +133,8 @@ async def run_get_directions(payload: dict[str, Any]) -> dict[str, Any]:
         return {"error": "no route found between these places"}
     except tomtom.UnsupportedProfile:
         return {"error": f"unknown profile '{profile}'"}
-    best = result["routes"][0]
+    # Looked up on the module so tests can swap route_weather.attach_weather.
+    best = (await route_weather.attach_weather(result["routes"]))[0]
     return {
         "from": stops[0],
         "to": stops[-1],
@@ -137,6 +149,8 @@ async def run_get_directions(payload: dict[str, Any]) -> dict[str, Any]:
         "departure_time": _clock(best.get("departure_time")),
         "arrival_time": _clock(best.get("arrival_time")),
         "jams": sum(1 for s in best.get("traffic_sections", []) if s["category"] == "jam"),
+        "weather_status": best["weather"]["status"],
+        "rain": _rain(best),
         "steps": [m["instruction"] for m in best["maneuvers"]][:MAX_STEPS],
     }
 
