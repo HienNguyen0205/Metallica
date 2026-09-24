@@ -4,6 +4,7 @@ import {
   binsToLevels,
   detachMic,
   isMicAttached,
+  requestMicPermission,
   resolveLang,
   utteranceEnvelope,
 } from "@/lib/audioBus";
@@ -265,6 +266,42 @@ test("detach during pending attach prevents orphan live stream", async () => {
       }
     }
     detachMic();
+  }
+});
+
+test("the load-time mic ask closes what it opened and skips a standing grant", async () => {
+  const prevNavigatorDesc = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+  const prevWindowDesc = Object.getOwnPropertyDescriptor(globalThis, "window");
+  let asked = 0;
+  let permission = "prompt";
+  const stops: string[] = [];
+  Object.defineProperty(globalThis, "navigator", {
+    value: {
+      permissions: { query: async () => ({ state: permission }) },
+      mediaDevices: {
+        getUserMedia: async () => {
+          asked++;
+          return { getTracks: () => [{ stop: () => stops.push("stopped") }] };
+        },
+      },
+    },
+    configurable: true,
+    writable: true,
+  });
+  Object.defineProperty(globalThis, "window", { value: { AudioContext: function () {} }, configurable: true, writable: true });
+  try {
+    await requestMicPermission();
+    expect(asked).toBe(1);
+    expect(stops).toEqual(["stopped"]); // only the grant is wanted — the mic is not left on
+    expect(isMicAttached()).toBe(false);
+    permission = "granted";
+    await requestMicPermission();
+    expect(asked).toBe(1); // no needless mic-on blip once granted
+  } finally {
+    if (prevNavigatorDesc) Object.defineProperty(globalThis, "navigator", prevNavigatorDesc);
+    else delete (globalThis as unknown as Record<string, unknown>)["navigator"];
+    if (prevWindowDesc) Object.defineProperty(globalThis, "window", prevWindowDesc);
+    else delete (globalThis as unknown as Record<string, unknown>)["window"];
   }
 });
 

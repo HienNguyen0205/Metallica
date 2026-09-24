@@ -161,6 +161,9 @@ def test_reverse_and_search() -> None:
                          "lat": 21.0368, "lon": 105.8346}], hits
         q = CALLS[1]["query"]
         assert (q["lat"], q["lon"], q["limit"]) == (["21.03"], ["105.85"], ["1"]), q
+        assert "countrySet" not in q
+        asyncio.run(tt.search("lăng bác", NEAR, limit=1, country="VN"))
+        assert CALLS[-1]["query"]["countrySet"] == ["VN"], "a country is its own cache entry and request"
     with_server(run)
 
 

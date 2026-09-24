@@ -123,7 +123,9 @@ def _build_default_registry() -> dict[str, Tool]:
             description=(
                 "Directions between places, shown on the street map with "
                 "distance, time, departure/arrival clock times and the current "
-                "traffic delay. from/to are place names or 'my_location'. "
+                "traffic delay. from/to are place names or 'my_location'; pass a "
+                "place by its full official name or street address, not a "
+                "nickname ('Lăng Chủ tịch Hồ Chí Minh', not 'lăng bác'). "
                 "profile: motor_scooter (default, xe máy), auto (car), bicycle, "
                 "pedestrian. Use arrive_at when the user asks when to leave to "
                 "arrive on time, depart_at for a later departure; call "
@@ -168,7 +170,8 @@ def _build_default_registry() -> dict[str, Tool]:
             description=(
                 "Current conditions and forecast for a place or the operator's "
                 "location. span: now (right now), today (next 24 hours), week "
-                "(7 days). place is a place name or 'my_location' (default). "
+                "(7 days). place is a place's full official name or 'my_location' "
+                "(default). "
                 "Prefer this over search_web for any weather question."
             ),
             input_schema={

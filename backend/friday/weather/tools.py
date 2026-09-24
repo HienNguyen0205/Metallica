@@ -37,7 +37,9 @@ async def _place(ref: str) -> dict[str, Any]:
             return NO_LOCATION
         return {"label": "Vị trí của bạn", "lat": me[0], "lon": me[1]}
     try:
-        hit = await _first(ref, _operator())
+        # Unbiased: weather is asked of cities, and biased to the operator
+        # "Tokyo" came back as "Tokyo Store" down their street.
+        hit = await _first(ref, None)
     except tomtom.QuotaExceeded:
         return QUOTA
     except tomtom.TomTomUnavailable as err:

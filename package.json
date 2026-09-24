@@ -6,10 +6,13 @@
     "node": ">=20"
   },
   "scripts": {
+    "predev": "node scripts/copy-maplibre-worker.mjs",
     "dev": "next dev",
+    "predev:frontend": "node scripts/copy-maplibre-worker.mjs",
     "dev:frontend": "next dev",
     "dev:backend": "python -m uvicorn friday.main:app --port 8000 --reload --app-dir backend",
     "dev:full": "node -e \"const{spawn}=require('child_process');for(const a of[['run','dev:backend'],['run','dev:frontend']]){const p=spawn('npm',a,{stdio:'inherit',shell:true});p.on('exit',c=>{if(c)process.exit(c)})}\"",
+    "prebuild": "node scripts/copy-maplibre-worker.mjs",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",

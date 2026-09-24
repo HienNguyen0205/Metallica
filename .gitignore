@@ -48,3 +48,5 @@ next-env.d.ts
 
 # isolated worktrees
 /.worktrees/
+# MapLibre worker, copied from node_modules before dev/build (scripts/copy-maplibre-worker.mjs)
+/public/maplibre/

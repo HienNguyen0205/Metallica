@@ -4,6 +4,7 @@ Each returns an error dict rather than raising, like every other tool, and a
 `map` preview that the orchestrator passes through unchanged (routes.py).
 """
 
+import re
 import unicodedata
 from typing import Any
 
@@ -43,11 +44,32 @@ def _clock(iso: str | None) -> dict[str, str] | None:
 
 #: Words naming a kind of road, not the road itself.
 STREET_WORDS = {"đường", "phố", "ngõ", "hẻm", "kiệt"}
+#: Words that say which kind of place or admin level, not which place —
+#: Vietnamese, and the English the model writes when it translates an address
+#: ("10 Pham Van Bach Street"). Compared without diacritics, so "quan" is "quận".
+FILLER = {
+    "so", "duong", "pho", "ngo", "hem", "kiet", "quan", "huyen", "phuong", "xa", "thi", "tran", "thanh", "tp", "tinh",
+    "no", "street", "st", "road", "rd", "avenue", "ave", "lane", "alley", "district", "ward", "city", "province",
+}
+#: Tone marks only: toà and tòa are one word, but lăng (breve) is not lãng.
+TONE_MARKS = "\u0300\u0301\u0303\u0309\u0323"
+
+
+def _words(text: str) -> list[str]:
+    return re.findall(r"\w+", unicodedata.normalize("NFC", text).lower())
+
+
+def _plain(word: str, every_mark: bool) -> str:
+    """Tone marks off; with every_mark, all marks off and đ → d."""
+    kept = "".join(c for c in unicodedata.normalize("NFD", word)
+                   if not (unicodedata.combining(c) and (every_mark or c in TONE_MARKS)))
+    kept = unicodedata.normalize("NFC", kept)
+    return kept.replace("đ", "d") if every_mark else kept
 
 
 def _street_name(text: str) -> str | None:
     """"Đường Trần Thị Năm" → "trần thị năm"; None when no street is named."""
-    words = unicodedata.normalize("NFC", text).lower().split()
+    words = _words(text)
     return " ".join(words[1:]) if len(words) > 1 and words[0] in STREET_WORDS else None
 
 
@@ -57,16 +79,70 @@ def _names_street(asked: str, hit: dict[str, Any]) -> bool:
     return bool(street) and (asked == street or asked.startswith(street + " "))
 
 
+def _name_words(text: str) -> list[str]:
+    """The words that name something: no numbers, no kind-of-place or admin words."""
+    return [w for w in _words(text) if _plain(w, True) not in FILLER and not w.isdigit()]
+
+
+def _name_rank(query: str, hit: dict[str, Any]) -> tuple[int, int] | None:
+    """How well the hit is named by the query — lower is better, None when it is not.
+
+    Only the query's first comma part names the place ("10 Phạm Văn Bạch, Cầu
+    Giấy": TomTom addresses often skip the district). Tiers: 0 the hit's name
+    is exactly that; 1 its name holds every word (plus extras, counted
+    second); 2 the words are only found by adding its address — the weakest,
+    since a ward can share a name ("Trường Đại Học Mở", ward Bách Khoa).
+    A query typed without diacritics is compared without them.
+    """
+    asked_raw = _name_words(query.split(",")[0])
+    bare = all(_plain(w, True) == w for w in asked_raw)
+    asked = [_plain(w, bare) for w in asked_raw]
+    name = [_plain(w, bare) for w in _name_words(hit["label"].split(",")[0])]
+    if name == asked:
+        return (0, 0)
+    if all(w in name for w in asked):
+        return (1, len(name) - len(asked))
+    have = set(name) | {_plain(w, bare) for w in _words(f"{hit['label']} {hit.get('address', '')}")}
+    return (2, 0) if all(w in have for w in asked) else None
+
+
+#: How addresses name the two big cities, squashed (see _squash).
+CITY_ALIASES = {"hcm": "hochiminh", "hcmc": "hochiminh", "saigon": "hochiminh", "hn": "hanoi"}
+
+
+def _squash(text: str) -> str:
+    """No diacritics, filler, numbers or spaces: "TP.HCM" and "Hồ Chí Minh" meet."""
+    words = (_plain(w, True) for w in _words(text))
+    joined = "".join(w for w in words if w not in FILLER and not w.isdigit())
+    return CITY_ALIASES.get(joined, joined)
+
+
+def _in_area(query: str, hit: dict[str, Any]) -> bool:
+    """A later part of the query ("…, Hà Nội") names the hit's area, if any part names one."""
+    areas = [a for a in (_squash(part) for part in query.split(",")[1:]) if a]
+    if not areas:
+        return True
+    have = _squash(f"{hit['label']} {hit.get('address', '')}")
+    return any(a in have for a in areas)
+
+
 def no_match(ref: str) -> dict[str, str]:
     # Worded as final: a missing place used to send the model hunting through
-    # spellings, find_place and search_web until MAX_TURNS.
-    return {"error": f"no place matches '{ref}' — it is not in the map data; tell the operator instead of retrying"}
+    # spellings and find_place until MAX_TURNS. What works is one retry with a
+    # name TomTom knows: the official one ("FPT Information System", not "FPT
+    # IS") or the street address search_web finds.
+    return {"error": (f"no place matches '{ref}' in the map data. Retry once with its full official name "
+                      "(e.g. 'Lăng Chủ tịch Hồ Chí Minh' for 'lăng bác') or, from search_web, its street "
+                      "address in Vietnamese as the source writes it; otherwise tell the operator. "
+                      "Do not retry other spellings.")}
 
 
-async def _search(query: str, near: tuple[float, float] | None) -> list[dict[str, Any]]:
+async def _search(
+    query: str, near: tuple[float, float] | None, limit: int = 5, country: str | None = None,
+) -> list[dict[str, Any]]:
     # Looked up on the module so tests can swap tomtom.search.
-    hits = await tomtom.search(query, near=near)
-    asked = _street_name(query)
+    hits = await tomtom.search(query, near=near, limit=limit, country=country)
+    asked = _street_name(query.split(",")[0])
     if asked is None:
         return hits
     # Fuzzy search always answers something: for a street missing from the map
@@ -77,9 +153,40 @@ async def _search(query: str, near: tuple[float, float] | None) -> list[dict[str
     return [h for h in hits if _names_street(asked, h)]
 
 
-async def _first(query: str, near: tuple[float, float] | None) -> dict[str, Any] | None:
-    hits = await _search(query, near)
-    return hits[0] if hits else None
+#: Road trips start and end in Vietnam: an exact namesake abroad
+#: ("FPT Information System" in Phnom Penh, 227 km from Q12) must not win.
+#: Weather and find_place still look anywhere ("thời tiết Tokyo").
+DIRECTIONS_COUNTRY = "VN"
+#: A destination looks deeper than find_place's list: the right hit can sit
+#: 7th behind namesakes ("Đại học Bách Khoa Hà Nội"). Still one request.
+DESTINATION_HITS = 10
+
+
+async def _first(
+    query: str, near: tuple[float, float] | None, country: str | None = None,
+) -> dict[str, Any] | None:
+    """A destination: the hit the query names best ("FPT IS" is not "Fpt Shop").
+
+    find_place does not use this — "quán cà phê gần tôi" names a kind of place.
+    A nickname ("lăng bác") names nothing here; no_match sends the model back
+    with the official name, which it knows.
+    """
+    def best(hits: list[dict[str, Any]], in_area: bool) -> dict[str, Any] | None:
+        ranked = [(rank, i, h) for i, h in enumerate(hits)
+                  if (rank := _name_rank(query, h)) is not None and (not in_area or _in_area(query, h))]
+        return min(ranked, key=lambda r: r[:2])[2] if ranked else None
+
+    biased = await _search(query, near, DESTINATION_HITS, country)
+    hit = best(biased, in_area=True)
+    if hit is None and near is not None:
+        # The operator's position pulls results toward their own city: from
+        # Q12 the top 10 for "…, Hà Nội" or "Lăng Chủ tịch Hồ Chí Minh" are all
+        # in HCMC. A miss is looked up once more without it; only misses pay.
+        unbiased = await _search(query, None, DESTINATION_HITS, country)
+        # The area is a preference, not a rule: TomTom addresses often skip
+        # the district ("…, Cầu Giấy"), so a name match still stands.
+        hit = best(unbiased, in_area=True) or best(unbiased, in_area=False)
+    return hit or best(biased, in_area=False)
 
 
 async def run_find_place(payload: dict[str, Any]) -> dict[str, Any]:
@@ -149,7 +256,7 @@ async def run_get_directions(payload: dict[str, Any]) -> dict[str, Any]:
             if _is_me(ref):
                 stops.append({"label": "Vị trí của bạn", "lat": me[0], "lon": me[1]})
                 continue
-            place = await _first(str(ref), me)
+            place = await _first(str(ref), me, DIRECTIONS_COUNTRY)
             if place is None:
                 return no_match(str(ref))
             stops.append(place)

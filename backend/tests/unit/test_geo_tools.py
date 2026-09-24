@@ -33,10 +33,11 @@ def run(coro, location=None, client=None):
 
 
 def fake(search_hits=None, route=None, route_exc=None):
-    seen = {"search": [], "route": [], "options": []}
+    seen = {"search": [], "route": [], "options": [], "country": []}
 
-    async def search(query, near=None, limit=5):
+    async def search(query, near=None, limit=5, country=None):
         seen["search"].append((query, near, limit))
+        seen["country"].append(country)
         return (search_hits or {}).get(query, [])[:limit]
 
     async def route_fn(waypoints, profile=None, **options):
@@ -125,21 +126,21 @@ def test_directions_from_my_location() -> None:
 
 def test_directions_errors_are_error_dicts() -> None:
     try:
-        fake({"a": [HG], "b": [LB]}, route_exc=tomtom.TomTomUnavailable("no key"))
-        assert "not configured" in run(tools.run_get_directions({"from": "a", "to": "b"}))["error"]
-        fake({"a": [HG], "b": [LB]}, route_exc=tomtom.QuotaExceeded())
-        assert "allowance" in run(tools.run_get_directions({"from": "a", "to": "b"}))["error"]
-        fake({"a": [HG], "b": [LB]}, route_exc=tomtom.NoRoute("not connected"))
-        assert "no route" in run(tools.run_get_directions({"from": "a", "to": "b"}))["error"]
-        fake({"a": [HG]}, route=ROUTE)
-        assert "nowhere" in run(tools.run_get_directions({"from": "a", "to": "nowhere"}))["error"]
-        assert "profile" in run(tools.run_get_directions({"from": "a", "to": "a", "profile": "rocket"}))["error"]
+        fake({"hồ gươm": [HG], "lăng bác": [LB]}, route_exc=tomtom.TomTomUnavailable("no key"))
+        assert "not configured" in run(tools.run_get_directions({"from": "hồ gươm", "to": "lăng bác"}))["error"]
+        fake({"hồ gươm": [HG], "lăng bác": [LB]}, route_exc=tomtom.QuotaExceeded())
+        assert "allowance" in run(tools.run_get_directions({"from": "hồ gươm", "to": "lăng bác"}))["error"]
+        fake({"hồ gươm": [HG], "lăng bác": [LB]}, route_exc=tomtom.NoRoute("not connected"))
+        assert "no route" in run(tools.run_get_directions({"from": "hồ gươm", "to": "lăng bác"}))["error"]
+        fake({"hồ gươm": [HG]}, route=ROUTE)
+        assert "nowhere" in run(tools.run_get_directions({"from": "hồ gươm", "to": "nowhere"}))["error"]
+        assert "profile" in run(tools.run_get_directions({"from": "hồ gươm", "to": "hồ gươm", "profile": "rocket"}))["error"]
     finally:
         restore()
 
 
 def test_find_place_quota_is_an_error_dict() -> None:
-    async def quota(query, near=None, limit=5):
+    async def quota(query, near=None, limit=5, country=None):
         raise tomtom.QuotaExceeded()
 
     tomtom.search = quota
@@ -150,29 +151,29 @@ def test_find_place_quota_is_an_error_dict() -> None:
 
 
 def test_explicit_avoid_and_times() -> None:
-    seen = fake({"a": [HG], "b": [LB]}, route=ROUTE)
+    seen = fake({"hồ gươm": [HG], "lăng bác": [LB]}, route=ROUTE)
     try:
-        out = run(tools.run_get_directions({"from": "a", "to": "b", "profile": "auto", "arrive_at": "2099-01-01T08:00"}))
+        out = run(tools.run_get_directions({"from": "hồ gươm", "to": "lăng bác", "profile": "auto", "arrive_at": "2099-01-01T08:00"}))
         assert "more than a year ahead" in out["error"]
         assert seen["route"] == [], "a bad time is refused before any request"
 
-        run(tools.run_get_directions({"from": "a", "to": "b", "avoid": []}))
+        run(tools.run_get_directions({"from": "hồ gươm", "to": "lăng bác", "avoid": []}))
         assert seen["options"][-1]["avoid"] == [], "explicit [] avoids nothing, even on a motorbike"
 
         from datetime import datetime, timedelta, timezone
 
         local = (datetime.now(timezone(timedelta(hours=-5))) + timedelta(hours=3)).strftime("%Y-%m-%dT%H:%M")
-        out = run(tools.run_get_directions({"from": "a", "to": "b", "profile": "auto", "avoid": ["tolls"],
+        out = run(tools.run_get_directions({"from": "hồ gươm", "to": "lăng bác", "profile": "auto", "avoid": ["tolls"],
                                             "depart_at": local}), client={"utc_offset_min": -300})
         assert seen["options"][-1] == {"avoid": ["tolls"], "depart_at": f"{local}:00-05:00", "arrive_at": None}
         route = tools.preview_get_directions(out)["data"]["map"]["route"]
         assert route["avoid"] == ["tolls"] and route["depart_at"] == f"{local}:00-05:00" and "arrive_at" not in route
 
         local7 = (datetime.now(timezone(timedelta(hours=7))) + timedelta(hours=3)).strftime("%Y-%m-%dT%H:%M")
-        run(tools.run_get_directions({"from": "a", "to": "b", "arrive_at": local7}))
+        run(tools.run_get_directions({"from": "hồ gươm", "to": "lăng bác", "arrive_at": local7}))
         assert seen["options"][-1]["arrive_at"] == f"{local7}:00+07:00", "no browser offset → +07:00"
 
-        out = run(tools.run_get_directions({"from": "a", "to": "b", "avoid": ["cliffs"]}))
+        out = run(tools.run_get_directions({"from": "hồ gươm", "to": "lăng bác", "avoid": ["cliffs"]}))
         assert "avoid" in out["error"]
     finally:
         restore()
@@ -189,9 +190,9 @@ def test_directions_report_rain_near_a_street() -> None:
              "from_time": "07:55", "to_time": "07:58"}]}} for r in routes]
 
     route_weather.attach_weather = wet
-    fake({"a": [HG], "b": [LB]}, route=ROUTE)
+    fake({"hồ gươm": [HG], "lăng bác": [LB]}, route=ROUTE)
     try:
-        out = run(tools.run_get_directions({"from": "a", "to": "b"}))
+        out = run(tools.run_get_directions({"from": "hồ gươm", "to": "lăng bác"}))
     finally:
         route_weather.attach_weather = orig
         restore()
@@ -200,9 +201,9 @@ def test_directions_report_rain_near_a_street() -> None:
 
 
 def test_directions_without_weather_say_so() -> None:
-    fake({"a": [HG], "b": [LB]}, route=ROUTE)
+    fake({"hồ gươm": [HG], "lăng bác": [LB]}, route=ROUTE)
     try:
-        out = run(tools.run_get_directions({"from": "a", "to": "b"}))
+        out = run(tools.run_get_directions({"from": "hồ gươm", "to": "lăng bác"}))
     finally:
         restore()
     # ROUTE has no coordinates, so no forecast is asked for.
@@ -222,29 +223,150 @@ def test_a_named_street_must_match_by_name() -> None:
            "category": "street", "lat": 10.86, "lon": 106.62}
     decomposed = unicodedata.normalize("NFD", "Đường Trần Thị Năm")
     try:
-        seen = fake({"a": [HG], "đường trần thị năm": [mai, he]}, route=ROUTE)
-        out = run(tools.run_get_directions({"from": "a", "to": "đường trần thị năm"}))
+        seen = fake({"hồ gươm": [HG], "đường trần thị năm": [mai, he]}, route=ROUTE)
+        out = run(tools.run_get_directions({"from": "hồ gươm", "to": "đường trần thị năm"}))
         assert out == tools.no_match("đường trần thị năm"), out
-        assert "not in the map data" in out["error"], "the model is told to stop, not to retry"
+        assert "Do not retry other spellings" in out["error"], "the model is told to stop hunting"
         assert seen["route"] == [], "a wrong street is never routed to"
         # find_place drops the near-namesakes too, instead of offering them as leads.
         assert run(tools.run_find_place({"query": "đường trần thị năm"})) == tools.no_match("đường trần thị năm")
 
-        fake({"a": [HG], "đường trần thị năm": [he, nam], decomposed: [mai, nam]}, route=ROUTE)
-        assert run(tools.run_get_directions({"from": "a", "to": "đường trần thị năm"}))["to"] == nam
-        assert run(tools.run_get_directions({"from": "a", "to": decomposed}))["to"] == nam, "NFD input still matches"
-        fake({"a": [HG], "đường trần thị năm quận 12": [he, nam]}, route=ROUTE)
-        out = run(tools.run_get_directions({"from": "a", "to": "đường trần thị năm quận 12"}))
+        fake({"hồ gươm": [HG], "đường trần thị năm": [he, nam], decomposed: [mai, nam]}, route=ROUTE)
+        assert run(tools.run_get_directions({"from": "hồ gươm", "to": "đường trần thị năm"}))["to"] == nam
+        assert run(tools.run_get_directions({"from": "hồ gươm", "to": decomposed}))["to"] == nam, "NFD input still matches"
+        fake({"hồ gươm": [HG], "đường trần thị năm quận 12": [he, nam]}, route=ROUTE)
+        out = run(tools.run_get_directions({"from": "hồ gươm", "to": "đường trần thị năm quận 12"}))
         assert out["to"] == nam, "an area after the name still matches the street"
         # A short street name inside the asked one is not a match ("Đường Năm").
         short = {**he, "label": "Đường Năm, Hồ Chí Minh"}
-        fake({"a": [HG], "đường trần thị năm": [short]}, route=ROUTE)
-        assert "error" in run(tools.run_get_directions({"from": "a", "to": "đường trần thị năm"}))
+        fake({"hồ gươm": [HG], "đường trần thị năm": [short]}, route=ROUTE)
+        assert "error" in run(tools.run_get_directions({"from": "hồ gươm", "to": "đường trần thị năm"}))
 
-        # Anything that is not "<street word> <name>" keeps the top hit: aliases
-        # such as "lăng bác" → "Lăng Chủ tịch Hồ Chí Minh" must still resolve.
-        fake({"a": [HG], "lăng bác": [mai]}, route=ROUTE)
-        assert run(tools.run_get_directions({"from": "a", "to": "lăng bác"}))["to"] == mai
+    finally:
+        restore()
+
+
+def test_a_destination_must_be_named_by_the_query() -> None:
+    # Live TomTom answers: "FPT IS" is not in the map data, so it offers shops.
+    fpt_shop = {"label": "Fpt Shop", "address": "Phố Phan Bội Châu, Hà Nội", "category": "poi", "lat": 21.02, "lon": 105.84}
+    toa = {"label": "Tòa Nhà FPT", "address": "Số 10, Phố Phạm Văn Bạch, Dịch Vọng Hậu, Hà Nội", "category": "poi",
+           "lat": 21.03, "lon": 105.78}
+    street = {"label": "Phố Phạm Văn Bạch, Dịch Vọng Hậu, Hà Nội", "address": "Phố Phạm Văn Bạch, Dịch Vọng Hậu, Hà Nội",
+              "category": "street", "lat": 21.031, "lon": 105.785}
+    danang = {"label": "Số 10, Đường Phạm Văn Bạch, Hòa Cường Nam, Đà Nẵng", "address": "Hòa Cường Nam, Đà Nẵng",
+              "category": "point address", "lat": 16.03, "lon": 108.22}
+    lau = {"label": "Lẩu Hơi Lãng Bạc", "address": "Hà Nội", "category": "poi", "lat": 21.0, "lon": 105.8}
+    cases = {
+        "FPT IS": ([fpt_shop], None),
+        "toà nhà FPT": ([fpt_shop, toa], toa),  # old and new tone placement are one word
+        "toa nha fpt": ([fpt_shop, toa], toa),  # typed without diacritics
+        "10 Phạm Văn Bạch, Cầu Giấy": ([street, danang], street),  # the first part names it; numbers do not
+        # What the model really sent after search_web: an English, unaccented address.
+        "10 Pham Van Bach Street, Cau Giay, Hanoi": ([street], street),
+        "so 10 pho pham van bach": ([street], street),
+        "Đường Láng, Đống Đa":([{**street, "label": "Đường Láng, Đống Đa, Hà Nội"}], "Đường Láng, Đống Đa, Hà Nội"),
+        "lăng bác": ([lau], None),  # lăng ≠ lãng: vowel marks still count
+    }
+    try:
+        for query, (hits, want) in cases.items():
+            seen = fake({"hồ gươm": [HG], query: hits}, route=ROUTE)
+            out = run(tools.run_get_directions({"from": "hồ gươm", "to": query}))
+            if want is None:
+                assert out == tools.no_match(query), (query, out)
+                assert seen["route"] == [], query
+            elif isinstance(want, str):
+                assert out["to"]["label"] == want, (query, out)
+            else:
+                assert out["to"] == want, (query, out)
+        assert "search_web" in tools.no_match("FPT IS")["error"], "the model is pointed at finding an address"
+        # find_place keeps every hit: "quán cà phê gần tôi" names a kind, not a place.
+        fake({"FPT IS": [fpt_shop]})
+        assert run(tools.run_find_place({"query": "FPT IS"})) == {"places": [fpt_shop]}
+    finally:
+        restore()
+
+
+def test_an_address_naming_another_city_is_found_there() -> None:
+    # Live: from Q12, "…, Hà Nội" came back as an alley of the same name in HCMC.
+    alley = {"label": "Hẻm 571/10 Phạm Văn Bạch, Phường 15, Hồ Chí Minh", "address": "Phường 15, Hồ Chí Minh",
+             "category": "street", "lat": 10.82, "lon": 106.64}
+    hanoi = {"label": "Phố Phạm Văn Bạch, Dịch Vọng Hậu, Hà Nội", "address": "Dịch Vọng Hậu, Hà Nội, Hà Nội",
+             "category": "street", "lat": 21.031, "lon": 105.785}
+    ktx = {"label": "Khu Chế Xuất Tân Thuận", "address": "Tân Thuận Đông, Hồ Chí Minh", "category": "poi",
+           "lat": 10.75, "lon": 106.74}
+    calls = []
+
+    async def search(query, near=None, limit=5, country=None):
+        calls.append((query, near))
+        if query.startswith("Khu"):
+            return [ktx]
+        return [alley] if near else [hanoi]  # proximity pulls toward the operator's city
+
+    tomtom.search = search
+    try:
+        me = {"lat": 10.8628, "lon": 106.6254}
+        for query in ("Số 10 Phạm Văn Bạch, Cầu Giấy, Hà Nội", "10 Pham Van Bach Street, Cau Giay, Hanoi"):
+            calls.clear()
+            assert run(tools._first(query, (me["lat"], me["lon"]))) == hanoi, query
+            assert calls == [(query, (me["lat"], me["lon"])), (query, None)], calls
+        # "TP.HCM" names Hồ Chí Minh; "Quận 7" names nothing a TomTom address carries.
+        calls.clear()
+        assert run(tools._first("Khu chế xuất Tân Thuận, Quận 7, TP.HCM", (10.86, 106.62))) == ktx
+        assert len(calls) == 1, "a match near the operator needs no second search"
+        # Any miss near the operator is looked up once more without their
+        # position: from Q12 the top 10 for "Lăng Chủ tịch Hồ Chí Minh" are
+        # all in HCMC, none of them the mausoleum.
+        calls.clear()
+        assert run(tools._first("FPT IS", (10.86, 106.62))) is None
+        assert calls == [("FPT IS", (10.86, 106.62)), ("FPT IS", None)], calls
+    finally:
+        restore()
+
+
+def test_the_best_named_hit_wins_not_the_first() -> None:
+    # Live TomTom order for "Đại học Bách Khoa Hà Nội": the university itself is 7th,
+    # behind a school in the Bách Khoa *ward* and the campus canteen.
+    def poi(label, address="Bách Khoa, Hà Nội"):
+        return {"label": label, "address": address, "category": "poi", "lat": 21.0, "lon": 105.84}
+
+    mo = poi("Trường Đại Học Mở Hà Nội", "Đường Ngọc Hồi, Bách Khoa, Hà Nội")
+    dhbk = poi("Đại Học Bách Khoa Hà Nội", "Đường Đại Cồ Việt, Bách Khoa, Hà Nội")
+    hits = [mo, poi("Sân Vận Động Đại Học Bách Khoa"), poi("Trường Đại Học Bách Khoa Hà Nội-Khoa Đại Học Tại Chức"),
+            poi("Trường Đại Học Bách Khoa Hà Nội-Nhà Ăn A1-5"), poi("Trường Đại Học Bách Khoa Hà Nội-Trung Tâm Phục Vụ"),
+            poi("Ký Túc Xá Sinh Viên Trường Đại Học Bách Khoa Hà Nội"), dhbk, poi("Bể Bơi Đại Học Bách Khoa Hà Nội")]
+    try:
+        seen = fake({"Đại học Bách Khoa Hà Nội": hits})
+        assert run(tools._first("Đại học Bách Khoa Hà Nội", None)) == dhbk
+        assert seen["search"][-1][2] == 10, "a destination looks past the top 5"
+        # Name words in the name beat name words found only in the address.
+        fake({"Đại học Bách Khoa Hà Nội": [mo, hits[2]]})
+        assert run(tools._first("Đại học Bách Khoa Hà Nội", None)) == hits[2]
+        # Extra words in a name are fine when nothing closer exists.
+        adidas = poi("adidas Vincom Bà Triệu", "Số 191, Phố Bà Triệu, Hà Nội")
+        fake({"vincom bà triệu": [adidas]})
+        assert run(tools._first("vincom bà triệu", None)) == adidas
+    finally:
+        restore()
+
+
+def test_a_nickname_is_retried_by_its_official_name() -> None:
+    error = tools.no_match("lăng bác")["error"]
+    assert "official name" in error and "Lăng Chủ tịch Hồ Chí Minh" in error, error
+    assert "Do not retry other spellings" in error
+    for name in ("get_directions", "get_weather"):
+        assert "official name" in registry.get(name).description, name
+
+
+def test_directions_stay_in_vietnam_other_lookups_do_not() -> None:
+    # Live: from Q12, "FPT Information System" matched its namesake in Phnom Penh
+    # exactly, and won — a 227 km motorbike route across a border.
+    try:
+        seen = fake({"hồ gươm": [HG], "lăng bác": [LB]}, route=ROUTE)
+        run(tools.run_get_directions({"from": "hồ gươm", "to": "lăng bác"}))
+        assert seen["country"] == ["VN", "VN"], seen["country"]
+        seen = fake({"cafe": [HG], "hồ gươm": [HG]})
+        run(tools.run_find_place({"query": "cafe", "near": "hồ gươm"}))
+        assert seen["country"] == [None, None], "find_place looks anywhere"
     finally:
         restore()
 

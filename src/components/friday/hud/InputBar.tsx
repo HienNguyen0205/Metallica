@@ -4,8 +4,8 @@ import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "
 import { FRIDAY_LANG_KEY, useFridayStore } from "@/lib/store";
 import { runQuery, cancelActiveRun } from "@/lib/agentStream";
 import { canListen, startListening, stopSpeaking } from "@/lib/voice";
-import { attachMic, detachMic, resolveLang } from "@/lib/audioBus";
-import { resumeIfGranted, shareLocation, stopSharing } from "@/lib/geolocation";
+import { attachMic, detachMic, requestMicPermission, resolveLang } from "@/lib/audioBus";
+import { shareLocation, stopSharing } from "@/lib/geolocation";
 
 export default function InputBar() {
   const [value, setValue] = useState("");
@@ -16,9 +16,12 @@ export default function InputBar() {
   const setLang = useFridayStore((s) => s.setLang);
   const locationStatus = useFridayStore((s) => s.locationStatus);
 
-  // A grant from an earlier visit resumes silently; a first ask waits for LOC.
+  // Every permission is asked for at load (location, then the mic), so the
+  // first question never stalls on a prompt; a standing grant asks nothing.
+  // Denied stays denied: LOC shows it struck through, the mic button on press.
   useEffect(() => {
-    void resumeIfGranted();
+    shareLocation();
+    void requestMicPermission();
   }, []);
   // the live recogniser, kept out of state — stopping it is not a render
   const stopRef = useRef<(() => void) | null>(null);

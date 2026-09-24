@@ -43,7 +43,8 @@ def run(coro, location=None):
 def fake(hits=None, exc=None, search_exc=None):
     seen = {"search": [], "forecast": []}
 
-    async def search(query, near=None, limit=5):
+    async def search(query, near=None, limit=5, country=None):
+        assert country is None, "weather looks anywhere: 'thời tiết Tokyo'"
         seen["search"].append((query, near))
         if search_exc:
             raise search_exc
@@ -86,9 +87,12 @@ def test_now_at_my_location_reads_current_conditions_as_gauges() -> None:
 def test_today_is_the_next_24_hours_as_a_line() -> None:
     seen = fake({"hà nội": [HN]})
     try:
-        out = run(tools.run_get_weather({"place": "hà nội", "span": "today"}))
+        out = run(tools.run_get_weather({"place": "hà nội", "span": "today"}), location={"lat": 10.86, "lon": 106.62})
     finally:
         restore()
+    # A named place is looked up without the operator's position: biased to
+    # them, "Tokyo" asked from Hà Nội came back as "Tokyo Store" in Hà Nội.
+    assert seen["search"] == [("hà nội", None)], seen["search"]
     assert seen["forecast"] == [([(21.0285, 105.8542)], {"hourly": tools.HOURLY, "forecast_days": 2})]
     assert out["place"]["label"] == "Hà Nội"
     rows = out["hourly"]

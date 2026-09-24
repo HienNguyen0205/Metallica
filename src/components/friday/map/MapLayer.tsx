@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Map as MlMap, Marker, NavigationControl, ScaleControl, type MapMouseEvent } from "maplibre-gl";
+import { Map as MlMap, Marker, NavigationControl, ScaleControl, setWorkerUrl, type MapMouseEvent, type StyleSpecification } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import "./map.css";
 import { useFridayStore } from "@/lib/store";
@@ -11,10 +11,17 @@ import { ARRIVAL_ZOOM, HANDOFF_ZOOM, LEAVE_ZOOM } from "@/lib/mapView";
 import type { MapAvoid, MapProfile } from "@/lib/visualization/types";
 import { STATUS_COLORS, markerLabel, statusOf } from "../visualization/globe/geo";
 import { devRailsEnabled } from "../hud/devRails";
-import { DEFAULT_PROFILES, defaultAvoid, fetchProfiles, styleUrl, withTomTomKey, type Endpoint, type MapStyleId, type Place, type RouteTime } from "./mapApi";
+import { DEFAULT_PROFILES, defaultAvoid, fetchProfiles, repairStyleColors, styleUrl, withTomTomKey, type Endpoint, type MapStyleId, type Place, type RouteTime } from "./mapApi";
 import { MapSearch } from "./MapSearch";
 import { DirectionsPanel } from "./DirectionsPanel";
 import { ContextMenu, PlacePanel, myLocationEndpoint, type MenuState } from "./PlacePanel";
+
+// MapLibre's own worker lookup 404s under `next dev` (it resolves next to a
+// Turbopack chunk); scripts/copy-maplibre-worker.mjs serves it from here.
+setWorkerUrl("/maplibre/maplibre-gl-worker.mjs");
+
+/** Every TomTom style goes through repairStyleColors before MapLibre validates it. */
+const TOMTOM_STYLE = { transformStyle: (_: unknown, next: StyleSpecification) => repairStyleColors(next) };
 
 const ENTER_MS = 900;
 const LEAVE_MS = 500;
@@ -78,12 +85,13 @@ export default function MapStage() {
     const { center } = useFridayStore.getState().mapView;
     const m = new MlMap({
       container: containerRef.current!,
-      style: styleUrl("dark"),
       center: [center.lon, center.lat],
       zoom: HANDOFF_ZOOM,
       attributionControl: { compact: true },
       transformRequest: (url) => ({ url: withTomTomKey(url) }),
     });
+    // Style set here, not in the constructor: only setStyle takes transformStyle.
+    m.setStyle(styleUrl("dark"), TOMTOM_STYLE);
     m.addControl(new NavigationControl({ visualizePitch: true }), "bottom-right");
     m.addControl(new ScaleControl({ unit: "metric" }), "bottom-left");
     let loaded = false;
@@ -302,13 +310,13 @@ export default function MapStage() {
     setStyleId(id);
     setLayersOpen(false);
     setBuildings(false);
-    map?.setStyle(styleUrl(id, traffic));
+    map?.setStyle(styleUrl(id, traffic), TOMTOM_STYLE);
   };
 
   const toggleTraffic = (on: boolean) => {
     setTraffic(on);
     setBuildings(false);
-    map?.setStyle(styleUrl(styleId, on));
+    map?.setStyle(styleUrl(styleId, on), TOMTOM_STYLE);
   };
 
   const visible = ready && (mode === "entering" || mode === "map");

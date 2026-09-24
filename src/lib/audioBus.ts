@@ -74,6 +74,28 @@ export function isMicAttached(): boolean {
 }
 
 /**
+ * Asks for the microphone grant up front, at load — the operator wants every
+ * prompt out of the way before the first question. Only the grant is wanted:
+ * the stream is closed at once, and a standing grant is not re-asked (that
+ * would flash the browser's mic-in-use indicator on every load).
+ */
+export async function requestMicPermission(): Promise<void> {
+  if (!hasCapture()) return;
+  try {
+    const status = await navigator.permissions?.query({ name: "microphone" as PermissionName });
+    if (status?.state === "granted") return;
+  } catch {
+    // Firefox cannot query "microphone" — just ask.
+  }
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    stream.getTracks().forEach((t) => t.stop());
+  } catch {
+    // Denied or no device: the mic button reports it when pressed.
+  }
+}
+
+/**
  * Opens the microphone into a shared AnalyserNode. Resolves once the stream
  * is live; rejects `unsupported` (no capture here) or `mic-denied`.
  * Idempotent — a second call while attached resolves immediately.

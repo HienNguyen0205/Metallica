@@ -31,6 +31,20 @@ export function styleUrl(id: MapStyleId, traffic = false): string {
   return `https://api.tomtom.com/style/1/style/${TOMTOM_STYLE_VERSION}?${params}`;
 }
 
+/**
+ * MapLibre `transformStyle`: TomTom's dark and satellite styles ship
+ * "hsl(0,0,95%)" (no % on saturation). MapLibre 6 validates strictly and
+ * rejects the whole style over that one colour, so the map never loads and
+ * hands back to the globe. Adds the missing % signs; everything else is kept.
+ */
+export function repairStyleColors<T>(style: T): T {
+  const json = JSON.stringify(style).replace(
+    /hsl(a?)\(\s*([\d.]+(?:deg)?)\s*,\s*([\d.]+)%?\s*,\s*([\d.]+)%?/g,
+    "hsl$1($2,$3%,$4%",
+  );
+  return JSON.parse(json) as T;
+}
+
 /** MapLibre `transformRequest`: TomTom tiles/sprites/glyphs named by the style may omit the key. */
 export function withTomTomKey(url: string): string {
   if (!url.startsWith("https://api.tomtom.com/") || /[?&]key=/.test(url)) return url;

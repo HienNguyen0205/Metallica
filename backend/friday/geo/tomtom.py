@@ -224,14 +224,21 @@ def _search_hit(result: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-async def search(query: str, near: tuple[float, float] | None = None, limit: int = 5) -> list[dict[str, Any]]:
-    """Fuzzy search — agent tools only (2.5K/month; the UI uses suggest)."""
+async def search(
+    query: str, near: tuple[float, float] | None = None, limit: int = 5, country: str | None = None,
+) -> list[dict[str, Any]]:
+    """Fuzzy search — agent tools only (2.5K/month; the UI uses suggest).
+
+    `country` (ISO alpha-2) limits results to that country (TomTom countrySet).
+    """
     params = {"key": _key(), "language": LANGUAGE, "limit": str(limit)}
     rounded = coarse(*near) if near is not None else None
     if rounded is not None:
         params["lat"], params["lon"] = str(rounded[0]), str(rounded[1])
+    if country:
+        params["countrySet"] = country
     url = f"{_base()}/search/2/search/{urllib.parse.quote(query)}.json?{urllib.parse.urlencode(params)}"
-    raw = await _cached("search", json.dumps([query.strip().lower(), rounded, limit]), lambda: _http(url))
+    raw = await _cached("search", json.dumps([query.strip().lower(), rounded, limit, country]), lambda: _http(url))
     return [_search_hit(r) for r in raw.get("results", []) if r.get("position")][:limit]
 
 

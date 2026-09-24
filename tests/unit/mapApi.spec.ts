@@ -7,6 +7,7 @@ import {
   formatDuration,
   maneuverCoordinate,
   nextQuarterHourLocal,
+  repairStyleColors,
   stepCoordinates,
   styleUrl,
   toOffsetIso,
@@ -101,6 +102,23 @@ test("traffic sections become coloured segments of the route line", () => {
     [[105.843, 21.033], [105.8346, 21.0368]],
   ]);
   expect(fc.features.map((f) => f.properties)).toEqual([{ magnitude: 3, closure: false }, { magnitude: 4, closure: true }]);
+});
+
+test("TomTom's malformed hsl colours are repaired before MapLibre validates the style", () => {
+  // Live dark/satellite styles ship "hsl(0,0,95%)"; MapLibre 6 rejects the whole style over it.
+  const style = {
+    version: 8,
+    layers: [
+      { id: "a", paint: { "text-color": "hsl(0,0,95%)" } },
+      { id: "b", paint: { "fill-color": ["case", true, "hsla(200, 10, 20, 0.5)", "hsl(120deg, 50%, 40%)"] } },
+      { id: "c", paint: { "line-color": "#fff" } },
+    ],
+  };
+  const fixed = repairStyleColors(style);
+  expect(fixed.layers[0].paint).toEqual({ "text-color": "hsl(0,0%,95%)" });
+  expect(fixed.layers[1].paint).toEqual({ "fill-color": ["case", true, "hsla(200,10%,20%, 0.5)", "hsl(120deg,50%,40%)"] });
+  expect(fixed.layers[2].paint).toEqual({ "line-color": "#fff" });
+  expect(style.layers[0].paint["text-color"]).toBe("hsl(0,0,95%)"); // input untouched
 });
 
 test("rain on the route becomes dashed segments and one panel line", () => {
